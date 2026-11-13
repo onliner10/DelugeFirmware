@@ -229,6 +229,20 @@ def cmd_ctl(a) -> int:
             dz.load_song(" ".join(args))
         elif v == "wait":
             dz.wait(float(args[0]))
+        elif (
+            v == "events"
+        ):  # raw events, as in fuzz events.json: [["pad",0,6,1],["wait",0.1],...]
+            for ev in json.loads(" ".join(args)):
+                if ev[0] == "wait":
+                    dz.wait(ev[1])
+                elif ev[0] == "button":
+                    dz.button(ev[1], ev[2], bool(ev[3]))
+                elif ev[0] == "pad":
+                    dz.pad_event(ev[1], ev[2], bool(ev[3]))
+                elif ev[0] == "encoder":
+                    dz.encoder(ev[1], ev[2])
+                else:
+                    sys.exit(f"bad event {ev!r}")
         elif v == "oled":
             out = dz.oled_text()
         elif v == "seg":
@@ -382,7 +396,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument(
         "verb",
         help="press NAME [ms] | chord NAME NAME.. | turn ENC N | pad X Y [ms] | type TEXT | "
-        "load-song PATH | wait S | oled | seg | leds | pads | shot [PATH] | log [N] | controls",
+        "load-song PATH | wait S | events JSON | oled | seg | leds | pads | shot [PATH] | log [N] | controls",
     )
     s.add_argument("args", nargs="*")
     s.set_defaults(fn=cmd_ctl)
