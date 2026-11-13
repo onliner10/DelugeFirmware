@@ -49,6 +49,51 @@ MODIFIERS = ["SHIFT", "SHIFT", "SHIFT", "SELECT_ENC", "X_ENC", "Y_ENC", "AFFECT_
              "SESSION_VIEW", "TEMPO_ENC"]  # fmt: skip
 
 
+SHORTCUTS_DIR = (
+    paths.FW_ROOT
+    / "website"
+    / "src"
+    / "components"
+    / "deluge_companion"
+    / "data"
+    / "shortcuts"
+)
+
+# Symbolic names used in the website's shortcut catalog -> physical controls.
+# Encoders map to (button for press/hold, encoder index for turn).
+SC_ENCODERS = {
+    "SELECT": ("SELECT_ENC", 3),
+    "X": ("X_ENC", 1),
+    "Y": ("Y_ENC", 0),
+    "TEMPO": ("TEMPO_ENC", 2),
+    "UPPER_PARAM": ("MOD_ENCODER_1", 4),
+    "LOWER_PARAM": ("MOD_ENCODER_0", 5),
+    "PARAMETER": (None, None),  # either gold knob
+}
+SC_BUTTONS = {
+    "SHIFT": "SHIFT", "LOAD": "LOAD", "LEARN": "LEARN", "RECORD": "RECORD", "SAVE": "SAVE",
+    "PLAY": "PLAY", "BACK": "BACK", "KIT": "KIT", "SYNTH": "SYNTH", "MIDI": "MIDI", "CV": "CV",
+    "SONG": "SESSION_VIEW", "CLIP": "CLIP_VIEW", "ENTIRE": "AFFECT_ENTIRE", "CROSS": "CROSS_SCREEN",
+    "SCALE": "SCALE_MODE", "TAP": "TAP_TEMPO", "SYNC": "SYNC_SCALING", "TRIPLETSVIEW": "TRIPLETS",
+    "PERFORMANCE": "KEYBOARD", "EXTERNAL": "KEYBOARD", "KEYBOARD": "KEYBOARD",
+}  # fmt: skip
+
+
+def load_shortcuts() -> list[str]:
+    """Every `shortcut` code block line from the website's shortcut catalog."""
+    out = set()
+    for md in SHORTCUTS_DIR.rglob("*.md"):
+        inside = False
+        for line in md.read_text(errors="replace").splitlines():
+            if line.startswith("```shortcut"):
+                inside = True
+            elif line.startswith("```"):
+                inside = False
+            elif inside and line.strip():
+                out.add(line.strip())
+    return sorted(out)
+
+
 class Fuzzer:
     def __init__(
         self,
@@ -58,6 +103,7 @@ class Fuzzer:
     ):
         self.rng = rng
         self.weights = dict(self.DEFAULT_WEIGHTS, **(weights or {}))
+        self.shortcuts = load_shortcuts()
         self.buttons = [b for b in BUTTONS if b not in avoid]
 
     # each returns a list of raw events
@@ -108,6 +154,72 @@ class Fuzzer:
             ]
         return ev + [["pad", x, y, 0]]
 
+    # ---- catalog-driven gestures -------------------------------------------
+    def _sc_target(self, name: str):
+        """('button', name) | ('pad', x, y) | ('enc', button, index) for a catalog name."""
+        if name in SC_ENCODERS:
+            btn, idx = SC_ENCODERS[name]
+            if btn is None:
+                btn, idx = self.rng.choice([("MOD_ENCODER_1", 4), ("MOD_ENCODER_0", 5)])
+            return ("enc", btn, idx)
+        if name in SC_BUTTONS:
+            return ("button", SC_BUTTONS[name])
+        if name == "AUDITION":
+            return ("pad", 16, self.rng.randrange(8))
+        if name == "LAUNCH":
+            return ("pad", 17, self.rng.randrange(8))
+        m = re.fullmatch(r"PARAMBUTTON(\d)?", name)
+        if m:
+            return ("button", f"MOD{m.group(1) or self.rng.randrange(8)}")
+        # GRID, GRID_LIT/UNLIT and the many shortcut-pad names (patch sources,
+        # wave markers, menu shortcuts...) all live on the main grid.
+        return ("pad", self.rng.randrange(16), self.rng.randrange(8))
+
+    def _down(self, t, down):
+        if t[0] == "pad":
+            return [["pad", t[1], t[2], int(down)]]
+        x, y = BUTTONS[t[1]]
+        return [["button", x, y, int(down)]]
+
+    def shortcut(self):
+        """One shortcut from the catalog, with random concrete pads / amounts."""
+        line = self.rng.choice(self.shortcuts)
+        ev = []
+        for step in line.split(","):
+            held = []
+            for part in step.split("+"):
+                m = re.fullmatch(r"\s*(hold|press|turn|menu)\(([A-Z_0-9]+)\)\s*", part)
+                if not m:
+                    continue
+                verb, name = m.groups()
+                if verb == "menu":  # pick some menu entry
+                    ev += [["encoder", 3, self.rng.randint(-5, 5)], ["wait", 0.1]]
+                    continue
+                t = self._sc_target(name)
+                if verb == "turn":
+                    idx = t[2] if t[0] == "enc" else 3
+                    ev += [
+                        ["encoder", idx, self.rng.choice([-6, -3, -1, 1, 1, 3, 6])],
+                        ["wait", 0.1],
+                    ]
+                    continue
+                if t[0] == "enc":
+                    t = ("button", t[1])
+                if verb == "hold":
+                    ev += self._down(t, True) + [["wait", 0.12]]
+                    held.append(t)
+                else:
+                    ev += (
+                        self._down(t, True)
+                        + [["wait", self.rng.uniform(0.05, 0.15)]]
+                        + self._down(t, False)
+                    )
+                    ev.append(["wait", 0.1])
+            for t in reversed(held):
+                ev += self._down(t, False)
+            ev.append(["wait", self.rng.choice([0.1, 0.3, 0.6])])
+        return ev
+
     DEFAULT_WEIGHTS: ClassVar[dict[str, int]] = {
         "button": 25,
         "pad": 20,
@@ -145,6 +257,7 @@ class Fuzzer:
             "turn": self.turn,
             "hold_button": self.hold_button,
             "hold_pad": self.hold_pad,
+            "shortcut": self.shortcut,
         }[kind]()
         return ev + [["wait", self.rng.choice([0.05, 0.1, 0.2, 0.4, 1.0])]]
 
