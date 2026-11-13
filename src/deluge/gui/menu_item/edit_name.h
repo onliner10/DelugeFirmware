@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "gui/menu_item/edit_name_target.h"
 #include "gui/menu_item/menu_item.h"
 #include "gui/ui/rename/rename_ui.h"
 
@@ -24,14 +25,11 @@ namespace deluge::gui::menu_item {
 
 class EditName final : public MenuItem {
 public:
-	enum class Target {
-		CLIP,
-		DRUM,
-		AUDIO_OUTPUT,
-	};
+	using Target = EditNameTarget;
 
 	EditName(l10n::String newName, Target target) : MenuItem(newName), target_{target} {}
 	void beginSession(MenuItem* navigatedBackwardFrom) override;
+	[[nodiscard]] bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override;
 
 private:
 	Target target_;

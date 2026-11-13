@@ -21,12 +21,35 @@
 #include "gui/ui/rename/rename_output_ui.h"
 #include "gui/ui/sound_editor.h"
 #include "gui/views/instrument_clip_view.h"
+#include "hid/display/display.h"
+#include "model/instrument/kit.h"
 #include "model/song/song.h"
 #include "util/functions.h"
 
 namespace deluge::gui::menu_item {
 
+namespace {
+// Also called for the clip/output targets, e.g. from song view where there may be no current clip.
+bool kitHasSelectedDrum() {
+	Clip* clip = getCurrentClip();
+	if (clip == nullptr || clip->output == nullptr || clip->output->type != OutputType::KIT) {
+		return false;
+	}
+	return static_cast<Kit*>(clip->output)->selectedDrum != nullptr;
+}
+} // namespace
+
+bool EditName::isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const {
+	return editNameTargetAvailable(target_, kitHasSelectedDrum());
+}
+
 void EditName::beginSession(MenuItem* navigatedBackwardFrom) {
+	if (!editNameTargetAvailable(target_, kitHasSelectedDrum())) {
+		// Nothing to rename: RenameDrumUI would freeze (RN01) without a selected drum.
+		display->displayPopup(l10n::get(l10n::String::STRING_FOR_SELECT_A_ROW_OR_AFFECT_ENTIRE));
+		return;
+	}
+
 	Clip* clip = getCurrentClip();
 	RenameUI* ui = nullptr;
 
