@@ -15,7 +15,7 @@ Artifacts written to the session directory:
     screen.png    final front-panel screenshot
     state.json    final LEDs, 7-seg, pad colours
     result.json   status, crash summary, firmware/emulator revisions, timing
-    sd.img        the (sparse) card image after the run, if a card was inserted
+    sd.img        the card after the run (kept unless status ok; DELUGE_EMU_KEEP_SD=1 keeps it)
 """
 
 from __future__ import annotations
@@ -122,7 +122,7 @@ class EmuSession:
         """
         if not paths.qemu_binary().exists():
             raise RuntimeError("emulator not built - run `./dbt emu setup`")
-        elf = Path(elf) if elf else paths.default_elf()
+        elf = Path(elf).resolve() if elf else paths.default_elf()
         if not elf.exists():
             raise FileNotFoundError(f"{elf} not found - run `./dbt emu build`")
 
@@ -301,6 +301,14 @@ class EmuSession:
             (self.artifacts / "result.json").write_text(
                 json.dumps(result, indent=2) + "\n"
             )
+            # Card copies are big (the factory card is ~400 MB of real data):
+            # keep them only when there's something to look at.
+            if (
+                result["status"] == "ok"
+                and self.sd_image
+                and not os.environ.get("DELUGE_EMU_KEEP_SD")
+            ):
+                self.sd_image.unlink(missing_ok=True)
             sock_dir = Path(self.meta.get("qmp_sock") or "/nonexistent").parent
             if sock_dir.name.startswith("dzemu-"):
                 shutil.rmtree(sock_dir, ignore_errors=True)

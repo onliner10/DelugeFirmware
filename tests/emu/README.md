@@ -92,7 +92,7 @@ Each run writes `build-emu/artifacts/<name>/` (`pytest/<test>`, `scenario/<name>
 | `crash.txt` | on crash: kind, error code or faulting PC with **source line**, backtrace, registers |
 | `oled.txt`, `screen.png`, `state.json` | final OLED text, panel screenshot, LEDs / 7-seg / pads |
 | `failure-*`, `<prefix>-*` | snapshots at a failing scenario step / `snapshot` steps |
-| `sd.img` | the card after the run; inspect with `./dbt emu sd build-emu/artifacts/x/sd.img --ls /SONGS` |
+| `sd.img` | the card after the run (deleted when the run is ok, unless `DELUGE_EMU_KEEP_SD=1`); inspect with `./dbt emu sd build-emu/artifacts/x/sd.img --ls /SONGS` |
 | `gdb.log` | the crash watcher's raw output |
 
 ## SD cards
