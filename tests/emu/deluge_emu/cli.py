@@ -323,6 +323,31 @@ def cmd_fuzz(a) -> int:
     return {"ok": 0, "crash": 2, "hang": 4}.get(out["status"], 3)
 
 
+def cmd_minimize(a) -> int:
+    _need_emulator()
+    from . import minimize
+
+    events = Path(a.events)
+    expect = a.expect
+    if not expect:
+        fz = events.parent / "fuzz.json"
+        detail = json.loads(fz.read_text()).get("detail", "") if fz.exists() else ""
+        expect = [detail.split("(")[-1].rstrip(")")] if detail else []
+    if not expect:
+        sys.exit("give --expect (e.g. an error code like E411)")
+    out = (
+        Path(a.out) if a.out else paths.ARTIFACTS_DIR / f"minimize-{events.parent.name}"
+    )
+    best = minimize.minimize(events, expect, a.elf, a.jobs, a.tries, out)
+    print(
+        json.dumps(
+            {"gestures": len(best["gestures"]), "best": str(out / "best.json")},
+            indent=2,
+        )
+    )
+    return 0
+
+
 def cmd_sd(a) -> int:
     img = sdcard.build_image(a.spec)
     if img is None:
@@ -439,6 +464,28 @@ def parser() -> argparse.ArgumentParser:
         "--name", help="artifacts name (default fuzz-<seed> / replay-<seed>)"
     )
     s.set_defaults(fn=cmd_fuzz)
+
+    s = sub.add_parser(
+        "minimize", help="shrink a crashing fuzz events.json to a short repro"
+    )
+    s.add_argument("events", help="events.json of a crashing fuzz run")
+    s.add_argument(
+        "--expect",
+        action="append",
+        help="crash summary substring that counts (repeatable)",
+    )
+    s.add_argument("--elf")
+    s.add_argument("--jobs", type=int, default=3, help="parallel replays (default 3)")
+    s.add_argument(
+        "--tries",
+        type=int,
+        default=2,
+        help="replays before judging a candidate (default 2)",
+    )
+    s.add_argument(
+        "--out", help="output dir (default build-emu/artifacts/minimize-<run>)"
+    )
+    s.set_defaults(fn=cmd_minimize)
 
     s = sub.add_parser("sd", help="build an SD image (prints its path), or inspect one")
     s.add_argument(
