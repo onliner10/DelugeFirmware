@@ -58,7 +58,7 @@ def _step(emu, verb, arg):
         m = re.search(arg, emu.log())
         assert not m, f"firmware log unexpectedly matched {arg!r}: {m.group(0)!r}"
     elif verb == "wait_sd_idle":
-        dz.wait_sd_idle(quiet=float(arg or 1.0))
+        assert dz.wait_sd_idle(quiet=float(arg or 1.0)), "SD card never went idle"
     elif verb == "snapshot":
         emu.snapshot(prefix=f"{arg}-")
     elif verb == "screenshot":
@@ -73,7 +73,10 @@ def run_steps(emu, scenario: dict) -> None:
             raise ValueError(f"step {i} must have exactly one verb: {step!r}")
         ((verb, arg),) = step.items()
         try:
-            _step(emu, verb, arg)
+            try:
+                _step(emu, verb, arg)
+            except TimeoutError as e:  # wait_log / wait_sd_idle: a failed expectation
+                raise AssertionError(str(e)) from e
             emu.check()
         except EmuCrash:
             raise

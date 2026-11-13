@@ -21,9 +21,11 @@ Artifacts written to the session directory:
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -36,6 +38,33 @@ from delugemu import DelugeSession
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # The log shares the DIN-MIDI UART, so drop raw MIDI/control bytes.
 NONPRINT = re.compile(r"[^\x20-\x7e\n\t]")
+
+
+class _NullQmp:
+    """Stand-in for a released QMP client, so DelugeSession.close() just terminates."""
+
+    def execute(self, *a, **kw):
+        return None
+
+    def close(self):
+        pass
+
+
+def _refuse_if_live(out: Path) -> None:
+    """Don't wipe the artifacts of a live session that is still running."""
+    st_file = paths.LIVE_DIR / f"{out.name}.json"
+    if out.parent != paths.ARTIFACTS_DIR or not st_file.exists():
+        return
+    try:
+        st = json.loads(st_file.read_text())
+        pid = st.get("supervisor_pid")
+        if st.get("status") in ("starting", "running") and pid and pid != os.getpid():
+            os.kill(pid, 0)
+            raise RuntimeError(
+                f"artifacts {out} belong to running live session {out.name!r}; use another --name"
+            )
+    except (OSError, ValueError):
+        return
 
 
 class EmuCrash(AssertionError):
@@ -98,6 +127,7 @@ class EmuSession:
             raise FileNotFoundError(f"{elf} not found - run `./dbt emu build`")
 
         out = Path(artifacts) if artifacts else paths.ARTIFACTS_DIR / name
+        _refuse_if_live(out)
         if out.exists():
             shutil.rmtree(out)
         out.mkdir(parents=True)
@@ -108,7 +138,11 @@ class EmuSession:
             sd_image = sdcard.working_copy(pristine, out / "sd.img")
 
         # Keep the QMP socket path short (AF_UNIX limit ~104 chars).
-        sock = str(qmp_sock) if qmp_sock else f"/tmp/deluge-emu-{free_port()}.sock"
+        sock = (
+            str(qmp_sock)
+            if qmp_sock
+            else str(Path(tempfile.mkdtemp(prefix="dzemu-", dir="/tmp")) / "qmp")
+        )
         port = free_port() if watch_crashes else None
         qemu = list(extra_qemu)
         if watch_crashes:
@@ -172,14 +206,7 @@ class EmuSession:
 
     def crash(self) -> str | None:
         """Crash report text, or None if the firmware hasn't crashed."""
-        if not self.watcher:
-            return None
-        if self.watcher.proc and self.watcher.proc.poll() is None:
-            log = self.artifacts / "gdb.log"
-            if log.exists() and "DELUGE_EMU_CRASH" in log.read_text(errors="replace"):
-                return self.watcher.wait_for_report()
-            return None
-        return self.watcher.crashed()
+        return self.watcher.crashed() if self.watcher else None
 
     def check(self) -> None:
         """Raise EmuCrash if the firmware crashed, RuntimeError if QEMU died."""
@@ -243,24 +270,40 @@ class EmuSession:
         if self._closed:
             return {}
         self._closed = True
-        report = self.crash()
-        alive = self.dz.proc is None or self.dz.proc.poll() is None
-        if alive:
-            if report:
-                time.sleep(1.5)  # let the firmware draw its error/fault screen
-            self.snapshot()
+        report = None
         result = dict(self.meta)
-        result.update(
-            status=status or ("crash" if report else "ok"),
-            crash=summarize(report) if report else None,
-            error=error,
-            wall_seconds=round(time.monotonic() - self._t0, 2),
-            artifacts=str(self.artifacts),
-        )
-        self.dz.close()
-        if self.watcher:
-            self.watcher.stop()
-        (self.artifacts / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+        try:
+            report = self.crash()
+            alive = self.dz.proc is None or self.dz.proc.poll() is None
+            if alive and self.dz.q is not None:
+                if report:
+                    time.sleep(1.5)  # let the firmware draw its error/fault screen
+                self.snapshot()
+        except Exception as e:  # noqa: BLE001 - never lose result.json over a snapshot
+            error = error or f"snapshot failed: {e}"
+        finally:
+            result.update(
+                status=status or ("crash" if report else "ok"),
+                crash=summarize(report) if report else None,
+                error=error,
+                wall_seconds=round(time.monotonic() - self._t0, 2),
+                artifacts=str(self.artifacts),
+            )
+            try:
+                if self.dz.q is None:
+                    self.dz.q = _NullQmp()
+                self.dz.close()
+            except Exception:  # noqa: BLE001 - closed/broken QMP: kill the process instead
+                if self.dz.proc is not None and self.dz.proc.poll() is None:
+                    self.dz.proc.kill()
+            if self.watcher:
+                self.watcher.stop()
+            (self.artifacts / "result.json").write_text(
+                json.dumps(result, indent=2) + "\n"
+            )
+            sock_dir = Path(self.meta.get("qmp_sock") or "/nonexistent").parent
+            if sock_dir.name.startswith("dzemu-"):
+                shutil.rmtree(sock_dir, ignore_errors=True)
         return result
 
     def __enter__(self):
@@ -276,5 +319,10 @@ class EmuSession:
                 status = "failed"
             else:
                 status = "error"
-            self.close(status=status, error=f"{exc_type.__name__}: {exc}"[:2000])
+            msg = (
+                exc.summary
+                if isinstance(exc, EmuCrash)
+                else f"{exc_type.__name__}: {exc}"
+            )
+            self.close(status=status, error=msg[:2000])
         return False

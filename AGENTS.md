@@ -18,7 +18,7 @@ Use the emulator harness: [tests/emu/README.md](tests/emu/README.md). In short:
 ./dbt emu ctl press PLAY | turn SELECT_ENC 2 | pad 3 4 | load-song /SONGS/X.XML
 ./dbt emu ctl oled | leds | log 30 | shot out.png
 ./dbt emu stop
-./dbt emu run --script repro.json    # scripted repro: exit 0 ok, 1 assertion, 2 crash
+./dbt emu run --script repro.json    # scripted repro: exit 0 ok, 1 assertion, 2 crash, 3 error
 ```
 
 - Crashes (CPU faults, `FREEZE_WITH_ERROR`) are caught. Read

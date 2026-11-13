@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -47,6 +48,22 @@ def _write_state(name: str, **kw) -> None:
     tmp = state_file(name).with_suffix(".tmp")
     tmp.write_text(json.dumps(st, indent=2) + "\n")
     os.replace(tmp, state_file(name))
+
+
+def _pid_is(pid: int | None, needle: str) -> bool:
+    """pid is alive and its command line contains `needle` (guards against PID reuse)."""
+    if not _pid_alive(pid):
+        return False
+    try:
+        cmd = subprocess.run(
+            ["ps", "-o", "command=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout
+    except OSError:
+        return False
+    return needle in cmd
 
 
 def _pid_alive(pid: int | None) -> bool:
@@ -97,11 +114,18 @@ def serve(name: str, start_kwargs: dict) -> int:
         time.sleep(0.25)
 
     # Final snapshot + result.json while QEMU is still up.
+    # A ctl client may hold QMP (one client at a time): bound the wait, including
+    # the greeting read, so stop never hangs on it.
+    emu.dz.q = None
     if emu.dz.proc.poll() is None:
+        old = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(10)
         try:
-            emu.dz.q = DelugeSession.attach(emu.meta["qmp_sock"], connect_timeout=5).q
+            emu.dz.q = DelugeSession.attach(emu.meta["qmp_sock"], connect_timeout=10).q
         except Exception as e:  # noqa: BLE001 - snapshot is best effort
             print(f"could not reattach for the final snapshot: {e}", flush=True)
+        finally:
+            socket.setdefaulttimeout(old)
     result = emu.close()
     _write_state(name, status="stopped", result=result)
     return 0
@@ -172,18 +196,24 @@ def crash_report(st: dict) -> str | None:
 
 
 def stop(name: str, timeout: float = 30.0) -> dict | None:
+    """Stop a live session. Returns its final state (with "result" when the
+    supervisor managed to write one), or None if there is no such session."""
     st = read_state(name)
     if not st:
         return None
     pid = st.get("supervisor_pid")
-    if _pid_alive(pid):
+    if _pid_is(pid, "deluge_emu.live"):
         os.kill(pid, signal.SIGTERM)
         deadline = time.monotonic() + timeout
         while _pid_alive(pid) and time.monotonic() < deadline:
             time.sleep(0.2)
-    if st.get("qemu_pid") and _pid_alive(st["qemu_pid"]):
+    if _pid_is(st.get("qemu_pid"), "qemu-system-arm"):
         os.kill(st["qemu_pid"], signal.SIGKILL)
-    return (read_state(name) or {}).get("result")
+    st = read_state(name) or st
+    if st.get("status") in ("starting", "running"):
+        _write_state(name, status="stopped")
+        st["status"] = "stopped"
+    return st
 
 
 if __name__ == "__main__":

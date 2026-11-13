@@ -59,7 +59,8 @@ side with `--name`.
 
 A JSON list of steps (`press`, `turn`, `pad`, `wait`, `load_song`, `type`,
 `chord`, `assert_led`, `wait_log`, `assert_no_log`, `snapshot`, ... see
-`deluge_emu/scenario.py`). Exit code 0 = ok, 1 = assertion failed, 2 = crash.
+`deluge_emu/scenario.py`). Exit code 0 = ok, 1 = assertion failed, 2 = crash,
+3 = harness/emulator error (e.g. QEMU died).
 Put a scenario in `tests/emu/scenarios/` to make it part of `./dbt emu test`.
 
 ### 3. pytest / Python
@@ -121,6 +122,8 @@ firmware can save without affecting anything else.
   detaches, and the firmware goes on to its normal fault or freeze screen.
   To use your own debugger instead, pass `--no-watch --qemu-arg=-gdb --qemu-arg=tcp::1234`
   and attach with `toolchain/current/arm-none-eabi-gcc/bin/arm-none-eabi-gdb build-emu/Debug/deluge.elf -ex 'target remote :1234'`.
+- **Parallel runs** are fine as long as each uses its own `--name` (artifact
+  directory). Each session picks its own QMP socket and gdb port.
 - **Hangs** are not detected automatically. Use `wait_for_log` or `wait_until`
   with a timeout, and check `serial.log`.
 - **Timing.** By default the guest runs against the host's real-time clock, so

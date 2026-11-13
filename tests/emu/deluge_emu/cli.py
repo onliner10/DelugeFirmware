@@ -139,6 +139,9 @@ def cmd_run(a) -> int:
     except AssertionError as e:
         print(f"FAILED: {e}", file=sys.stderr)
         rc = 1
+    except Exception as e:  # noqa: BLE001 - emulator died, bad SD spec, QMP error...
+        print(f"ERROR: {type(e).__name__}: {e}", file=sys.stderr)
+        rc = 3
     result_path = paths.ARTIFACTS_DIR / a.name / "result.json"
     if result_path.exists():
         result = json.loads(result_path.read_text())
@@ -167,15 +170,20 @@ def cmd_start(a) -> int:
 def cmd_stop(a) -> int:
     from . import live
 
-    result = live.stop(a.name)
-    if result is None:
+    st = live.stop(a.name)
+    if st is None:
         print(f"no live session {a.name!r}")
         return 1
-    print(
-        json.dumps(
-            {k: result.get(k) for k in ("status", "crash", "artifacts")}, indent=2
-        )
-    )
+    result = st.get("result")
+    if result:
+        out = {k: result.get(k) for k in ("status", "crash", "artifacts")}
+    else:
+        out = {
+            "status": "stopped (no result.json: supervisor exited early)",
+            "crash": st.get("crash"),
+            "artifacts": st.get("artifacts"),
+        }
+    print(json.dumps(out, indent=2))
     return 0
 
 
@@ -366,7 +374,11 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     a = parser().parse_args(argv)
-    return a.fn(a) or 0
+    try:
+        return a.fn(a) or 0
+    except (RuntimeError, FileNotFoundError, TimeoutError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 3
 
 
 if __name__ == "__main__":

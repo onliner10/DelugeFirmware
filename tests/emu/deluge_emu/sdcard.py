@@ -19,6 +19,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.request
 import zipfile
@@ -148,7 +149,11 @@ def build_image(spec: str | os.PathLike | None) -> Path | None:
 def working_copy(image: Path, dest: Path) -> Path:
     """Sparse copy of a pristine image that the firmware may write to."""
     dest.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["cp", "--sparse=always", str(image), str(dest)], check=True)
+    if sys.platform == "darwin":
+        # APFS clone (instant, copy-on-write); BSD cp has no --sparse.
+        subprocess.run(["cp", "-c", str(image), str(dest)], check=True)
+    else:
+        subprocess.run(["cp", "--sparse=always", str(image), str(dest)], check=True)
     return dest
 
 

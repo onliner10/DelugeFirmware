@@ -64,11 +64,16 @@ def emu(request):
 
     rep = getattr(request.node, "rep_call", None)
     failed = rep is not None and rep.failed
-    crash = None
+    problem = None
     try:
         session.check()  # a crash after the last assertion still fails the test
-    except AssertionError as e:
-        crash = e
-    session.close(status="failed" if failed and not crash else None)
-    if crash and not failed:
-        pytest.fail(str(crash), pytrace=False)
+    except Exception as e:  # noqa: BLE001 - crash, or the emulator died
+        problem = e
+    finally:
+        if problem is not None and not isinstance(problem, AssertionError):
+            status = "error"  # emulator died
+        else:
+            status = "failed" if failed and not problem else None
+        session.close(status=status)
+    if problem and not failed:
+        pytest.fail(str(problem), pytrace=False)

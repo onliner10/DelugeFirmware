@@ -48,7 +48,7 @@ Write the steps as JSON (verbs: `press`, `turn`, `pad`, `chord`, `type`,
 cat build-emu/artifacts/repro/result.json
 ```
 
-Exit codes: 0 ok, 1 assertion failed, 2 firmware crashed.
+Exit codes: 0 ok, 1 assertion failed, 2 firmware crashed, 3 harness/emulator error.
 
 ## 3. When it crashes
 

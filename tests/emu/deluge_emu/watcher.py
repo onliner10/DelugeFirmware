@@ -111,30 +111,31 @@ class CrashWatcher:
             time.sleep(0.05)
         raise RuntimeError("timed out waiting for gdb to attach to the emulator")
 
-    def crashed(self) -> str | None:
-        """Crash report text if a breakpoint fired (and gdb finished), else None."""
-        if self.proc is None or self.proc.poll() is None:
-            return None
-        text = (self.out_dir / "gdb.log").read_text(errors="replace")
-        if MARKER not in text:
-            return None
-        report = text[text.index(MARKER) :]
-        if not self.crash_file.exists():
-            self.crash_file.write_text(report)
-        return report
+    def _marker_text(self) -> str | None:
+        log = self.out_dir / "gdb.log"
+        text = log.read_text(errors="replace") if log.exists() else ""
+        return text[text.index(MARKER) :] if MARKER in text else None
 
-    def wait_for_report(self, timeout: float = 10.0) -> str | None:
-        """After a breakpoint fired, give gdb time to dump everything and detach."""
+    def crashed(self, timeout: float = 10.0) -> str | None:
+        """Crash report text if a breakpoint fired, else None.
+
+        After the marker appears, waits up to `timeout` for gdb to finish its
+        dump; if it doesn't (corrupt stack, slow remote), the partial report is
+        still returned - a crash is never downgraded to "no crash".
+        """
+        report = self._marker_text()
+        if report is None:
+            return None
         deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            r = self.crashed()
-            if r:
-                return r
-            log = self.out_dir / "gdb.log"
-            if MARKER not in (log.read_text(errors="replace") if log.exists() else ""):
-                return None
+        while (
+            self.proc is not None
+            and self.proc.poll() is None
+            and time.monotonic() < deadline
+        ):
             time.sleep(0.1)
-        return self.crashed()
+        report = self._marker_text() or report
+        self.crash_file.write_text(report)
+        return report
 
     def stop(self) -> None:
         if self.proc and self.proc.poll() is None:
