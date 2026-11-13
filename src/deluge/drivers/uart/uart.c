@@ -25,6 +25,7 @@
 
 #include "RZA1/intc/devdrv_intc.h"
 #include "RZA1/system/iodefines/scif_iodefine.h"
+#include "RZA1/uart/sio_char.h"
 #include "util/cfunctions.h"
 #include <math.h>
 

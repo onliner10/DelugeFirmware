@@ -108,7 +108,7 @@ extern uint32_t __sdram_text_end;
 	drawByte(pointerValue >> 8, r, g, b);
 	drawByte(pointerValue, r, g, b);
 
-#if ENABLE_TEXT_OUTPUT
+#if ENABLE_TEXT_OUTPUT && HAVE_RTT
 	SEGGER_RTT_printf(0, "PTR: 0x%8X (%d, %d, %d)\n", pointerValue, r, g, b);
 #endif
 
@@ -276,7 +276,7 @@ void wait_for_flush(void) {
 	uint8_t secondByte = (getHexCharValue(commitShort[2]) << 4) | getHexCharValue(commitShort[3]);
 	drawByte(secondByte, colours.r, colours.b, colours.g);
 
-#if ENABLE_TEXT_OUTPUT
+#if ENABLE_TEXT_OUTPUT && HAVE_RTT
 	SEGGER_RTT_printf(0, "COMMIT: %s\n", kCommitShort);
 #endif
 
