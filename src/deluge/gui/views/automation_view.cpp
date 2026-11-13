@@ -1663,9 +1663,9 @@ void AutomationView::handleSelectEncoderButtonAction(bool on) {
 			return;
 		}
 
-		if ((getCurrentOutputType() == OutputType::KIT) && (getCurrentInstrumentClip()->affectEntire)) {
-			soundEditor.setupKitGlobalFXMenu = true;
-		}
+		// Assign rather than only ever setting it, so a value left over from earlier can't stick
+		soundEditor.setupKitGlobalFXMenu =
+		    (getCurrentOutputType() == OutputType::KIT) && (getCurrentInstrumentClip()->affectEntire);
 
 		display->setNextTransitionDirection(1);
 		Clip* clip = onArrangerView ? nullptr : getCurrentClip();

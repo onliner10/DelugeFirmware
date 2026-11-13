@@ -17,6 +17,7 @@
 #include "gui/ui/rename/rename_drum_ui.h"
 #include "gui/ui/sample_marker_editor.h"
 #include "gui/ui/save/save_instrument_preset_ui.h"
+#include "gui/ui/sound_editor_kit_target.h"
 #include "gui/ui/ui.h"
 #include "gui/ui_timer_manager.h"
 #include "gui/views/arranger_view.h"
@@ -1948,6 +1949,8 @@ bool SoundEditor::setup(Clip* clip, const MenuItem* item, int32_t sourceIndex) {
 	ModControllableAudio* newModControllable = nullptr;
 
 	InstrumentClip* instrumentClip = nullptr;
+	// For kit clips: what this editor session edits. Both the ParamManager and the root menu are picked from it.
+	KitEditTarget kitTarget = KitEditTarget::NONE;
 
 	Output* output = nullptr;
 	OutputType outputType = OutputType::NONE;
@@ -1975,29 +1978,29 @@ bool SoundEditor::setup(Clip* clip, const MenuItem* item, int32_t sourceIndex) {
 			// Kit
 			if (outputType == OutputType::KIT) {
 				Drum* selectedDrum = ((Kit*)output)->selectedDrum;
+				kitTarget = kitEditTarget(setupKitGlobalFXMenu,
+				                          selectedDrum ? std::optional{selectedDrum->type} : std::nullopt);
 
 				// If Affect Entire is selected and you didn't enter menu using a grid shortcut for a kit row param
-				if (setupKitGlobalFXMenu) {
+				if (kitTarget == KitEditTarget::KIT_GLOBAL_FX) {
 					newModControllable = (ModControllableAudio*)(Instrument*)output->toModControllable();
 					newParamManager = &instrumentClip->paramManager;
 					newArpSettings = &instrumentClip->arpSettings;
 				}
 
 				// If a SoundDrum is selected...
-				else if (selectedDrum) {
-					if (selectedDrum->type == DrumType::SOUND) {
-						NoteRow* noteRow = instrumentClip->getNoteRowForDrum(selectedDrum);
-						if (noteRow == nullptr) {
-							return false;
-						}
-						newSound = (SoundDrum*)selectedDrum;
-						newModControllable = newSound;
-						newParamManager = &noteRow->paramManager;
-						newArpSettings = &((SoundDrum*)selectedDrum)->arpSettings;
+				else if (kitTarget == KitEditTarget::SOUND_DRUM) {
+					NoteRow* noteRow = instrumentClip->getNoteRowForDrum(selectedDrum);
+					if (noteRow == nullptr) {
+						return false;
 					}
-					else if (selectedDrum->type == DrumType::MIDI || selectedDrum->type == DrumType::GATE) {
-						newArpSettings = &((NonAudioDrum*)selectedDrum)->arpSettings;
-					}
+					newSound = (SoundDrum*)selectedDrum;
+					newModControllable = newSound;
+					newParamManager = &noteRow->paramManager;
+					newArpSettings = &((SoundDrum*)selectedDrum)->arpSettings;
+				}
+				else if (kitTarget == KitEditTarget::MIDI_DRUM || kitTarget == KitEditTarget::GATE_DRUM) {
+					newArpSettings = &((NonAudioDrum*)selectedDrum)->arpSettings;
 				}
 
 				// Otherwise, do nothing
@@ -2058,19 +2061,17 @@ doMIDIOrCV:
 					goto doMIDIOrCV;
 				}
 
-				else if ((outputType == OutputType::KIT) && instrumentClip->affectEntire) {
+				// The kit's root menu must match the ParamManager chosen above: a drum's sound menus read patched
+				// params, which the kit's own ParamManager doesn't have.
+				else if ((outputType == OutputType::KIT) && kitTarget == KitEditTarget::KIT_GLOBAL_FX) {
 					newItem = &soundEditorRootMenuKitGlobalFX;
 				}
 
-				else if ((outputType == OutputType::KIT) && !instrumentClip->affectEntire
-				         && ((Kit*)output)->selectedDrum != nullptr
-				         && ((Kit*)output)->selectedDrum->type == DrumType::MIDI) {
+				else if ((outputType == OutputType::KIT) && kitTarget == KitEditTarget::MIDI_DRUM) {
 					newItem = &soundEditorRootMenuMidiDrum;
 				}
 
-				else if ((outputType == OutputType::KIT) && !instrumentClip->affectEntire
-				         && ((Kit*)output)->selectedDrum != nullptr
-				         && ((Kit*)output)->selectedDrum->type == DrumType::GATE) {
+				else if ((outputType == OutputType::KIT) && kitTarget == KitEditTarget::GATE_DRUM) {
 					newItem = &soundEditorRootMenuGateDrum;
 				}
 

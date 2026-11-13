@@ -428,9 +428,9 @@ ActionResult InstrumentClipMinder::buttonAction(deluge::hid::Button b, bool on, 
 	else if (b == SELECT_ENC && !Buttons::isShiftButtonPressed()) {
 		if (on && currentUIMode == UI_MODE_NONE) {
 			// todo: this should probably be inside the sound editor but I don't want to deal with it right now
-			if (SoundEditor::shouldEditKitAffectEntire()) {
-				soundEditor.setupKitGlobalFXMenu = true;
-			}
+			// Assign rather than only ever setting it: it can still be true from an earlier pad press made while
+			// Affect Entire was on, which would open the kit FX parameters under the selected drum's menus.
+			soundEditor.setupKitGlobalFXMenu = SoundEditor::shouldEditKitAffectEntire();
 
 			if (!soundEditor.setup(getCurrentClip())) {
 				return ActionResult::DEALT_WITH;
