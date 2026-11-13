@@ -20,6 +20,7 @@
 #include "extern.h"
 #include "gui/colour/colour.h"
 #include "gui/l10n/l10n.h"
+#include "gui/ui/load/song_swap_wait.h"
 #include "gui/ui/ui.h"
 #include "gui/ui_timer_manager.h"
 #include "gui/views/session_view.h"
@@ -306,6 +307,14 @@ void LoadSongUI::doQueueLoadNextSongIfAvailable(int8_t offset) {
 	currentUIMode = UI_MODE_NONE;
 }
 
+namespace {
+SongSwapWait currentSongSwapWait() {
+	return songSwapWait(preLoadedSong == nullptr,
+	                    currentUIMode == UI_MODE_LOADING_SONG_UNESSENTIAL_SAMPLES_ARMED
+	                        || currentUIMode == UI_MODE_LOADING_SONG_UNESSENTIAL_SAMPLES_UNARMED);
+}
+} // namespace
+
 // Before calling this, you must set loadButtonReleased.
 void LoadSongUI::performLoad() {
 	performingLoad = true;
@@ -503,11 +512,12 @@ gotErrorAfterCreatingSong:
 		preLoadedSong->loadAllSamples(true);
 		AudioEngine::logAction("waiting for samples");
 #ifdef USE_TASK_MANAGER
-		// make sure we don't get stuck
-		yield([]() {
-			return currentUIMode != UI_MODE_LOADING_SONG_UNESSENTIAL_SAMPLES_ARMED
-			       && currentUIMode != UI_MODE_LOADING_SONG_UNESSENTIAL_SAMPLES_UNARMED;
-		});
+		// Input keeps being handled while we yield. Wait for the swap itself, not just for the UI mode to change:
+		// if something else changed the mode, carrying on would delete the old song while it's still current.
+		yield([]() { return currentSongSwapWait() != SongSwapWait::KEEP_WAITING; });
+		if (currentSongSwapWait() == SongSwapWait::SWAP_NOW) {
+			playbackHandler.doSongSwap();
+		}
 #else
 		// If any more waiting required before the song swap actually happens, do that
 		while (currentUIMode != UI_MODE_LOADING_SONG_NEW_SONG_PLAYING) {
