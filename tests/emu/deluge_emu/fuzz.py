@@ -94,6 +94,40 @@ def load_shortcuts() -> list[str]:
     return sorted(out)
 
 
+# Macros that put the UI into a modal state; random gestures that follow then
+# probe that state (crashes often need "view A + menu B + shortcut C").
+# Tokens: NAME = tap button; SHIFT+NAME / SHIFT+PAD = tap while holding SHIFT;
+# HOLDPAD+NAME = tap NAME while holding a main-grid pad; AUDITION+NAME = same
+# with a sidebar audition pad; PAD = tap a main-grid pad.
+ANCHORS = [
+    ["KEYBOARD"],
+    ["KEYBOARD", "SHIFT+SELECT_ENC"],  # settings menu over keyboard view
+    ["SELECT_ENC"],  # sound editor
+    ["SHIFT+SELECT_ENC"],  # settings menu
+    ["SHIFT+PAD"],  # parameter shortcut
+    ["KEYBOARD", "SHIFT+PAD"],
+    ["HOLDPAD+SELECT_ENC"],  # note editor
+    ["AUDITION+SELECT_ENC"],  # note row editor
+    ["AUDITION+SHIFT"],
+    ["CLIP_VIEW"],  # automation view toggle
+    ["CLIP_VIEW", "SHIFT+PAD"],
+    ["SESSION_VIEW"],
+    ["SESSION_VIEW", "SESSION_VIEW"],  # arranger
+    ["SESSION_VIEW", "SHIFT+SESSION_VIEW"],
+    ["KIT"],
+    ["MIDI"],
+    ["CV"],
+    ["SYNTH"],
+    ["KIT", "KEYBOARD"],
+    ["LOAD"],  # browser
+    ["SAVE"],
+    ["AUDITION+LOAD"],
+    ["SHIFT+KEYBOARD"],
+    ["LEARN"],
+    ["BACK", "BACK", "BACK"],
+]
+
+
 class Fuzzer:
     def __init__(
         self,
@@ -220,6 +254,38 @@ class Fuzzer:
             ev.append(["wait", self.rng.choice([0.1, 0.3, 0.6])])
         return ev
 
+    def anchor(self):
+        ev = []
+        main_pad = (self.rng.randrange(16), self.rng.randrange(8))
+        for tok in self.rng.choice(ANCHORS):
+            if "+" in tok:
+                holder, target = tok.split("+")
+                if holder == "SHIFT":
+                    h = ("button", "SHIFT")
+                elif holder == "HOLDPAD":
+                    h = ("pad", *main_pad)
+                else:  # AUDITION
+                    h = ("pad", 16, self.rng.randrange(8))
+            else:
+                h, target = None, tok
+            t = (
+                ("pad", self.rng.randrange(16), self.rng.randrange(8))
+                if target == "PAD"
+                else ("button", target)
+            )
+            if h:
+                ev += self._down(h, True) + [["wait", 0.12]]
+            ev += (
+                self._down(t, True)
+                + [["wait", 0.1]]
+                + self._down(t, False)
+                + [["wait", 0.1]]
+            )
+            if h:
+                ev += self._down(h, False)
+            ev.append(["wait", 0.3])
+        return ev
+
     DEFAULT_WEIGHTS: ClassVar[dict[str, int]] = {
         "button": 25,
         "pad": 20,
@@ -258,6 +324,7 @@ class Fuzzer:
             "hold_button": self.hold_button,
             "hold_pad": self.hold_pad,
             "shortcut": self.shortcut,
+            "anchor": self.anchor,
         }[kind]()
         return ev + [["wait", self.rng.choice([0.05, 0.1, 0.2, 0.4, 1.0])]]
 
@@ -284,6 +351,7 @@ def apply(emu, ev) -> None:
 
 class Symbols:
     def __init__(self, elf: Path):
+        self.code = code_ranges(elf)
         out = subprocess.run(
             [str(paths.NM), "-C", "-n", str(elf)],
             capture_output=True,
@@ -341,6 +409,23 @@ def read_heartbeat(emu, addr: int) -> str:
     return out.split(":", 1)[-1].strip()
 
 
+def code_ranges(elf: Path) -> list[tuple[int, int]]:
+    """[start, end) of the executable code sections (.reset, .text, .sdram_text)."""
+    readelf = paths.NM.with_name("arm-none-eabi-readelf")
+    out = subprocess.run(
+        [str(readelf), "-SW", str(elf)], capture_output=True, text=True, check=True
+    ).stdout
+    ranges = []
+    for m in re.finditer(
+        r"\]\s+(\S+)\s+PROGBITS\s+([0-9a-f]+)\s+[0-9a-f]+\s+([0-9a-f]+)\s+\S+\s+(\S+)",
+        out,
+    ):
+        name, addr, size, flags = m.groups()
+        if "X" in flags and "text" in name or name == ".reset":
+            ranges.append((int(addr, 16), int(addr, 16) + int(size, 16)))
+    return ranges
+
+
 def probe_hang(emu, syms: Symbols, addr: int, quiet: float = 3.0) -> str | None:
     """None if the main loop is alive, else a description of where it's stuck."""
     first = read_heartbeat(emu, addr)
@@ -350,6 +435,15 @@ def probe_hang(emu, syms: Symbols, addr: int, quiet: float = 3.0) -> str | None:
         if read_heartbeat(emu, addr) != first:
             return None
     pcs = sample_pcs(emu, n=20)
+    wild = [pc for pc in pcs if not any(lo <= pc < hi for lo, hi in syms.code)]
+    if wild:
+        # e.g. a call through a bad function pointer / vtable: the CPU runs off
+        # into non-code memory (in the emulator unmapped space reads as zeros,
+        # which execute as no-ops, so it shows up as a hang, not an abort).
+        return (
+            f"wild jump: CPU executing outside firmware code at "
+            f"{', '.join(sorted({hex(p) for p in wild})[:6])}; main loop stalled"
+        )
     funcs = sorted({syms.name(pc) for pc in pcs})
     return f"main loop stalled >{quiet:.0f}s; CPU in: {'; '.join(funcs)[:400]}"
 
