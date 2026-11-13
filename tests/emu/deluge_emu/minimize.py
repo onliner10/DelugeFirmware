@@ -49,17 +49,22 @@ def _replay(
         ]
         if elf:
             cmd += ["--elf", elf]
-        out = subprocess.run(
+        proc = subprocess.run(
             cmd,
             cwd=paths.FW_ROOT / "tests" / "emu",
             capture_output=True,
             text=True,
             check=False,
-        ).stdout
+        )
+        out = proc.stdout
         f.unlink(missing_ok=True)
         try:
             res = json.loads(out[out.index("{") :])
         except ValueError:
+            # Harness failure, not a verdict on the candidate: keep the evidence.
+            (work / f"{name}.error.log").write_text(
+                out + "\n--- stderr ---\n" + proc.stderr
+            )
             continue
         hit = res.get("status") in ("crash", "hang") and any(
             e in (res.get("detail") or "") for e in expect
@@ -75,6 +80,7 @@ def _replay(
 def minimize(
     events: Path, expect: list[str], elf: str | None, jobs: int, tries: int, out: Path
 ) -> dict:
+    out = out.resolve()  # replays run with cwd=tests/emu
     rec = json.loads(events.read_text())
     gestures = rec["gestures"]
     out.mkdir(parents=True, exist_ok=True)
