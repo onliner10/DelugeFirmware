@@ -83,6 +83,7 @@ printf "\n--- backtrace ---\n"
 bt 40
 printf "\n--- registers ---\n"
 info registers r0 r1 r2 r3 r4 r5 r6 r7 r8 r9 r10 r11 r12 sp lr pc cpsr
+{extra}
 printf "\n--- end ---\n"
 detach
 """
@@ -112,6 +113,17 @@ def crash_entry_points(elf: Path) -> dict[str, list[int]]:
     return found
 
 
+def _extra_commands() -> str:
+    """$DELUGE_EMU_GDB_EXTRA: a file of gdb commands to run when a crash is caught
+    (e.g. `print currentUIMode`), for inspecting firmware state at the crash."""
+    import os
+
+    f = os.environ.get("DELUGE_EMU_GDB_EXTRA")
+    if not f:
+        return ""
+    return '\nprintf "\\n--- extra ---\\n"\n' + Path(f).read_text()
+
+
 def gdb_script(elf: Path, port: int) -> str:
     eps = crash_entry_points(elf)
 
@@ -123,6 +135,7 @@ def gdb_script(elf: Path, port: int) -> str:
         GDB_HEADER.format(port=port)
         + breaks
         + GDB_LOOP.format(
+            extra=_extra_commands(),
             marker=MARKER,
             fault=f"{eps['fault'][0]:#x}",
             freeze_r0_cond=cond(eps["freeze_r0"]),
