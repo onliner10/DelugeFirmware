@@ -40,6 +40,7 @@
 #include "gui/views/automation_view.h"
 #include "gui/views/instrument_clip_view.h"
 #include "gui/views/performance_view.h"
+#include "gui/views/session_view_input.h"
 #include "gui/views/view.h"
 #include "gui/waveform/waveform_renderer.h"
 #include "hid/button.h"
@@ -479,7 +480,10 @@ moveAfterClipInstance:
 	}
 
 	// If save / delete button pressed, delete the Clip!
-	else if (b == SAVE && (currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW || gridFirstPadActive())) {
+	else if (b == SAVE
+	         && deluge::gui::views::saveDeletesHeldClip(
+	             currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW, gridFirstPadActive(),
+	             currentUIMode == UI_MODE_EXPLODE_ANIMATION || currentUIMode == UI_MODE_IMPLODE_ANIMATION)) {
 		if (on) {
 
 			if (playbackHandler.recording == RecordingMode::ARRANGEMENT) {
@@ -4149,6 +4153,10 @@ ActionResult SessionView::gridHandlePadsEdit(int32_t x, int32_t y, int32_t on, C
 					display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_RECORDING_TO_ARRANGEMENT));
 				}
 				else {
+					// The pad is no longer held, so forget the press before the transition starts. Otherwise
+					// gridFirstPadActive() stays true during the explode animation and SAVE (delete clip while
+					// a pad is held) would delete the clip we are transitioning into.
+					gridResetPresses();
 					if (clip != nullptr) {
 						transitionToViewForClip(clip);
 					}
