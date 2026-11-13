@@ -2365,19 +2365,12 @@ traverseClips:
 
 			// If we're doing a song swap...
 			if (preLoadedSong) {
-				cancelAllLaunchScheduling();
-				lastSectionArmed = REALLY_OUT_OF_RANGE;
-				playbackHandler.doSongSwap();
 				swappedSong = true;
 
 				// If new song has us in arrangement...
-				if (currentPlaybackMode == &arrangement) {
+				if (!doSongSwapNow()) {
 					return swappedSong;
 				}
-
-				currentPlaybackMode->resetPlayPos(0); // activeClips have been set up already / PGMs have been sent.
-				                                      // Calling this will resync arpeggiators though...
-				// If switching to arranger, that'll happen as part of doSongSwap(), above
 
 				enforceSettingUpArming = true;
 			}
@@ -2429,17 +2422,36 @@ traverseClips:
 
 	// If this is the first tick, we have to do some stuff to arm the first song-section change
 	if (playbackHandler.lastSwungTickActioned == 0 || enforceSettingUpArming) {
-		int32_t currentSection = userWantsToArmNextSection();
-
-		if (currentSection < SECTION_OUT_OF_RANGE && currentSong->areAllClipsInSectionPlaying(currentSection)) {
-			currentSong->sectionToReturnToAfterSongEnd = currentSection;
-		}
-		else {
-			currentSong->sectionToReturnToAfterSongEnd = REALLY_OUT_OF_RANGE;
-		}
+		updateSectionToReturnToAfterSongEnd();
 	}
 
 	return swappedSong;
+}
+
+bool Session::doSongSwapNow() {
+	cancelAllLaunchScheduling();
+	lastSectionArmed = REALLY_OUT_OF_RANGE;
+	playbackHandler.doSongSwap();
+
+	// If new song has us in arrangement... (switching to the arranger happens as part of doSongSwap())
+	if (currentPlaybackMode == &arrangement) {
+		return false;
+	}
+
+	currentPlaybackMode->resetPlayPos(0); // activeClips have been set up already / PGMs have been sent.
+	                                      // Calling this will resync arpeggiators though...
+	return true;
+}
+
+void Session::updateSectionToReturnToAfterSongEnd() {
+	int32_t currentSection = userWantsToArmNextSection();
+
+	if (currentSection < SECTION_OUT_OF_RANGE && currentSong->areAllClipsInSectionPlaying(currentSection)) {
+		currentSong->sectionToReturnToAfterSongEnd = currentSection;
+	}
+	else {
+		currentSong->sectionToReturnToAfterSongEnd = REALLY_OUT_OF_RANGE;
+	}
 }
 
 void Session::doTickForward(int32_t posIncrement) {

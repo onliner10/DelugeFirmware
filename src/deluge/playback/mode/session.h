@@ -44,6 +44,10 @@ public:
 	int32_t getNumSixteenthNotesRemainingTilLaunch();
 	void scheduleFillEvent(Clip* clip, int64_t atTickCount);
 	void cancelAllLaunchScheduling();
+	/// Swap in preLoadedSong right now, the way a song swap at a launch event does. Returns false if the new song
+	/// plays in the arranger.
+	bool doSongSwapNow();
+	void updateSectionToReturnToAfterSongEnd();
 	void launchSchedulingMightNeedCancelling();
 	void reSyncClipToSongTicks(Clip* clip);
 	void reSyncClip(ModelStackWithTimelineCounter* modelStack, bool mustSetPosToSomething = false,

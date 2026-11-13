@@ -515,8 +515,8 @@ gotErrorAfterCreatingSong:
 		// Input keeps being handled while we yield. Wait for the swap itself, not just for the UI mode to change:
 		// if something else changed the mode, carrying on would delete the old song while it's still current.
 		yield([]() { return currentSongSwapWait() != SongSwapWait::KEEP_WAITING; });
-		if (currentSongSwapWait() == SongSwapWait::SWAP_NOW) {
-			playbackHandler.doSongSwap();
+		if (currentSongSwapWait() == SongSwapWait::SWAP_NOW && session.doSongSwapNow()) {
+			session.updateSectionToReturnToAfterSongEnd();
 		}
 #else
 		// If any more waiting required before the song swap actually happens, do that
