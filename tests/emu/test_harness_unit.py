@@ -17,8 +17,7 @@ error = 0xc0910f4 "EMU1"
 """
 
 OLED_FREEZE = """DELUGE_EMU_CRASH kind=freeze
-this = 0x2003a000
-text = 0x20101010 "B001"
+error="B001"
 """
 
 

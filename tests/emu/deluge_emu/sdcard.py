@@ -103,11 +103,17 @@ def _factory_dir() -> Path:
 def _mksd(content: Path, out: Path) -> None:
     mksd = paths.delugemu_root() / "scripts" / "mksd.sh"
     out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out.with_suffix(".tmp")
-    subprocess.run(
-        [str(mksd), str(content), str(tmp)], check=True, stdout=subprocess.DEVNULL
-    )
-    os.replace(tmp, out)
+    # Unique temp name: concurrent builders of the same image must not interleave.
+    fd, tmp = tempfile.mkstemp(dir=out.parent, prefix=out.stem + ".", suffix=".tmp")
+    os.close(fd)
+    try:
+        subprocess.run(
+            [str(mksd), str(content), tmp], check=True, stdout=subprocess.DEVNULL
+        )
+        os.replace(tmp, out)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def build_image(spec: str | os.PathLike | None) -> Path | None:
@@ -121,7 +127,7 @@ def build_image(spec: str | os.PathLike | None) -> Path | None:
 
     if spec_s == "factory":
         content, name = _factory_dir(), "factory"
-    elif (FIXTURE_SD_DIR / spec_s).is_dir():
+    elif "/" not in spec_s and (FIXTURE_SD_DIR / spec_s).is_dir():
         content, name = None, spec_s
     elif p.is_dir():
         content, name = p.resolve(), p.name

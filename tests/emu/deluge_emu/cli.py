@@ -274,6 +274,39 @@ def cmd_ctl(a) -> int:
     return 0
 
 
+def cmd_fuzz(a) -> int:
+    _need_emulator()
+    from . import fuzz
+
+    replay = setup = None
+    sd, seed = a.sd, a.seed
+    if a.replay:
+        rec = json.loads(Path(a.replay).read_text())
+        replay, setup = rec["gestures"], rec.get("setup")
+        sd, seed = (
+            (a.sd if a.sd != "empty" else rec.get("sd", sd)),
+            rec.get("seed", seed),
+        )
+        if a.first:
+            replay = replay[: a.first]
+    elif a.setup:
+        setup = json.loads(Path(a.setup).read_text())["steps"]
+    name = a.name or (f"fuzz-{seed}" if not a.replay else f"replay-{seed}")
+    out = fuzz.run(
+        name,
+        sd=sd,
+        seed=seed,
+        actions=a.actions,
+        elf=_need_elf(a.elf),
+        probe_every=a.probe_every,
+        replay=replay,
+        avoid=set(a.avoid or ()),
+        setup=setup,
+    )
+    print(json.dumps(out, indent=2))
+    return {"ok": 0, "crash": 2, "hang": 4}.get(out["status"], 3)
+
+
 def cmd_sd(a) -> int:
     img = sdcard.build_image(a.spec)
     if img is None:
@@ -359,6 +392,30 @@ def parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("status", help="list live sessions")
     s.set_defaults(fn=cmd_status)
+
+    s = sub.add_parser("fuzz", help="random front-panel input until a crash or hang")
+    s.add_argument("--elf")
+    s.add_argument("--sd", default="empty", help="card spec (default: empty)")
+    s.add_argument("--seed", type=int, default=1)
+    s.add_argument(
+        "--actions", type=int, default=300, help="gestures to run (default 300)"
+    )
+    s.add_argument(
+        "--probe-every",
+        type=int,
+        default=20,
+        help="hang probe interval in gestures (0 = off)",
+    )
+    s.add_argument("--avoid", action="append", help="button never to tap (repeatable)")
+    s.add_argument(
+        "--setup", help="scenario JSON whose steps run first (e.g. load a song)"
+    )
+    s.add_argument("--replay", help="events.json from an earlier run to replay")
+    s.add_argument("--first", type=int, help="with --replay: only the first N gestures")
+    s.add_argument(
+        "--name", help="artifacts name (default fuzz-<seed> / replay-<seed>)"
+    )
+    s.set_defaults(fn=cmd_fuzz)
 
     s = sub.add_parser("sd", help="build an SD image (prints its path), or inspect one")
     s.add_argument(
