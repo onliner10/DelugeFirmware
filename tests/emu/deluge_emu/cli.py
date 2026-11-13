@@ -302,6 +302,7 @@ def cmd_fuzz(a) -> int:
         replay=replay,
         avoid=set(a.avoid or ()),
         setup=setup,
+        weights=json.loads(a.weights) if a.weights else None,
     )
     print(json.dumps(out, indent=2))
     return {"ok": 0, "crash": 2, "hang": 4}.get(out["status"], 3)
@@ -409,6 +410,9 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--avoid", action="append", help="button never to tap (repeatable)")
     s.add_argument(
         "--setup", help="scenario JSON whose steps run first (e.g. load a song)"
+    )
+    s.add_argument(
+        "--weights", help='gesture mix as JSON, e.g. \'{"pad": 50, "hold_pad": 30}\''
     )
     s.add_argument("--replay", help="events.json from an earlier run to replay")
     s.add_argument("--first", type=int, help="with --replay: only the first N gestures")

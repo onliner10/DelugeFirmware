@@ -27,6 +27,7 @@ import re
 import subprocess
 import time
 from pathlib import Path
+from typing import ClassVar
 
 from . import paths
 
@@ -49,8 +50,14 @@ MODIFIERS = ["SHIFT", "SHIFT", "SHIFT", "SELECT_ENC", "X_ENC", "Y_ENC", "AFFECT_
 
 
 class Fuzzer:
-    def __init__(self, rng: random.Random, avoid: set[str] = frozenset()):
+    def __init__(
+        self,
+        rng: random.Random,
+        avoid: set[str] = frozenset(),
+        weights: dict | None = None,
+    ):
         self.rng = rng
+        self.weights = dict(self.DEFAULT_WEIGHTS, **(weights or {}))
         self.buttons = [b for b in BUTTONS if b not in avoid]
 
     # each returns a list of raw events
@@ -101,18 +108,44 @@ class Fuzzer:
             ]
         return ev + [["pad", x, y, 0]]
 
+    DEFAULT_WEIGHTS: ClassVar[dict[str, int]] = {
+        "button": 25,
+        "pad": 20,
+        "turn": 20,
+        "hold_button": 20,
+        "hold_pad": 15,
+    }
+
     def gesture(self):
-        r = self.rng.random()
-        if r < 0.25:
-            ev = self.tap_button()
-        elif r < 0.45:
-            ev = self.tap_pad()
-        elif r < 0.65:
-            ev = self.turn()
-        elif r < 0.85:
-            ev = self.hold_button()
-        else:
-            ev = self.hold_pad()
+        w = self.weights
+        kinds = list(w)
+        kind = (
+            self.rng.choices(kinds, weights=[w[k] for k in kinds])[0]
+            if kinds != list(self.DEFAULT_WEIGHTS) or w != self.DEFAULT_WEIGHTS
+            else None
+        )
+        if (
+            kind is None
+        ):  # default mix: keep the original draw so old seeds replay identically
+            r = self.rng.random()
+            kind = (
+                "button"
+                if r < 0.25
+                else "pad"
+                if r < 0.45
+                else "turn"
+                if r < 0.65
+                else "hold_button"
+                if r < 0.85
+                else "hold_pad"
+            )
+        ev = {
+            "button": self.tap_button,
+            "pad": self.tap_pad,
+            "turn": self.turn,
+            "hold_button": self.hold_button,
+            "hold_pad": self.hold_pad,
+        }[kind]()
         return ev + [["wait", self.rng.choice([0.05, 0.1, 0.2, 0.4, 1.0])]]
 
 
@@ -221,12 +254,13 @@ def run(
     replay: list | None = None,
     avoid: set[str] = frozenset(),
     setup: list | None = None,
+    weights: dict | None = None,
 ) -> dict:
     """Fuzz (or replay `replay`, a list of gestures). Returns result dict."""
     from .session import EmuCrash, EmuSession
 
     rng = random.Random(seed)
-    fz = Fuzzer(rng, avoid)
+    fz = Fuzzer(rng, avoid, weights)
     elf_path = Path(elf) if elf else paths.default_elf()
     syms = Symbols(elf_path)
     hb = heartbeat_addr(elf_path)
