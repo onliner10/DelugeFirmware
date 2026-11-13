@@ -134,8 +134,10 @@ class Fuzzer:
         rng: random.Random,
         avoid: set[str] = frozenset(),
         weights: dict | None = None,
+        anchors: list | None = None,
     ):
         self.rng = rng
+        self.anchors = anchors or ANCHORS
         self.weights = dict(self.DEFAULT_WEIGHTS, **(weights or {}))
         self.shortcuts = load_shortcuts()
         self.buttons = [b for b in BUTTONS if b not in avoid]
@@ -257,7 +259,7 @@ class Fuzzer:
     def anchor(self):
         ev = []
         main_pad = (self.rng.randrange(16), self.rng.randrange(8))
-        for tok in self.rng.choice(ANCHORS):
+        for tok in self.rng.choice(self.anchors):
             if "+" in tok:
                 holder, target = tok.split("+")
                 if holder == "SHIFT":
@@ -462,12 +464,13 @@ def run(
     avoid: set[str] = frozenset(),
     setup: list | None = None,
     weights: dict | None = None,
+    anchors: list | None = None,
 ) -> dict:
     """Fuzz (or replay `replay`, a list of gestures). Returns result dict."""
     from .session import EmuCrash, EmuSession
 
     rng = random.Random(seed)
-    fz = Fuzzer(rng, avoid, weights)
+    fz = Fuzzer(rng, avoid, weights, anchors)
     elf_path = Path(elf) if elf else paths.default_elf()
     syms = Symbols(elf_path)
     hb = heartbeat_addr(elf_path)

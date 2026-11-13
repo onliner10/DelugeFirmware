@@ -317,6 +317,7 @@ def cmd_fuzz(a) -> int:
         avoid=set(a.avoid or ()),
         setup=setup,
         weights=json.loads(a.weights) if a.weights else None,
+        anchors=json.loads(a.anchors) if a.anchors else None,
     )
     print(json.dumps(out, indent=2))
     return {"ok": 0, "crash": 2, "hang": 4}.get(out["status"], 3)
@@ -427,6 +428,10 @@ def parser() -> argparse.ArgumentParser:
     )
     s.add_argument(
         "--weights", help='gesture mix as JSON, e.g. \'{"pad": 50, "hold_pad": 30}\''
+    )
+    s.add_argument(
+        "--anchors",
+        help='anchor macros as JSON, e.g. \'[["LOAD", "SELECT_ENC"]]\' (see fuzz.ANCHORS)',
     )
     s.add_argument("--replay", help="events.json from an earlier run to replay")
     s.add_argument("--first", type=int, help="with --replay: only the first N gestures")
