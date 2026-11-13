@@ -1491,6 +1491,18 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 	if (not isUIOpen(this)) {
 		setupKitGlobalFXMenu = shouldEditKitAffectEntire();
 	}
+	// That value is only for this call. If the editor doesn't end up open, don't leave it behind: whatever opens the
+	// editor next would set up the kit's own parameters even though Affect Entire may have been turned off since.
+	struct ResetKitGlobalFXIfNotOpened {
+		SoundEditor& editor;
+		bool wasOpen;
+		~ResetKitGlobalFXIfNotOpened() {
+			if (!wasOpen && !isUIOpen(&editor)) {
+				editor.setupKitGlobalFXMenu = false;
+			}
+		}
+	} resetKitGlobalFXIfNotOpened{*this, isUIOpen(this)};
+
 	bool ignoreAction = false;
 	bool modulationItemFound = false;
 	if (!Buttons::isShiftButtonPressed()) {
