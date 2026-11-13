@@ -15,8 +15,10 @@ run as `xfail` tests in `./dbt emu test`. Long, state-heavy recordings are in
 
 ## 1. Freeze E369 / E410: SAVE pressed while a kit clip is opening from song view (minimal repro)
 
-**Repro: `repros/e369_save_while_opening_kit_clip.json`.** 3/3 on the emulator
-build, and 3/3 on the standard `./dbt build debug` firmware.
+**Repro: `repros/e369_save_while_opening_kit_clip.json`.** 3/3 on each of the
+emulator build, the standard `./dbt build debug` firmware and the
+`./dbt build release` firmware. The E369 check (`model_stack.h:149`) is not
+behind `ALPHA_OR_BETA_VERSION`, so shipping firmware freezes the same way.
 
 1. Load `SONGS/MULTISAMPLE.XML` from the `basic` card. It has a kit clip and an
    audio track.
