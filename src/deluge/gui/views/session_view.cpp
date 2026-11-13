@@ -106,6 +106,21 @@ void setUpKeyboardSidebarMorph(int32_t clipRow) {
 	sessionView.drawSectionSquare(clipRow, sidebarRow);
 	PadLEDs::enableKeyboardSidebarMorph(sidebarRow[kDisplayWidth + 1]);
 }
+
+// Song view is animating into or out of a clip (Grid layout explodes/implodes, Rows layout expands/collapses).
+bool isClipTransitionUIMode(uint32_t uiMode) {
+	switch (uiMode) {
+	case UI_MODE_EXPLODE_ANIMATION:
+	case UI_MODE_IMPLODE_ANIMATION:
+	case UI_MODE_INSTRUMENT_CLIP_EXPANDING:
+	case UI_MODE_INSTRUMENT_CLIP_COLLAPSING:
+	case UI_MODE_AUDIO_CLIP_EXPANDING:
+	case UI_MODE_AUDIO_CLIP_COLLAPSING:
+		return true;
+	default:
+		return false;
+	}
+}
 } // namespace
 
 SessionView::SessionView() {
@@ -481,9 +496,8 @@ moveAfterClipInstance:
 
 	// If save / delete button pressed, delete the Clip!
 	else if (b == SAVE
-	         && deluge::gui::views::saveDeletesHeldClip(
-	             currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW, gridFirstPadActive(),
-	             currentUIMode == UI_MODE_EXPLODE_ANIMATION || currentUIMode == UI_MODE_IMPLODE_ANIMATION)) {
+	         && deluge::gui::views::saveDeletesHeldClip(currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW,
+	                                                    gridFirstPadActive(), isClipTransitionUIMode(currentUIMode))) {
 		if (on) {
 
 			if (playbackHandler.recording == RecordingMode::ARRANGEMENT) {
