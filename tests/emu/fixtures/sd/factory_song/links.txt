@@ -1,0 +1,3 @@
+# <path on card> = <path in this repo>  (reuse repo files instead of copying them here)
+SONGS/MULTISAMPLE.XML = contrib/audio_export/multi_sample/Multisample_Template_Full_Bar.XML
+MIDI_DEVICES/DEFINITION/Dreadbox/Nymphes.xml = contrib/sd_card/MIDI_DEVICES/DEFINITION/Dreadbox/Nymphes.xml

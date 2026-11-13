@@ -1,0 +1,39 @@
+DELUGE_EMU_CRASH kind=freeze
+error="E411"
+
+--- backtrace ---
+#0  freezeWithError (error=0xc095c64 "E411") at src/deluge/hid/display/display.cpp:151
+#1  0x0c00d5a4 in ParamManager::getPatchedParamSet (this=0x2026ae6c) at src/deluge/modulation/params/param_manager.h:110
+#2  0x0c00d8ea in deluge::gui::menu_item::patched_param::Integer::readCurrentValue (this=0xc0c8cac <lpfFreqMenu>) at src/deluge/gui/menu_item/patched_param/integer.cpp:35
+#3  0x0c00868a in deluge::gui::menu_item::HorizontalMenu::preparePaging (this=0xc0c8c28 <lpfMenu>, items=..., currentItem=0xc0c8cd0 <lpfModeMenu>) at src/deluge/gui/menu_item/horizontal_menu.cpp:491
+#4  0x0c0089ac in deluge::gui::menu_item::HorizontalMenu::renderOLED (this=0xc0c8c28 <lpfMenu>) at src/deluge/gui/menu_item/horizontal_menu.cpp:114
+#5  0x0c04a86c in SoundEditor::renderOLED (this=0xc0c9038 <soundEditor>, canvas=...) at src/deluge/gui/ui/sound_editor.cpp:2421
+#6  0x0c04d634 in doAnyPendingOLEDRendering () at toolchain/v22/linux-x86_64/arm-none-eabi-gcc/arm-none-eabi/include/c++/14.2.1/array:206
+#7  0x0c04d682 in doAnyPendingUIRendering () at src/deluge/gui/ui/ui.cpp:407
+#8  0x200638b8 in TaskManager::runTask (this=this@entry=0x2016a948 <taskManager>, id=10 '\n') at src/OSLikeStuff/task_scheduler/task_scheduler.cpp:259
+#9  0x20063db2 in TaskManager::start (this=0x2016a948 <taskManager>, duration=...) at src/OSLikeStuff/task_scheduler/task_scheduler.cpp:373
+#10 0x20063e4c in startTaskManager () at src/OSLikeStuff/timers_interrupts/clock_type.h:27
+#11 0x200658d4 in deluge_main () at src/deluge/deluge.cpp:931
+#12 0x20060ef8 in main () at src/main.c:135
+
+--- registers ---
+r0             0xc095c64           201940068
+r1             0x1                 1
+r2             0x0                 0
+r3             0x200308c0          537069760
+r4             0x2026ae6c          539405932
+r5             0x1                 1
+r6             0x1                 1
+r7             0xc0c8c28           202148904
+r8             0x1                 1
+r9             0x1                 1
+r10            0xc0c8cd0           202149072
+r11            0x0                 0
+r12            0x0                 0
+sp             0x202ffe58          0x202ffe58
+lr             0xc00d5a5           201381285
+pc             0x20067b78          0x20067b78 <freezeWithError(char const*)>
+cpsr           0x680f013f          1745813823
+
+--- end ---
+[Inferior 1 (process 1) detached]

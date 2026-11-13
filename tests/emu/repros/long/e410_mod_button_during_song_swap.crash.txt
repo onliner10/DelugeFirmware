@@ -1,0 +1,52 @@
+DELUGE_EMU_CRASH kind=freeze
+error="E410"
+
+--- backtrace ---
+#0  freezeWithError (error=0xc095c8c "E410") at src/deluge/hid/display/display.cpp:151
+#1  0x0c01121c in ParamManager::getUnpatchedParamSet (this=this@entry=0xc338334) at src/deluge/modulation/params/param_manager.h:96
+#2  0x20085ad6 in Stutterer::endStutter (this=0x20037a1c <stutterer>, paramManager=paramManager@entry=0xc338334) at src/deluge/model/fx/stutterer.cpp:204
+#3  0x20092518 in ModControllableAudio::endStutter (this=this@entry=0x2029a668, paramManager=0xc338334) at src/deluge/model/mod_controllable/mod_controllable_audio.cpp:1388
+#4  0x200cb404 in Sound::modButtonAction (this=0x2029a668, whichModButton=5 '\005', on=true, paramManager=<optimized out>) at src/deluge/processing/sound/sound.cpp:4445
+#5  0x0c071976 in View::modButtonAction (this=0xc0d6170 <view>, whichButton=<optimized out>, on=<optimized out>) at src/deluge/gui/views/view.cpp:1556
+#6  0x0c04cef6 in UI::modButtonAction (this=<optimized out>, whichButton=<optimized out>, on=<optimized out>) at src/deluge/gui/ui/ui.cpp:38
+#7  0x20067594 in Buttons::buttonAction (b=155 '\233', on=on@entry=true, inCardRoutine=false) at src/deluge/hid/buttons.cpp:104
+#8  0x20064d3c in readButtonsAndPads () at src/deluge/deluge.cpp:296
+#9  0x20064e10 in readButtonsAndPadsOnce () at src/deluge/deluge.cpp:339
+#10 0x200638b8 in TaskManager::runTask (this=this@entry=0x2016a948 <taskManager>, id=9 '\t') at src/OSLikeStuff/task_scheduler/task_scheduler.cpp:259
+#11 0x20063cd6 in TaskManager::yield (this=0x2016a948 <taskManager>, until=0xc0229ad <_FUN()>, timeout=..., returnOnIdle=returnOnIdle@entry=false) at src/OSLikeStuff/task_scheduler/task_scheduler.cpp:332
+#12 0x20063f3a in yield (until=<optimized out>) at src/OSLikeStuff/task_scheduler/task_scheduler_c_api.cpp:65
+#13 0x0c023764 in LoadSongUI::performLoad (this=this@entry=0xc0c3ea8 <loadSongUI>) at src/deluge/gui/ui/load/load_song_ui.cpp:507
+#14 0x0c0239b8 in LoadSongUI::enterKeyPress (this=0xc0c3ea8 <loadSongUI>) at src/deluge/gui/ui/load/load_song_ui.cpp:167
+#15 0x0c0436d8 in QwertyUI::padAction (this=this@entry=0xc0c3ea8 <loadSongUI>, x=x@entry=14, y=y@entry=3, on=on@entry=255) at src/deluge/gui/ui/qwerty_ui.cpp:301
+#16 0x0c014978 in Browser::padAction (this=this@entry=0xc0c3ea8 <loadSongUI>, x=x@entry=14, y=y@entry=3, on=on@entry=255) at src/deluge/gui/ui/browser/browser.cpp:1663
+#17 0x0c022b28 in LoadSongUI::padAction (this=0xc0c3ea8 <loadSongUI>, x=14, y=3, on=255) at src/deluge/gui/ui/load/load_song_ui.cpp:930
+#18 0x20070140 in MatrixDriver::padAction (this=<optimized out>, x=14, y=3, velocity=velocity@entry=255) at src/deluge/hid/matrix/matrix_driver.cpp:83
+#19 0x20064d1a in readButtonsAndPads () at src/deluge/deluge.cpp:289
+#20 0x20064e10 in readButtonsAndPadsOnce () at src/deluge/deluge.cpp:339
+#21 0x200638b8 in TaskManager::runTask (this=this@entry=0x2016a948 <taskManager>, id=9 '\t') at src/OSLikeStuff/task_scheduler/task_scheduler.cpp:259
+#22 0x20063db2 in TaskManager::start (this=0x2016a948 <taskManager>, duration=...) at src/OSLikeStuff/task_scheduler/task_scheduler.cpp:373
+#23 0x20063e4c in startTaskManager () at src/OSLikeStuff/timers_interrupts/clock_type.h:27
+#24 0x200658d4 in deluge_main () at src/deluge/deluge.cpp:931
+#25 0x20060ef8 in main () at src/main.c:135
+
+--- registers ---
+r0             0xc095c8c           201940108
+r1             0x1                 1
+r2             0x0                 0
+r3             0x200308c0          537069760
+r4             0xc338334           204702516
+r5             0xc338334           204702516
+r6             0x5                 5
+r7             0x5                 5
+r8             0x202ffce8          540015848
+r9             0x5a0               1440
+r10            0x4                 4
+r11            0x0                 0
+r12            0x0                 0
+sp             0x202ffc18          0x202ffc18
+lr             0xc01121d           201396765
+pc             0x20067b78          0x20067b78 <freezeWithError(char const*)>
+cpsr           0x680f013f          1745813823
+
+--- end ---
+[Inferior 1 (process 1) detached]

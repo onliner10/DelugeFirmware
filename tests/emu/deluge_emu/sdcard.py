@@ -55,9 +55,25 @@ def _materialise_fixture(fixture_dir: Path, out: Path) -> None:
     links.txt lines are `<path on card> = <path relative to repo root>`; this
     lets fixtures reuse songs/presets already in the repo (e.g. contrib/).
     """
+    base = fixture_dir / "base.txt"
+    if base.exists() and base.read_text().strip() == "factory":
+        # Start from the Synthstrom factory card (hard links: no copy of ~400 MB).
+        src = _factory_dir()
+        for p in src.rglob("*"):
+            if p.name in (".complete",) or p.suffix.lower() == ".pdf":
+                continue
+            dst = out / p.relative_to(src)
+            if p.is_dir():
+                dst.mkdir(parents=True, exist_ok=True)
+            else:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    os.link(p, dst)
+                except OSError:
+                    shutil.copy2(p, dst)
     for p in fixture_dir.rglob("*"):
         rel = p.relative_to(fixture_dir)
-        if p.name in ("links.txt", "README.md") and p.parent == fixture_dir:
+        if p.name in ("links.txt", "README.md", "base.txt") and p.parent == fixture_dir:
             continue
         dst = out / rel
         if p.is_dir():
