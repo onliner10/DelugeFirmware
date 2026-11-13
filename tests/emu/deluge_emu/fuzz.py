@@ -500,12 +500,14 @@ def run(
                 if probe_every and (g + 1) % probe_every == 0:
                     stuck = probe_hang(emu, syms, hb)
                     if stuck:
+                        emu.check()  # a caught freeze also stalls the loop: report it as the crash it is
                         outcome.update(status="hang", detail=stuck)
                         emu.snapshot(prefix="hang-")
                         break
             if outcome["status"] == "ok" and probe_every:
                 stuck = probe_hang(emu, syms, hb)
                 if stuck:
+                    emu.check()
                     outcome.update(status="hang", detail=stuck)
                     emu.snapshot(prefix="hang-")
         except EmuCrash as e:
