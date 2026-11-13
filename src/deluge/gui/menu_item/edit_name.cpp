@@ -47,6 +47,10 @@ void EditName::beginSession(MenuItem* navigatedBackwardFrom) {
 	if (!editNameTargetAvailable(target_, kitHasSelectedDrum())) {
 		// Nothing to rename: RenameDrumUI would freeze (RN01) without a selected drum.
 		display->displayPopup(l10n::get(l10n::String::STRING_FOR_SELECT_A_ROW_OR_AFFECT_ENTIRE));
+		// Don't leave the editor on an item that does nothing (same as when the audio recorder can't open)
+		if (getCurrentUI() == &soundEditor) {
+			soundEditor.goUpOneLevel();
+		}
 		return;
 	}
 
