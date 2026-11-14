@@ -30,6 +30,9 @@
 
 class VoiceSample;
 class SampleRecorder;
+class InstrumentClip;
+class ModelStack;
+class Output;
 class ModelStackWithTimelineCounter;
 
 class AudioClip final : public Clip {
@@ -102,6 +105,24 @@ public:
 	SamplePlaybackGuide guide;
 
 	String outputNameWhileLoading; // Only valid while loading
+
+	/// A frozen clip: the AudioClip took the place of a MIDI clip it was recorded from, and keeps that clip here, out
+	/// of the song, until it's unfrozen. See ClipFreezer.
+	struct FrozenSource {
+		/// The MIDI clip. Not in any of the song's clip arrays, and not the active clip of its Output - but its output
+		/// pointer stays set.
+		InstrumentClip* clip = nullptr;
+		/// The clip's Output, if it had no other clips and so was taken out of the song's list of Outputs too.
+		/// Otherwise null, and the Output is still in the song.
+		Output* detachedOutput = nullptr;
+	};
+	FrozenSource frozen;
+	bool hasFrozenSource() const { return frozen.clip != nullptr; }
+	/// Deletes the frozen MIDI clip, and its Output if this clip held that too
+	void deleteFrozenSource();
+	/// After a song's been read: give the frozen clip, if any, its Output. If that fails the frozen clip is dropped,
+	/// and this stays an ordinary AudioClip
+	void claimFrozenSourceOutput(ModelStack* modelStack);
 
 	WaveformRenderData renderData;
 	// TODO: For looping without monitoring we'll need a second recorder plus maybe a second sample player?

@@ -2185,6 +2185,14 @@ loadOutput:
 		}
 	}
 
+	// Frozen clips' MIDI clips aren't in the arrays above. Match them up too, before anything picks active clips
+	for (int32_t c = 0; c < sessionClips.getNumElements(); c++) {
+		Clip* thisClip = sessionClips.getClipAtIndex(c);
+		if (thisClip->type == ClipType::AUDIO) {
+			static_cast<AudioClip*>(thisClip)->claimFrozenSourceOutput(modelStack);
+		}
+	}
+
 	AudioEngine::logAction("matched up");
 
 	AudioEngine::routineWithClusterLoading();
@@ -3343,6 +3351,26 @@ void Song::addOutput(Output* output, bool atStart) {
 	}
 
 	// Must resync LFOs - these (if synced) will roll even when no activeClip
+	if (this == currentSong) {
+		output->resyncLFOs();
+	}
+}
+
+void Song::insertOutputAtIndex(Output* output, int32_t index) {
+	if (index <= 0) {
+		addOutput(output, true);
+		return;
+	}
+	Output** prevPointer = &firstOutput;
+	for (int32_t i = 0; i < index && *prevPointer != nullptr; i++) {
+		prevPointer = &(*prevPointer)->next;
+	}
+	output->next = *prevPointer;
+	*prevPointer = output;
+
+	if (output->soloingInArrangementMode) {
+		anyOutputsSoloingInArrangement = true;
+	}
 	if (this == currentSong) {
 		output->resyncLFOs();
 	}

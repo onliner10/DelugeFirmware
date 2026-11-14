@@ -24,8 +24,11 @@
 #include "io/debug/log.h"
 #include "memory/general_memory_allocator.h"
 #include "model/action/action_logger.h"
+#include "model/clip/clip_freezer.h"
 #include "model/clip/clip_instance.h"
+#include "model/clip/instrument_clip.h"
 #include "model/consequence/consequence_output_existence.h"
+#include "model/instrument/midi_instrument.h"
 #include "model/model_stack.h"
 #include "model/sample/sample.h"
 #include "model/sample/sample_recorder.h"
@@ -68,6 +71,8 @@ AudioClip::~AudioClip() {
 	if (recorder) {
 		FREEZE_WITH_ERROR("E278");
 	}
+
+	deleteFrozenSource();
 
 	// Sirhc actually got this in a V3.0.5 RC! No idea how. Also Qui got around V3.1.3.
 	// I suspect that recorder is somehow still set when this Clip gets "deleted" by being put in a
@@ -929,7 +934,12 @@ void AudioClip::expectNoFurtherTicks(Song* song, bool actuallySoundChange) {
 // May change the TimelineCounter in the modelStack if new Clip got created
 void AudioClip::posReachedEnd(ModelStackWithTimelineCounter* modelStack) {
 
-	if (!isEmpty()) {}
+	// A clip being recorded by a freeze has its loops counted and its recording started and stopped by ClipFreezer,
+	// rather than extended or appended to as below
+	if (clipFreezer.isRecordingInto(this)) {
+		clipFreezer.loopEnded(modelStack);
+		return;
+	}
 
 	Clip::posReachedEnd(modelStack);
 
@@ -1177,6 +1187,103 @@ void AudioClip::writeDataToFile(Serializer& writer, Song* song) {
 	writer.writeOpeningTagEnd();
 	GlobalEffectableForClip::writeParamTagsToFile(writer, &paramManager, true);
 	writer.writeClosingTag("params");
+
+	// Firmware without freezing skips this whole element, and just sees the AudioClip
+	if (hasFrozenSource()) {
+		writer.writeOpeningTag("frozenSource");
+		if (frozen.detachedOutput != nullptr) {
+			frozen.detachedOutput->writeToFile(nullptr, song);
+		}
+		frozen.clip->writeToFile(writer, song);
+		writer.writeClosingTag("frozenSource");
+	}
+}
+
+/// Reads a <frozenSource>: the MIDI clip this one was frozen from, preceded by its Output if that was taken out of the
+/// song with it. Anything unexpected inside is skipped. If the clip can't be read, there's just no frozen source.
+static void readFrozenSource(Deserializer& reader, Song* song, AudioClip::FrozenSource& frozen) {
+	char const* tagName;
+	while (*(tagName = reader.readNextTagOrAttributeName())) {
+		if (frozen.detachedOutput == nullptr && frozen.clip == nullptr
+		    && (!strcmp(tagName, "midi") || !strcmp(tagName, "midiChannel") || !strcmp(tagName, "mpeZone"))) {
+			void* memory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(MIDIInstrument));
+			if (memory != nullptr) {
+				auto* output = new (memory) MIDIInstrument();
+				// As Song::readFromFile() reads its Outputs
+				if (output->readFromFile(reader, song, nullptr, 0) == Error::NONE) {
+					frozen.detachedOutput = output;
+				}
+				else {
+					output->~MIDIInstrument();
+					delugeDealloc(memory);
+				}
+				reader.match('}');
+				continue;
+			}
+		}
+		else if (frozen.clip == nullptr && !strcmp(tagName, "instrumentClip")) {
+			void* memory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(InstrumentClip));
+			if (memory != nullptr) {
+				auto* clip = new (memory) InstrumentClip();
+				// As Song::readClipsFromFile() reads its Clips
+				if (clip->readFromFile(reader, song) == Error::NONE) {
+					frozen.clip = clip;
+				}
+				else {
+					clip->~InstrumentClip();
+					delugeDealloc(memory);
+				}
+				reader.exitTag(nullptr, true);
+				reader.match('}');
+				continue;
+			}
+		}
+		reader.exitTag(tagName);
+	}
+
+	// An Output on its own is no use
+	if (frozen.clip == nullptr && frozen.detachedOutput != nullptr) {
+		void* toDealloc = dynamic_cast<void*>(frozen.detachedOutput);
+		frozen.detachedOutput->~Output();
+		delugeDealloc(toDealloc);
+		frozen.detachedOutput = nullptr;
+	}
+}
+
+void AudioClip::deleteFrozenSource() {
+	if (frozen.clip != nullptr) {
+		// It's not in the song and not active on its Output, so there's nothing to detach it from - just free it
+		frozen.clip->output = nullptr;
+		void* toDealloc = dynamic_cast<void*>(frozen.clip);
+		frozen.clip->~InstrumentClip();
+		delugeDealloc(toDealloc);
+		frozen.clip = nullptr;
+	}
+	if (frozen.detachedOutput != nullptr) {
+		void* toDealloc = dynamic_cast<void*>(frozen.detachedOutput);
+		frozen.detachedOutput->~Output();
+		delugeDealloc(toDealloc);
+		frozen.detachedOutput = nullptr;
+	}
+}
+
+void AudioClip::claimFrozenSourceOutput(ModelStack* modelStack) {
+	if (!hasFrozenSource()) {
+		return;
+	}
+	ModelStackWithTimelineCounter* modelStackWithClip = modelStack->addTimelineCounter(frozen.clip);
+	if (frozen.detachedOutput != nullptr) {
+		// Its own Output, which isn't in the song for claimOutput() to find. claimOutput() still does the rest of its
+		// setup, like giving the clip its MIDI ParamManager
+		frozen.clip->output = frozen.detachedOutput;
+	}
+	if (frozen.clip->claimOutput(modelStackWithClip) != Error::NONE) {
+		frozen.clip->output = nullptr;
+	}
+	if (frozen.clip->output == nullptr || frozen.clip->output->type != OutputType::MIDI_OUT) {
+		D_PRINTLN("dropping frozen clip whose output can't be found");
+		deleteFrozenSource();
+	}
 }
 
 Error AudioClip::readFromFile(Deserializer& reader, Song* song) {
@@ -1280,6 +1387,10 @@ someError:
 
 		else if (!strcmp(tagName, "lastSelectedParamArrayPosition")) {
 			lastSelectedParamArrayPosition = reader.readTagOrAttributeValueInt();
+		}
+
+		else if (!strcmp(tagName, "frozenSource")) {
+			readFrozenSource(reader, song, frozen);
 		}
 
 		else {

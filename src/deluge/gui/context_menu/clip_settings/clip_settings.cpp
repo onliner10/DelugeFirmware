@@ -17,13 +17,19 @@
 
 #include "gui/context_menu/clip_settings/clip_settings.h"
 #include "definitions_cxx.hpp"
+#include "gui/context_menu/clip_settings/freeze_source.h"
 #include "gui/context_menu/clip_settings/launch_style.h"
 #include "gui/l10n/l10n.h"
 #include "gui/ui/rename/rename_clip_ui.h"
 #include "gui/ui/root_ui.h"
 #include "gui/views/session_view.h"
 #include "hid/display/display.h"
+#include "model/clip/audio_clip.h"
 #include "model/clip/clip.h"
+#include "model/clip/clip_freezer.h"
+#include "model/clip/instrument_clip.h"
+#include "model/output.h"
+#include "model/settings/runtime_feature_settings.h"
 #include <cstddef>
 
 namespace deluge::gui::context_menu::clip_settings {
@@ -37,21 +43,30 @@ char const* ClipSettingsMenu::getTitle() {
 
 std::span<char const*> ClipSettingsMenu::getOptions() {
 	using enum l10n::String;
-	if (clip->type == ClipType::AUDIO) {
-		static const char* optionsls[] = {
-		    l10n::get(STRING_FOR_CLIP_MODE),
-		    l10n::get(STRING_FOR_CLIP_NAME),
-		};
-		return {optionsls, 2};
+	numOptions = 0;
+	auto add = [this](Option option, l10n::String string) {
+		optionIDs[numOptions] = option;
+		optionNames[numOptions] = l10n::get(string);
+		numOptions++;
+	};
+
+	bool freezeOn = runtimeFeatureSettings.isOn(RuntimeFeatureSettingType::ClipFreeze);
+	if (clipFreezer.involves(clip)) {
+		add(Option::CANCEL_FREEZE, STRING_FOR_CANCEL_FREEZE);
 	}
-	else {
-		static const char* optionsls[] = {
-		    l10n::get(STRING_FOR_CONVERT_TO_AUDIO),
-		    l10n::get(STRING_FOR_CLIP_MODE),
-		    l10n::get(STRING_FOR_CLIP_NAME),
-		};
-		return {optionsls, 3};
+	else if (clip->type == ClipType::INSTRUMENT) {
+		add(Option::CONVERT_TO_AUDIO, STRING_FOR_CONVERT_TO_AUDIO);
+		if (freezeOn && clip->output->type == OutputType::MIDI_OUT) {
+			add(Option::FREEZE, STRING_FOR_FREEZE);
+		}
 	}
+	else if (static_cast<AudioClip*>(clip)->hasFrozenSource()) {
+		// Offered even with the feature turned off, so nobody's stuck with a frozen clip
+		add(Option::UNFREEZE, STRING_FOR_UNFREEZE);
+	}
+	add(Option::CLIP_MODE, STRING_FOR_CLIP_MODE);
+	add(Option::CLIP_NAME, STRING_FOR_CLIP_NAME);
+	return {optionNames.data(), numOptions};
 }
 
 bool ClipSettingsMenu::setupAndCheckAvailability() {
@@ -64,27 +79,46 @@ void ClipSettingsMenu::selectEncoderAction(int8_t offset) {
 }
 
 bool ClipSettingsMenu::acceptCurrentOption() {
-	if (clip->type == ClipType::INSTRUMENT && this->currentOption == 0) {
+	getOptions(); // In case anything changed while the menu was open
+	if (this->currentOption < 0 || static_cast<size_t>(this->currentOption) >= numOptions) {
+		return false;
+	}
+
+	switch (optionIDs[this->currentOption]) {
+	case Option::CONVERT_TO_AUDIO:
 		sessionView.replaceInstrumentClipWithAudioClip(clip);
 		return false; // exit UI
-	}
-	else {
-		int32_t option = this->currentOption;
-		if (clip->type == ClipType::INSTRUMENT) {
-			option--; // rebase option selection to 0
+
+	case Option::FREEZE:
+		if (!ClipFreezer::canFreeze(clip, true)) {
+			return false;
 		}
-		if (option == 0) {
-			launchStyle.clip = clip;
-			launchStyle.setupAndCheckAvailability();
-			openUI(&launchStyle);
-		}
-		else {
-			currentUIMode = UI_MODE_NONE;
-			renameClipUI.clip = clip;
-			openUI(&renameClipUI);
-		}
+		freezeSource.clip = static_cast<InstrumentClip*>(clip);
+		freezeSource.setupAndCheckAvailability();
+		openUI(&freezeSource);
+		return true;
+
+	case Option::UNFREEZE:
+		ClipFreezer::unfreeze(static_cast<AudioClip*>(clip));
+		return false;
+
+	case Option::CANCEL_FREEZE:
+		clipFreezer.cancel();
+		return false;
+
+	case Option::CLIP_MODE:
+		launchStyle.clip = clip;
+		launchStyle.setupAndCheckAvailability();
+		openUI(&launchStyle);
+		return true;
+
+	case Option::CLIP_NAME:
+		currentUIMode = UI_MODE_NONE;
+		renameClipUI.clip = clip;
+		openUI(&renameClipUI);
 		return true;
 	}
+	return false;
 }
 
 ActionResult ClipSettingsMenu::padAction(int32_t x, int32_t y, int32_t on) {

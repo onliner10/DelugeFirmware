@@ -164,6 +164,8 @@ public:
 	                 InstrumentRemoval instrumentRemovalInstruction = InstrumentRemoval::DELETE_OR_HIBERNATE_IF_UNUSED);
 	int32_t getMaxMIDIChannelSuffix(int32_t channel);
 	void addOutput(Output* output, bool atStart = true);
+	/// Put an Output into the main list at a position, as getOutputIndex() counts them. Past the end means at the end.
+	void insertOutputAtIndex(Output* output, int32_t index);
 	void deleteOutputThatIsInMainList(Output* output, bool stopAnyAuditioningFirst = true);
 	void markAllInstrumentsAsEdited();
 	Instrument* getInstrumentFromPresetSlot(OutputType outputType, int32_t presetNumber, int32_t presetSubSlotNumber,

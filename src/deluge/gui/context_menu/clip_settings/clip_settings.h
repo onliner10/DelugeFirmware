@@ -18,6 +18,8 @@
 #pragma once
 
 #include "gui/context_menu/context_menu.h"
+#include <array>
+#include <cstddef>
 
 class Clip;
 
@@ -41,6 +43,13 @@ public:
 	std::span<const char*> getOptions() override;
 
 	ActionResult padAction(int32_t x, int32_t y, int32_t on) override;
+
+private:
+	enum class Option : uint8_t { CONVERT_TO_AUDIO, FREEZE, UNFREEZE, CANCEL_FREEZE, CLIP_MODE, CLIP_NAME };
+	static constexpr size_t kMaxOptions = 4;
+	std::array<Option, kMaxOptions> optionIDs{};
+	std::array<char const*, kMaxOptions> optionNames{};
+	size_t numOptions = 0;
 };
 
 extern ClipSettingsMenu clipSettings;

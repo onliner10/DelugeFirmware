@@ -104,10 +104,12 @@ public:
 	int32_t currentArmedLaunchLengthForOneRepeat;
 	bool switchToArrangementAtLaunchEvent;
 
-private:
-	bool giveClipOpportunityToBeginLinearRecording(Clip* clip, int32_t clipIndex, int32_t buttonPressLatency);
+	// Public for ClipFreezer, which stops a clip at its loop end like a pad press does
 	void armClipToStopAction(Clip* clip);
 	void cancelArmingForClip(Clip* clip, int32_t* clipIndex);
+
+private:
+	bool giveClipOpportunityToBeginLinearRecording(Clip* clip, int32_t clipIndex, int32_t buttonPressLatency);
 	void armSectionWhenNeitherClockActive(ModelStack* modelStack, int32_t section, bool stopAllOtherClips);
 	void armClipsAlongWithExistingLaunching(ArmState armState, uint8_t section, Clip* clip);
 	void armClipsWithNothingToSyncTo(uint8_t section, Clip* clip);
