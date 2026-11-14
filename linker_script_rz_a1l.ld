@@ -189,6 +189,10 @@ SECTIONS
 		PROVIDE(__sdram_text_start = .);
 		*(.sdram_text .sdram_text*)
 		*src/deluge/gui/*.obj(.text .text.* .gnu.linkonce.t.*)
+		/* Song, preset and settings file reading and writing only runs while loading or saving, so it needn't take
+		 * up internal RAM. The link step uses -ffunction-sections, so each function has its own .text.<mangled name>
+		 * section, and these patterns match the names of those functions and of any taking a (De)Serializer. */
+		*(.text.*FromFile* .text.*ToFile* .text.*Serializer*)
 		. = ALIGN(4);
 		PROVIDE(__sdram_text_end = .);
 	} > SDRAM

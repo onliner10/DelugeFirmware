@@ -290,6 +290,8 @@ target_link_options(deluge PUBLIC
     $<$<CONFIG:RELEASE,RELWITHDEBINFO>:-fuse-linker-plugin>
         # this makes the optimization better at the cost of linking being REALLY slow
         $<$<CONFIG:RELEASE>:-flto-partition=none>
+    # Keep a section per function in the LTO output too, so the linker script can place functions by name
+    -ffunction-sections
 
     # Coloring
     $<$<CXX_COMPILER_ID:GNU>:-fdiagnostics-color=always>
