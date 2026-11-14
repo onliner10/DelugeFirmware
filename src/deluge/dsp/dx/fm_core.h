@@ -25,6 +25,9 @@
 // make it 132 to allow 128 output with 4 byte padding
 const static int DX_MAX_N = 132;
 
+// Silence, for the operator kernels to read as their bus input when not adding to it. inline, so they share one copy
+alignas(16) inline constexpr int32_t dxZeros[DX_MAX_N] = {};
+
 class FmOperatorInfo {
 public:
 	int in;

@@ -31,8 +31,6 @@
 using std::max;
 using std::min;
 
-const int32_t __attribute__((aligned(16))) zeros[DX_MAX_N] = {0};
-
 static const uint16_t NEGATIVE_BIT = 0x8000;
 static const uint16_t ENV_BITDEPTH = 14;
 
@@ -100,7 +98,7 @@ void EngineMkI::compute(int32_t* output, int n, const int32_t* input, int32_t ph
                         int32_t gain2, int32_t dgain, bool add) {
 	int32_t gain = gain1;
 	int32_t phase = phase0;
-	const int32_t* adder = add ? output : zeros;
+	const int32_t* adder = add ? output : dxZeros;
 
 	for (int i = 0; i < n; i++) {
 		gain += dgain;
@@ -114,7 +112,7 @@ void EngineMkI::compute_pure(int32_t* output, int n, int32_t phase0, int32_t fre
                              int32_t dgain, bool add) {
 	int32_t gain = gain1;
 	int32_t phase = phase0;
-	const int32_t* adder = add ? output : zeros;
+	const int32_t* adder = add ? output : dxZeros;
 
 	for (int i = 0; i < n; i++) {
 		gain += dgain;
@@ -128,7 +126,7 @@ void EngineMkI::compute_fb(int32_t* output, int n, int32_t phase0, int32_t freq,
                            int32_t dgain, int32_t* fb_buf, int fb_shift, bool add) {
 	int32_t gain = gain1;
 	int32_t phase = phase0;
-	const int32_t* adder = add ? output : zeros;
+	const int32_t* adder = add ? output : dxZeros;
 	int32_t y0 = fb_buf[0];
 	int32_t y = fb_buf[1];
 
