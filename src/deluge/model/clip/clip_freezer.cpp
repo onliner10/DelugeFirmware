@@ -22,12 +22,14 @@
 #include "gui/views/session_view.h"
 #include "gui/views/view.h"
 #include "hid/display/display.h"
+#include "io/midi/midi_engine.h"
 #include "memory/general_memory_allocator.h"
 #include "model/action/action_logger.h"
 #include "model/clip/audio_clip.h"
 #include "model/clip/freeze_latency.h"
 #include "model/clip/freeze_warmup.h"
 #include "model/clip/instrument_clip.h"
+#include "model/instrument/midi_instrument.h"
 #include "model/model_stack.h"
 #include "model/note/note.h"
 #include "model/note/note_row.h"
@@ -52,6 +54,8 @@ namespace {
 /// end margin, kAudioClipMarginSizePostEnd, which is 46 ms.
 constexpr int32_t kMaxEarlySamples = 512;
 constexpr int32_t kMaxLateSamples = kAudioClipMarginSizePostEnd;
+/// A latency measured beforehand moves the recording itself, so isn't limited by its margin. This is just for sanity
+constexpr int32_t kMaxRecordShiftSamples = kSampleRate / 2;
 /// How long after its loop's end a freeze recording needs, to have its end margin
 constexpr int32_t kRecordingTailSamples = kAudioClipMarginSizePostEnd + 4 * SSI_TX_BUFFER_NUM_SAMPLES + 4410;
 } // namespace
@@ -196,27 +200,47 @@ void ClipFreezer::start(InstrumentClip* clip, AudioInputChannel inputChannel) {
 	audioClip = newClip;
 	lastInputChannel = inputChannel;
 
-	if (!playbackHandler.isEitherClockActive()) {
-		// Play from the start, with the MIDI clip playing
-		clip->activeIfNoSolo = true;
-		newClip->activeIfNoSolo = true;
-		newClip->soloingInSessionMode = clip->soloingInSessionMode;
-		beginWarmingUp();
-		playbackHandler.setupPlaybackUsingInternalClock();
+	bool pinging = canPing();
+	if (pinging) {
+		choosePings();
 	}
-	else if (thisSong->isClipActive(clip)) {
-		// Join in with the MIDI clip where it's up to
-		newClip->activeIfNoSolo = true;
-		newClip->soloingInSessionMode = clip->soloingInSessionMode;
-		newClip->setPos(modelStackWithAudioClip, clip->getCurrentPosAsIfPlayingInForwardDirection(), true);
+	pingLatencyKnown = false;
+	recordingLatency = 0;
+	midiLaunchPending = false;
+	bool clockActive = playbackHandler.isEitherClockActive();
+	midiWasPlaying = clockActive && thisSong->isClipActive(clip);
+
+	newClip->activeIfNoSolo = true;
+	newClip->soloingInSessionMode = clip->soloingInSessionMode;
+	if (clockActive) {
+		// The AudioClip joins in where the MIDI clip's up to - or where it would be, if it isn't playing
+		int32_t pos = midiWasPlaying ? clip->getCurrentPosAsIfPlayingInForwardDirection()
+		                             : (int32_t)((uint64_t)playbackHandler.lastSwungTickActioned % clip->loopLength);
+		newClip->setPos(modelStackWithAudioClip, pos, true);
 		newClip->resumePlayback(modelStackWithAudioClip);
-		beginWarmingUp();
+	}
+
+	if (pinging) {
+		// The gear has to be quiet for the pings: the MIDI clip starts again after them
+		if (midiWasPlaying) {
+			clip->expectNoFurtherTicks(thisSong);
+		}
+		clip->activeIfNoSolo = false;
+		state = State::MEASURE_WAIT;
+		popup(L10nString::STRING_FOR_FREEZE_MEASURING);
 	}
 	else {
-		// Launch both at the MIDI clip's next launch
-		session.toggleClipStatus(clip, &midiIndex, false, 0);
-		newClip->armState = clip->armState;
-		state = State::STARTING;
+		if (clockActive && !midiWasPlaying) {
+			launchMIDIClipInStep();
+		}
+		else {
+			clip->activeIfNoSolo = true;
+		}
+		beginWarmingUp();
+	}
+
+	if (!clockActive) {
+		playbackHandler.setupPlaybackUsingInternalClock();
 	}
 
 	uiNeedsRendering(&sessionView);
@@ -231,19 +255,60 @@ void ClipFreezer::beginWarmingUp() {
 
 void ClipFreezer::loopEnded(ModelStackWithTimelineCounter* modelStack) {
 	switch (state) {
+	case State::MEASURE_WAIT:
+		// Record one loop of pings, as a recording of the loop would be made
+		audioClip->originalLength = audioClip->loopLength;
+		audioClip->isPendingOverdub = false;
+		{
+			bool marginsSetting = FlashStorage::audioClipRecordMargins;
+			FlashStorage::audioClipRecordMargins = true; // The latency's looked for in its end margin too
+			Error error = audioClip->beginLinearRecording(modelStack, 0);
+			FlashStorage::audioClipRecordMargins = marginsSetting;
+			if (error != Error::NONE) {
+				state = State::WARMING_UP; // Carry on without measuring
+				midiLaunchPending = true;
+				loopEndsUntilRecording = deluge::freeze::warmupPasses(0);
+				return;
+			}
+		}
+		nextPing = 0;
+		pingSounding = false;
+		state = State::MEASURING;
+		break; // processPings() plays the first one at position 0, straight after this
+
+	case State::MEASURING:
+		if (pingSounding) {
+			sendPing(false);
+		}
+		audioClip->finishLinearRecording(modelStack, nullptr, 0);
+		// Keep the recording for routine() to analyse, without the AudioClip playing it
+		measurementSample = audioClip->takeRecordedSample();
+		measurementFinishedAt = AudioEngine::audioSampleTimer;
+		midiLaunchPending = true;
+		beginWarmingUp();
+		break;
+
 	case State::WARMING_UP:
 		if (--loopEndsUntilRecording > 0) {
 			return;
 		}
-		// Recording takes the loop from here to the next loop end, as when a session clip is launched to record
+		// Not ready to record until the MIDI clip's playing and the pings are measured - which they will be, as warming
+		// up is always a few seconds
+		if (midiLaunchPending || measurementSample != nullptr) {
+			loopEndsUntilRecording = 1;
+			return;
+		}
+		// Recording takes the loop from here to the next loop end, as when a session clip is launched to record - but
+		// later by the latency, so the recording lines up with the notes that made it
+		recordingLatency = pingLatencyKnown ? std::clamp(pingLatency, -kMaxEarlySamples, kMaxRecordShiftSamples) : 0;
 		audioClip->originalLength = audioClip->loopLength;
 		audioClip->isPendingOverdub = false;
 		{
-			// Record margins whatever the setting: the audio past the loop's end is what the sample's start and end
-			// move into to make up for latency
+			// Record margins whatever the setting: if the latency's still unknown, the audio past the loop's end is
+			// what the sample's start and end move into to make up for it
 			bool marginsSetting = FlashStorage::audioClipRecordMargins;
 			FlashStorage::audioClipRecordMargins = true;
-			Error error = audioClip->beginLinearRecording(modelStack, 0);
+			Error error = audioClip->beginLinearRecording(modelStack, -recordingLatency);
 			FlashStorage::audioClipRecordMargins = marginsSetting;
 			if (error != Error::NONE) {
 				// routine() sees there's no recording, and cancels
@@ -259,7 +324,7 @@ void ClipFreezer::loopEnded(ModelStackWithTimelineCounter* modelStack) {
 		break;
 
 	case State::RECORDING:
-		audioClip->finishLinearRecording(modelStack, nullptr, 0);
+		audioClip->finishLinearRecording(modelStack, nullptr, -recordingLatency);
 		recordingFinishedAt = AudioEngine::audioSampleTimer;
 		state = State::SWAPPING;
 		break;
@@ -267,6 +332,118 @@ void ClipFreezer::loopEnded(ModelStackWithTimelineCounter* modelStack) {
 	default:
 		break;
 	}
+}
+
+void ClipFreezer::processPings() {
+	if (state != State::MEASURING || numPings <= 0) {
+		return;
+	}
+	int32_t pos = audioClip->lastProcessedPos;
+	if (pingSounding && pos >= pingOffPos) {
+		sendPing(false);
+	}
+	if (!pingSounding && nextPing < numPings && pos >= nextPing * pingSpacing) {
+		pingOffPos = nextPing * pingSpacing + pingSpacing / 2;
+		sendPing(true);
+		nextPing++;
+	}
+	// Make sure the playback handler comes back here for the next one
+	int32_t nextEvent = pingSounding            ? pingOffPos
+	                    : (nextPing < numPings) ? nextPing * pingSpacing
+	                                            : audioClip->loopLength;
+	int32_t ticksUntil = nextEvent - pos;
+	if (ticksUntil > 0 && ticksUntil < playbackHandler.swungTicksTilNextEvent) {
+		playbackHandler.swungTicksTilNextEvent = ticksUntil;
+	}
+}
+
+bool ClipFreezer::canPing() const {
+	auto* instrument = static_cast<MIDIInstrument*>(midiClip->output);
+	return !instrument->sendsToInternal() && !instrument->sendsToMPE();
+}
+
+void ClipFreezer::choosePings() {
+	// The clip's commonest note, as loud as its loudest: something the gear's patch plays, and plays clearly
+	int32_t mostNotes = 0;
+	int32_t loudest = 1;
+	for (int32_t r = 0; r < midiClip->noteRows.getNumElements(); r++) {
+		NoteRow* noteRow = midiClip->noteRows.getElement(r);
+		int32_t numNotes = noteRow->notes.getNumElements();
+		if (noteRow->muted || numNotes == 0) {
+			continue;
+		}
+		if (numNotes > mostNotes) {
+			mostNotes = numNotes;
+			pingNote = noteRow->getNoteCode();
+		}
+		for (int32_t n = 0; n < numNotes; n++) {
+			loudest = std::max<int32_t>(loudest, noteRow->notes.getElement(n)->velocity);
+		}
+	}
+	pingNote = std::clamp<int32_t>(pingNote, 0, 127);
+	pingVelocity = std::clamp<int32_t>(loudest, 1, 127);
+
+	// One every quarter note, a short one, for as many as fit in the loop, up to 16 - and at least two
+	int32_t loopLength = midiClip->loopLength;
+	pingSpacing = std::max<int32_t>(song->getQuarterNoteLength(), loopLength / 16);
+	if (pingSpacing * 2 > loopLength) {
+		pingSpacing = loopLength / 2;
+	}
+	numPings = (pingSpacing > 0) ? loopLength / pingSpacing : 0;
+}
+
+void ClipFreezer::sendPing(bool on) {
+	auto* instrument = static_cast<MIDIInstrument*>(midiClip->output);
+	int32_t channel = instrument->getChannel();
+	// As MIDIInstrument::noteOnPostArp() and noteOffPostArp() send a clip's notes
+	midiEngine.sendNote(instrument, on, pingNote, on ? pingVelocity : kDefaultLiftValue, channel,
+	                    on ? channel : kMIDIOutputFilterNoMPE);
+	pingSounding = on;
+}
+
+void ClipFreezer::launchMIDIClipInStep() {
+	char modelStackMemory[MODEL_STACK_MAX_SIZE];
+	ModelStackWithTimelineCounter* modelStack = setupModelStackWithTimelineCounter(modelStackMemory, song, midiClip);
+	Output* output = midiClip->output;
+	Clip* other = output->getActiveClip();
+	if (other != nullptr && other != midiClip && song->isClipActive(other)) {
+		other->expectNoFurtherTicks(song);
+		other->activeIfNoSolo = false;
+	}
+	midiClip->activeIfNoSolo = true;
+	if (output->getActiveClip() != midiClip) {
+		output->setActiveClip(modelStack, PgmChangeSend::ONCE);
+	}
+	if (playbackHandler.isEitherClockActive()) {
+		midiClip->setPos(modelStack, audioClip->getCurrentPosAsIfPlayingInForwardDirection(), true);
+		midiClip->resumePlayback(modelStack);
+	}
+	uiNeedsRendering(&sessionView);
+}
+
+void ClipFreezer::releaseMeasurementSample() {
+	if (measurementSample != nullptr) {
+		measurementSample->removeReason("freeze pings");
+		measurementSample = nullptr;
+	}
+}
+
+void ClipFreezer::analysePings() {
+	Sample* sample = measurementSample;
+	uint32_t pingTicks[16];
+	int32_t count = std::min<int32_t>(numPings, 16);
+	for (int32_t i = 0; i < count; i++) {
+		pingTicks[i] = i * pingSpacing;
+	}
+	int32_t latency = 0;
+	if (sample != nullptr && sample->fileLoopEndSamples > sample->fileLoopStartSamples
+	    && measureLatency(sample, sample->fileLoopStartSamples, sample->fileLoopEndSamples, {pingTicks, (size_t)count},
+	                      &latency)) {
+		pingLatencyKnown = true;
+		pingLatency = latency;
+		lastLatencySamples = latency;
+	}
+	releaseMeasurementSample();
 }
 
 bool ClipFreezer::safeToRestructure() const {
@@ -280,9 +457,6 @@ bool ClipFreezer::stillValid() {
 	// A song swap would have deleted them. Undo could have taken them out of the song.
 	if (currentSong != song || sessionIndexOf(song, midiClip) < 0 || sessionIndexOf(song, audioClip) < 0) {
 		return false;
-	}
-	if (state == State::STARTING) {
-		return playbackHandler.isEitherClockActive() || midiClip->armState != ArmState::OFF;
 	}
 	return playbackHandler.isEitherClockActive() && currentPlaybackMode == &session;
 }
@@ -300,16 +474,23 @@ void ClipFreezer::routine() {
 	}
 
 	switch (state) {
-	case State::STARTING:
-		if (song->isClipActive(midiClip) && song->isClipActive(audioClip)) {
-			beginWarmingUp();
-		}
-		else if (midiClip->armState == ArmState::OFF) {
-			cancel(); // The launch got called off
+	case State::MEASURE_WAIT:
+	case State::MEASURING:
+		if (!song->isClipActive(audioClip) && safeToRestructure()) {
+			cancel(); // Someone stopped it
 		}
 		break;
 
 	case State::WARMING_UP:
+		if (midiLaunchPending) {
+			launchMIDIClipInStep();
+			midiLaunchPending = false;
+		}
+		// The pings' recording carries on for its end margin, which measuring needs
+		if (measurementSample != nullptr
+		    && (int32_t)(AudioEngine::audioSampleTimer - measurementFinishedAt) >= kRecordingTailSamples) {
+			analysePings();
+		}
 		// Someone stopped one of them
 		if ((!song->isClipActive(midiClip) || !song->isClipActive(audioClip)) && safeToRestructure()) {
 			cancel();
@@ -329,10 +510,15 @@ void ClipFreezer::routine() {
 				cancel();
 			}
 		}
-		// The recording carries on for its end margin, which measuring the latency needs
+		// The recording carries on for its end margin, which measuring the latency from it needs
 		else if ((int32_t)(AudioEngine::audioSampleTimer - recordingFinishedAt) < kRecordingTailSamples) {}
 		else if (safeToRestructure()) {
-			compensateLatency();
+			if (pingLatencyKnown) {
+				showFrozenPopup(recordingLatency, true); // Already recorded in time
+			}
+			else {
+				compensateLatency();
+			}
 			swapInPlace();
 			finish(false);
 		}
@@ -392,8 +578,7 @@ void ClipFreezer::swapInPlace() {
 	}
 }
 
-size_t ClipFreezer::readRecordingLevels(uint64_t startSample, std::span<uint32_t> levels) {
-	auto* sample = static_cast<Sample*>(audioClip->sampleHolder.audioFile);
+size_t ClipFreezer::readRecordingLevels(Sample* sample, uint64_t startSample, std::span<uint32_t> levels) {
 	int32_t numChannels = sample->numChannels;
 	int32_t byteDepth = sample->byteDepth;
 	int32_t bytesPerFrame = numChannels * byteDepth;
@@ -445,6 +630,37 @@ size_t ClipFreezer::readRecordingLevels(uint64_t startSample, std::span<uint32_t
 	return numBlocks;
 }
 
+bool ClipFreezer::measureLatency(Sample* sample, uint64_t loopStart, uint64_t loopEnd, std::span<uint32_t> noteTicks,
+                                 int32_t* latency) {
+	uint64_t loopSamples = loopEnd - loopStart;
+	if (noteTicks.empty() || loopSamples == 0 || midiClip->loopLength <= 0) {
+		return false;
+	}
+	// The search can go this far either side of where the recording's loop starts, as far as there's audio
+	int32_t before = std::min<uint64_t>(loopStart, kMaxEarlySamples);
+	int32_t after =
+	    std::min<uint64_t>(sample->lengthInSamples > loopEnd ? sample->lengthInSamples - loopEnd : 0, kMaxLateSamples);
+
+	size_t numBlocks = (loopSamples + before + after) / deluge::freeze::kLatencyBlockSize;
+	auto* levels = static_cast<uint32_t*>(GeneralMemoryAllocator::get().allocLowSpeed(numBlocks * sizeof(uint32_t)));
+	if (levels == nullptr) {
+		return false;
+	}
+	// Where the notes start, in samples into the levels
+	for (uint32_t& note : noteTicks) {
+		note = before + (uint64_t)note * loopSamples / midiClip->loopLength;
+	}
+	size_t numLevels = readRecordingLevels(sample, loopStart - before, {levels, numBlocks});
+	deluge::freeze::LatencyEstimate estimate =
+	    deluge::freeze::estimateLatency({levels, numLevels}, noteTicks, before + after);
+	delugeDealloc(levels);
+	if (!estimate.confident) {
+		return false;
+	}
+	*latency = estimate.samples - before;
+	return true;
+}
+
 void ClipFreezer::compensateLatency() {
 	auto* sample = static_cast<Sample*>(audioClip->sampleHolder.audioFile);
 	SampleHolderForClip& holder = audioClip->sampleHolder;
@@ -452,23 +668,13 @@ void ClipFreezer::compensateLatency() {
 		popup(L10nString::STRING_FOR_FROZEN);
 		return;
 	}
-	uint64_t loopSamples = holder.endPos - holder.startPos;
 
-	// The search can go this far either side of where the recording's loop starts, as far as there's audio
-	int32_t before = std::min<uint64_t>(holder.startPos, kMaxEarlySamples);
-	int32_t after = std::min<uint64_t>(
-	    sample->lengthInSamples > holder.endPos ? sample->lengthInSamples - holder.endPos : 0, kMaxLateSamples);
-
+	// From the clip's own notes
+	constexpr size_t kMaxNotes = 1024;
+	auto* noteTicks = static_cast<uint32_t*>(GeneralMemoryAllocator::get().allocLowSpeed(kMaxNotes * sizeof(uint32_t)));
 	int32_t latency = 0;
 	bool measured = false;
-
-	// Where the clip's notes start, in samples into the levels
-	constexpr size_t kMaxNotes = 1024;
-	auto* noteStarts =
-	    static_cast<uint32_t*>(GeneralMemoryAllocator::get().allocLowSpeed(kMaxNotes * sizeof(uint32_t)));
-	size_t numBlocks = (loopSamples + before + after) / deluge::freeze::kLatencyBlockSize;
-	auto* levels = static_cast<uint32_t*>(GeneralMemoryAllocator::get().allocLowSpeed(numBlocks * sizeof(uint32_t)));
-	if (noteStarts != nullptr && levels != nullptr) {
+	if (noteTicks != nullptr) {
 		size_t numNotes = 0;
 		for (int32_t r = 0; r < midiClip->noteRows.getNumElements(); r++) {
 			NoteRow* noteRow = midiClip->noteRows.getElement(r);
@@ -478,29 +684,22 @@ void ClipFreezer::compensateLatency() {
 			for (int32_t n = 0; n < noteRow->notes.getNumElements() && numNotes < kMaxNotes; n++) {
 				int32_t pos = noteRow->notes.getElement(n)->pos;
 				if (pos >= 0 && pos < midiClip->loopLength) {
-					noteStarts[numNotes++] = before + (uint64_t)pos * loopSamples / midiClip->loopLength;
+					noteTicks[numNotes++] = pos;
 				}
 			}
 		}
-		size_t numLevels = readRecordingLevels(holder.startPos - before, {levels, numBlocks});
-		deluge::freeze::LatencyEstimate estimate =
-		    deluge::freeze::estimateLatency({levels, numLevels}, {noteStarts, numNotes}, before + after);
-		if (estimate.confident) {
-			latency = estimate.samples - before;
-			measured = true;
-			lastLatencySamples = latency;
-		}
+		measured = measureLatency(sample, holder.startPos, holder.endPos, {noteTicks, numNotes}, &latency);
+		delugeDealloc(noteTicks);
 	}
-	if (noteStarts != nullptr) {
-		delugeDealloc(noteStarts);
+	if (measured) {
+		lastLatencySamples = latency;
 	}
-	if (levels != nullptr) {
-		delugeDealloc(levels);
-	}
-
-	if (!measured && lastLatencySamples != kLatencyUnknown) {
+	else if (lastLatencySamples != kLatencyUnknown) {
 		latency = lastLatencySamples;
 	}
+	int32_t before = std::min<uint64_t>(holder.startPos, kMaxEarlySamples);
+	int32_t after = std::min<uint64_t>(
+	    sample->lengthInSamples > holder.endPos ? sample->lengthInSamples - holder.endPos : 0, kMaxLateSamples);
 	latency = std::clamp(latency, -before, after);
 
 	// The loop is the same length, just later (or earlier) in the recording
@@ -511,26 +710,29 @@ void ClipFreezer::compensateLatency() {
 	ModelStackWithTimelineCounter* modelStack = setupModelStackWithTimelineCounter(modelStackMemory, song, audioClip);
 	audioClip->sampleZoneChanged(modelStack);
 
-	if (display->haveOLED()) {
-		// "Frozen, latency 7.3 ms", or say it couldn't be measured
-		char text[80];
-		char const* frozen = deluge::l10n::get(L10nString::STRING_FOR_FROZEN);
-		if (!measured && latency == 0) {
-			snprintf(text, sizeof(text), "%s, %s", frozen,
-			         deluge::l10n::get(L10nString::STRING_FOR_FREEZE_LATENCY_UNCLEAR));
-		}
-		else {
-			int32_t tenthsOfMs = (std::abs(latency) * 10000 + kSampleRate / 2) / kSampleRate;
-			snprintf(text, sizeof(text), "%s, %s %s%d.%d ms", frozen,
-			         deluge::l10n::get(measured ? L10nString::STRING_FOR_FREEZE_LATENCY
-			                                    : L10nString::STRING_FOR_FREEZE_LATENCY_USED_LAST),
-			         (latency < 0) ? "-" : "", static_cast<int>(tenthsOfMs / 10), static_cast<int>(tenthsOfMs % 10));
-		}
-		display->displayPopup(text);
+	showFrozenPopup(latency, measured);
+}
+
+void ClipFreezer::showFrozenPopup(int32_t latency, bool measured) {
+	if (!display->haveOLED()) {
+		popup(L10nString::STRING_FOR_FROZEN);
+		return;
+	}
+	// "Frozen, latency 7.3 ms", or say it couldn't be measured
+	char text[80];
+	char const* frozen = deluge::l10n::get(L10nString::STRING_FOR_FROZEN);
+	if (!measured && latency == 0) {
+		snprintf(text, sizeof(text), "%s, %s", frozen,
+		         deluge::l10n::get(L10nString::STRING_FOR_FREEZE_LATENCY_UNCLEAR));
 	}
 	else {
-		popup(L10nString::STRING_FOR_FROZEN);
+		int32_t tenthsOfMs = (std::abs(latency) * 10000 + kSampleRate / 2) / kSampleRate;
+		snprintf(text, sizeof(text), "%s, %s %s%d.%d ms", frozen,
+		         deluge::l10n::get(measured ? L10nString::STRING_FOR_FREEZE_LATENCY
+		                                    : L10nString::STRING_FOR_FREEZE_LATENCY_USED_LAST),
+		         (latency < 0) ? "-" : "", static_cast<int>(tenthsOfMs / 10), static_cast<int>(tenthsOfMs % 10));
 	}
+	display->displayPopup(text);
 }
 
 void ClipFreezer::cancel() {
@@ -538,6 +740,11 @@ void ClipFreezer::cancel() {
 }
 
 void ClipFreezer::finish(bool cancelled) {
+	if (pingSounding && currentSong == song && sessionIndexOf(song, midiClip) >= 0) {
+		sendPing(false);
+	}
+	pingSounding = false;
+	releaseMeasurementSample();
 	if (cancelled && currentSong == song && song != nullptr) {
 		int32_t audioIndex = sessionIndexOf(song, audioClip);
 		if (audioIndex >= 0) {
@@ -551,6 +758,12 @@ void ClipFreezer::finish(bool cancelled) {
 		int32_t midiIndex = sessionIndexOf(song, midiClip);
 		if (midiIndex >= 0 && state == State::RECORDING && midiClip->armState != ArmState::OFF) {
 			session.cancelArmingForClip(midiClip, &midiIndex); // It was only going to stop for us
+		}
+		// Freezing stopped it to measure: start it again, if that hasn't happened yet
+		if (midiIndex >= 0 && midiWasPlaying && playbackHandler.isEitherClockActive() && currentPlaybackMode == &session
+		    && !song->isClipActive(midiClip)) {
+			midiClip->activeIfNoSolo = true;
+			session.reSyncClipToSongTicks(midiClip);
 		}
 		actionLogger.deleteAllLogs();
 		popup(L10nString::STRING_FOR_FREEZE_CANCELLED);

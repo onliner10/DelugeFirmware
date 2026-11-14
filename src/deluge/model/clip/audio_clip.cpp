@@ -326,6 +326,10 @@ void AudioClip::processCurrentPos(ModelStackWithTimelineCounter* modelStack, uin
 		return;
 	}
 
+	if (clipFreezer.isRecordingInto(this)) {
+		clipFreezer.processPings();
+	}
+
 	// If we have a recorder that's gotten into error/aborted state, but we haven't registered that here yet, do that
 	// now. This isn't really the ideal place for this...
 	if (recorder && recorder->status == RecorderStatus::ABORTED) {
@@ -1248,6 +1252,17 @@ static void readFrozenSource(Deserializer& reader, Song* song, AudioClip::Frozen
 		delugeDealloc(toDealloc);
 		frozen.detachedOutput = nullptr;
 	}
+}
+
+Sample* AudioClip::takeRecordedSample() {
+	auto* sample = static_cast<Sample*>(sampleHolder.audioFile);
+	if (sample == nullptr) {
+		return nullptr;
+	}
+	sample->addReason();
+	clearSample(nullptr);
+	renderData.xScroll = -1;
+	return sample;
 }
 
 void AudioClip::deleteFrozenSource() {

@@ -32,6 +32,7 @@ class VoiceSample;
 class SampleRecorder;
 class InstrumentClip;
 class ModelStack;
+class Sample;
 class Output;
 class ModelStackWithTimelineCounter;
 
@@ -120,6 +121,8 @@ public:
 	bool hasFrozenSource() const { return frozen.clip != nullptr; }
 	/// Deletes the frozen MIDI clip, and its Output if this clip held that too
 	void deleteFrozenSource();
+	/// Take the clip's sample away from it, keeping the Sample alive with a reason the caller must remove
+	Sample* takeRecordedSample();
 	/// After a song's been read: give the frozen clip, if any, its Output. If that fails the frozen clip is dropped,
 	/// and this stays an ordinary AudioClip
 	void claimFrozenSourceOutput(ModelStack* modelStack);

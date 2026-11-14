@@ -23,6 +23,7 @@
 #include <span>
 
 class AudioClip;
+class Sample;
 class Clip;
 class InstrumentClip;
 class ModelStackWithTimelineCounter;
@@ -40,10 +41,11 @@ class ClipFreezer {
 public:
 	enum class State : uint8_t {
 		IDLE,
-		STARTING,   ///< Waiting for the MIDI clip, and with it the AudioClip, to launch
-		WARMING_UP, ///< Both playing, counting loop ends until recording starts
-		RECORDING,  ///< Recording the loop
-		SWAPPING,   ///< Recorded; waiting for routine() to put the AudioClip in the MIDI clip's place
+		MEASURE_WAIT, ///< The AudioClip's playing, the MIDI clip's quiet; waiting for a loop end to start measuring
+		MEASURING,    ///< Recording the gear's answer to test notes (pings) played across one loop
+		WARMING_UP,   ///< Both playing, counting loop ends until recording starts
+		RECORDING,    ///< Recording the loop
+		SWAPPING,     ///< Recorded; waiting for routine() to put the AudioClip in the MIDI clip's place
 	};
 
 	/// Whether the clip can be frozen. If not and showPopup, says why.
@@ -62,6 +64,8 @@ public:
 
 	/// Called from AudioClip::posReachedEnd() in place of its usual handling, for the AudioClip being recorded
 	void loopEnded(ModelStackWithTimelineCounter* modelStack);
+	/// Called from AudioClip::processCurrentPos() for the AudioClip being recorded: plays the pings while measuring
+	void processPings();
 	/// Called regularly by the task scheduler, to move things along outside of the tick processing
 	void routine();
 
@@ -78,10 +82,25 @@ private:
 	bool safeToRestructure() const;
 	void beginWarmingUp();
 	void swapInPlace();
-	/// Measure how late the recording is, and move the AudioClip's sample start and end to make up for it
+	/// Whether the MIDI clip's gear can be measured with pings: plain MIDI out, not MPE or to the Deluge's own synths
+	bool canPing() const;
+	void choosePings();
+	void sendPing(bool on);
+	/// Start the MIDI clip playing now, in step with the AudioClip, stopping anything else on its Output
+	void launchMIDIClipInStep();
+	/// Measure latency from the pings' recording, once it has its end margin
+	void analysePings();
+	/// Measure how late the recording is from its own notes, and move the AudioClip's sample start and end to make up
+	/// for it. For when the pings didn't give a measurement
 	void compensateLatency();
-	/// Fill levels with freeze_latency's block levels of the recording, from startSample. Returns how many it did.
-	size_t readRecordingLevels(uint64_t startSample, std::span<uint32_t> levels);
+	/// Measure the latency of a recording of the given notes (positions in ticks, within a loop of loopLength ticks).
+	/// latencyRange is how far either side of the loop's start it can be. Returns whether it could be measured
+	bool measureLatency(Sample* sample, uint64_t loopStart, uint64_t loopEnd, std::span<uint32_t> noteTicks,
+	                    int32_t* latency);
+	/// Fill levels with freeze_latency's block levels of a recording, from startSample. Returns how many it did.
+	size_t readRecordingLevels(Sample* sample, uint64_t startSample, std::span<uint32_t> levels);
+	void showFrozenPopup(int32_t latency, bool measured);
+	void releaseMeasurementSample();
 	void finish(bool cancelled);
 
 	State state = State::IDLE;
@@ -90,6 +109,21 @@ private:
 	AudioClip* audioClip = nullptr;
 	int32_t loopEndsUntilRecording = 0;
 	uint32_t recordingFinishedAt = 0; ///< AudioEngine::audioSampleTimer when it did
+
+	bool midiWasPlaying = false;         ///< Before freezing stopped it to measure, so cancelling can start it again
+	bool midiLaunchPending = false;      ///< routine() is to start the MIDI clip, now that measuring's done
+	Sample* measurementSample = nullptr; ///< The pings' recording, held until it's been analysed
+	uint32_t measurementFinishedAt = 0;
+	int32_t pingNote = 60;
+	int32_t pingVelocity = 100;
+	int32_t pingSpacing = 0; ///< Ticks between pings
+	int32_t numPings = 0;
+	int32_t nextPing = 0;
+	int32_t pingOffPos = 0;
+	bool pingSounding = false;
+	bool pingLatencyKnown = false;
+	int32_t pingLatency = 0;
+	int32_t recordingLatency = 0; ///< What the recording was shifted by, already
 };
 
 extern ClipFreezer clipFreezer;
