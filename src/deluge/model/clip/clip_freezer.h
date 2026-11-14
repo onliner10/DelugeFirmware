@@ -18,7 +18,9 @@
 #pragma once
 
 #include "definitions_cxx.hpp"
+#include <cstddef>
 #include <cstdint>
+#include <span>
 
 class AudioClip;
 class Clip;
@@ -66,11 +68,20 @@ public:
 	/// The input last chosen to freeze from, offered first next time
 	AudioInputChannel lastInputChannel = AudioInputChannel::STEREO;
 
+	/// The round-trip latency last measured from a freeze recording, in samples - used when a recording has nothing
+	/// clear enough to measure it from. Unknown until then.
+	int32_t lastLatencySamples = kLatencyUnknown;
+	static constexpr int32_t kLatencyUnknown = INT32_MIN;
+
 private:
 	bool stillValid();
 	bool safeToRestructure() const;
 	void beginWarmingUp();
 	void swapInPlace();
+	/// Measure how late the recording is, and move the AudioClip's sample start and end to make up for it
+	void compensateLatency();
+	/// Fill levels with freeze_latency's block levels of the recording, from startSample. Returns how many it did.
+	size_t readRecordingLevels(uint64_t startSample, std::span<uint32_t> levels);
 	void finish(bool cancelled);
 
 	State state = State::IDLE;
@@ -78,6 +89,7 @@ private:
 	InstrumentClip* midiClip = nullptr;
 	AudioClip* audioClip = nullptr;
 	int32_t loopEndsUntilRecording = 0;
+	uint32_t recordingFinishedAt = 0; ///< AudioEngine::audioSampleTimer when it did
 };
 
 extern ClipFreezer clipFreezer;
