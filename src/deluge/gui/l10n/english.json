@@ -995,6 +995,8 @@
     "STRING_FOR_FREEZE_TRACK_HAS_OTHER_CLIPS": "Track has other clips",
     "STRING_FOR_FREEZE_NOT_IN_ARRANGER": "Stop the arrangement first",
     "STRING_FOR_FREEZE_EMPTY_CLIP": "Clip is empty",
+    "STRING_FOR_HARDWARE_LATENCY": "Hardware latency",
+    "STRING_FOR_HARDWARE_LATENCY_SHORT": "HW latency",
     "STRING_FOR_CLIP_MODE": "Clip Mode",
     "STRING_FOR_CLIP_NAME": "Clip Name",
     "STRING_FOR_NOTE_EDITOR": "Note Editor",

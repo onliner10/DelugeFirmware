@@ -110,6 +110,10 @@ public:
 	int32_t channelSuffix{-1};
 	int32_t lastNoteCode{32767};
 	bool collapseAftertouch{false};
+	/// How long a note takes to go out to the gear and its sound to come back in, which freezing the clip allows for.
+	/// Set by hand, like Ableton's External Instrument "Hardware Latency"
+	int32_t hardwareLatencyMs{0};
+	static constexpr int32_t kMaxHardwareLatencyMs = 250;
 	bool collapseMPE{true};
 	CCNumber outputMPEY{CC_EXTERNAL_MPE_Y};
 	float ratio; // for combining per finger and global bend
