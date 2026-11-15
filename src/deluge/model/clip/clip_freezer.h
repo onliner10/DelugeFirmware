@@ -45,8 +45,10 @@ public:
 
 	/// Whether the clip can be frozen. If not and showPopup, says why.
 	static bool canFreeze(Clip* clip, bool showPopup);
-	/// Start freezing a session MIDI clip, recording from the given input. Starts playback if it's stopped.
-	void start(InstrumentClip* clip, AudioInputChannel inputChannel);
+	/// Start freezing a session MIDI clip. It's recorded from the input new audio tracks get (see
+	/// Song::createNewAudioOutput()), or the stereo line input if that's an internal source. Starts playback if it's
+	/// stopped.
+	void start(InstrumentClip* clip);
 	/// Stop freezing, leaving the MIDI clip as it was
 	void cancel();
 	/// Put an AudioClip's frozen MIDI clip back in its place. Returns whether it did.
@@ -61,9 +63,6 @@ public:
 	void loopEnded(ModelStackWithTimelineCounter* modelStack);
 	/// Called regularly by the task scheduler, to move things along outside of the tick processing
 	void routine();
-
-	/// The input last chosen to freeze from, offered first next time
-	AudioInputChannel lastInputChannel = AudioInputChannel::STEREO;
 
 private:
 	bool stillValid();

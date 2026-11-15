@@ -17,7 +17,6 @@
 
 #include "gui/context_menu/clip_settings/clip_settings.h"
 #include "definitions_cxx.hpp"
-#include "gui/context_menu/clip_settings/freeze_source.h"
 #include "gui/context_menu/clip_settings/launch_style.h"
 #include "gui/l10n/l10n.h"
 #include "gui/ui/rename/rename_clip_ui.h"
@@ -90,13 +89,8 @@ bool ClipSettingsMenu::acceptCurrentOption() {
 		return false; // exit UI
 
 	case Option::FREEZE:
-		if (!ClipFreezer::canFreeze(clip, true)) {
-			return false;
-		}
-		freezeSource.clip = static_cast<InstrumentClip*>(clip);
-		freezeSource.setupAndCheckAvailability();
-		openUI(&freezeSource);
-		return true;
+		clipFreezer.start(static_cast<InstrumentClip*>(clip));
+		return false; // exit UI
 
 	case Option::UNFREEZE:
 		ClipFreezer::unfreeze(static_cast<AudioClip*>(clip));

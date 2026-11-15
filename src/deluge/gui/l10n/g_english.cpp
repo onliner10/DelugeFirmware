@@ -998,7 +998,6 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_FREEZE, "Freeze"},
         {STRING_FOR_UNFREEZE, "Unfreeze"},
         {STRING_FOR_CANCEL_FREEZE, "Cancel freeze"},
-        {STRING_FOR_FREEZE_FROM, "Freeze from"},
         {STRING_FOR_FREEZE_WARMING_UP, "Freezing: warming up"},
         {STRING_FOR_FROZEN, "Frozen"},
         {STRING_FOR_UNFROZEN, "Unfrozen"},

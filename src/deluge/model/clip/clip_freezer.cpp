@@ -123,7 +123,7 @@ bool ClipFreezer::isRecordingInto(AudioClip const* clip) const {
 	return state != State::IDLE && clip == audioClip;
 }
 
-void ClipFreezer::start(InstrumentClip* clip, AudioInputChannel inputChannel) {
+void ClipFreezer::start(InstrumentClip* clip) {
 	if (!canFreeze(clip, true)) {
 		return;
 	}
@@ -152,7 +152,11 @@ void ClipFreezer::start(InstrumentClip* clip, AudioInputChannel inputChannel) {
 		return;
 	}
 	newOutput->colour = clip->output->colour;
-	newOutput->inputChannel = inputChannel;
+	// What the gear plays comes in from outside: not from an internal source like resampling, if that's the default
+	if (newOutput->inputChannel <= AudioInputChannel::NONE
+	    || newOutput->inputChannel >= AUDIO_INPUT_CHANNEL_FIRST_INTERNAL_OPTION) {
+		newOutput->inputChannel = AudioInputChannel::STEREO;
+	}
 	newOutput->mode = AudioOutputMode::player; // No monitoring - the gear is already heard wherever it's heard
 
 	// Like Song::replaceInstrumentClipWithAudioClip(), but it doesn't take the MIDI clip's place until it's recorded
@@ -182,7 +186,6 @@ void ClipFreezer::start(InstrumentClip* clip, AudioInputChannel inputChannel) {
 	song = thisSong;
 	midiClip = clip;
 	audioClip = newClip;
-	lastInputChannel = inputChannel;
 
 	newClip->activeIfNoSolo = true;
 	newClip->soloingInSessionMode = clip->soloingInSessionMode;
