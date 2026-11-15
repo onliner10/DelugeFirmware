@@ -46,4 +46,9 @@ constexpr int32_t warmupPasses(uint64_t loopLengthInSamples) {
 	return static_cast<int32_t>(passes);
 }
 
+/// A hardware latency in ms as samples, rounded to the nearest
+constexpr int32_t latencySamples(int32_t latencyMs, int32_t sampleRate = 44100) {
+	return static_cast<int32_t>(((int64_t)latencyMs * sampleRate + 500) / 1000);
+}
+
 } // namespace deluge::freeze

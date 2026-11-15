@@ -1004,6 +1004,8 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_FREEZE_BUSY, "Already freezing or recording"},
         {STRING_FOR_FREEZE_NOT_IN_ARRANGER, "Stop the arrangement first"},
         {STRING_FOR_FREEZE_EMPTY_CLIP, "Clip is empty"},
+        {STRING_FOR_HARDWARE_LATENCY, "Hardware latency"},
+        {STRING_FOR_HARDWARE_LATENCY_SHORT, "HW latency"},
         {STRING_FOR_CLIP_MODE, "Clip Mode"},
         {STRING_FOR_CLIP_NAME, "Clip Name"},
         {STRING_FOR_NOTE_EDITOR, "Note Editor"},
