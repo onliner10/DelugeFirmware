@@ -205,6 +205,10 @@ void RuntimeFeatureSettings::init() {
 	SetupOnOffSetting(settings[RuntimeFeatureSettingType::RoundedCorners], STRING_FOR_COMMUNITY_FEATURE_ROUNDED_CORNERS,
 	                  "roundedCorners", RuntimeFeatureStateToggle::On);
 
+	// Freeze / unfreeze MIDI clips in Clip Settings
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::ClipFreeze], STRING_FOR_COMMUNITY_FEATURE_CLIP_FREEZE,
+	                  "clipFreeze", RuntimeFeatureStateToggle::On);
+
 	// Shortcut Overlay
 	auto& overlay = settings[RuntimeFeatureSettingType::ShortcutOverlay];
 	overlay.displayName = STRING_FOR_COMMUNITY_FEATURE_SHORTCUT_OVERLAY;

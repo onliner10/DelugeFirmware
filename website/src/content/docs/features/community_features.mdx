@@ -715,6 +715,18 @@ Here is a list of features that have been added to the firmware as a list, group
     - :key[Shift] makes the launch immediate just like in Session View.
   - :key[AffectEntire] + :key[Macro Pad] can be used to jump to edit the clip.
 
+### 4.1.10 - Freeze MIDI Clips
+
+- <Badge text="c1.3" variant="tip" /> Record what a MIDI clip plays into an audio clip on a new audio track, then stop the MIDI clip. The recording comes in through an audio input, from the synth or gear the clip plays. The MIDI clip stays as it was, so to change it, launch it again.
+  - In Session View, open the `CLIP SETTINGS` menu for a MIDI clip (hold its :key[launch] pad in the left sidebar and press :key[select]) and choose `FREEZE`.
+  - It's recorded from the input new audio tracks get - the last one chosen for an audio track, in its `AUDIO SOURCE` menu - or from the stereo line input if that's an internal source (like resampling). To freeze from another input, choose it for an audio track first.
+  - Freezing starts playback if it's stopped, and the clip if it isn't playing, or joins in with it if it is. A new audio track and clip appear just below the MIDI clip.
+  - The clip first plays for a few loops without recording, so the gear's tails and effects (release, delay repeats, reverb) settle: at least 5 seconds' worth of whole loops, at least one loop and at most eight. Then exactly one loop is recorded, from loop end to loop end, so it carries the previous loop's tails at its start and loops seamlessly.
+  - The MIDI clip stops at the end of the recorded loop, and the audio clip carries straight on playing the recording.
+  - While freezing, `CLIP SETTINGS` for either clip offers `CANCEL FREEZE`, which deletes the new audio clip. Stopping playback or the MIDI clip pauses freezing: it carries on when they play again.
+  - Not available while the arrangement is playing.
+  - This feature can be turned off in the community features menu, under `Freeze MIDI clips (FREZ)`.
+
 ## 4.2 - Clip View - General Features (Instrument and Audio Clips)
 
 ### 4.2.1 - Filters
@@ -1405,6 +1417,8 @@ Note: these settings are saved to `SETTINGS/CommunityFeatures.XML` on your SD ca
   - `Off` disables the coloured shortcut overlay.
   - `On - Menu only (MENU)` (default) shows it while holding Shift in a sound editing menu.
   - `On - Menu + Clip (FULL)` also shows it while holding Shift in instrument and audio clip views.
+- `Freeze MIDI clips (FREZ)` <Badge text="c1.3" variant="tip" />
+  - When On (default), MIDI clips can be frozen to audio from the `CLIP SETTINGS` menu in Session View. See [Freeze MIDI Clips](#4110---freeze-midi-clips).
 
 ## 6. Sysex Handling
 

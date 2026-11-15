@@ -24,6 +24,7 @@
 #include "io/debug/log.h"
 #include "memory/general_memory_allocator.h"
 #include "model/action/action_logger.h"
+#include "model/clip/clip_freezer.h"
 #include "model/clip/clip_instance.h"
 #include "model/consequence/consequence_output_existence.h"
 #include "model/model_stack.h"
@@ -68,6 +69,8 @@ AudioClip::~AudioClip() {
 	if (recorder) {
 		FREEZE_WITH_ERROR("E278");
 	}
+
+	clipFreezer.forget(this);
 
 	// Sirhc actually got this in a V3.0.5 RC! No idea how. Also Qui got around V3.1.3.
 	// I suspect that recorder is somehow still set when this Clip gets "deleted" by being put in a
@@ -929,7 +932,12 @@ void AudioClip::expectNoFurtherTicks(Song* song, bool actuallySoundChange) {
 // May change the TimelineCounter in the modelStack if new Clip got created
 void AudioClip::posReachedEnd(ModelStackWithTimelineCounter* modelStack) {
 
-	if (!isEmpty()) {}
+	// A clip being recorded by a freeze has its loops counted and its recording started and stopped by ClipFreezer,
+	// rather than extended or appended to as below
+	if (clipFreezer.isRecordingInto(this)) {
+		clipFreezer.loopEnded(modelStack);
+		return;
+	}
 
 	Clip::posReachedEnd(modelStack);
 
