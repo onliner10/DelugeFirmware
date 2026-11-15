@@ -178,28 +178,22 @@ void ClipFreezer::start(InstrumentClip* clip, AudioInputChannel inputChannel) {
 	audioClip = newClip;
 	lastInputChannel = inputChannel;
 
+	newClip->activeIfNoSolo = true;
+	newClip->soloingInSessionMode = clip->soloingInSessionMode;
 	if (!playbackHandler.isEitherClockActive()) {
 		// Play from the start, with the MIDI clip playing
 		clip->activeIfNoSolo = true;
-		newClip->activeIfNoSolo = true;
-		newClip->soloingInSessionMode = clip->soloingInSessionMode;
-		beginWarmingUp();
 		playbackHandler.setupPlaybackUsingInternalClock();
 	}
-	else if (thisSong->isClipActive(clip)) {
-		// Join in with the MIDI clip where it's up to
-		newClip->activeIfNoSolo = true;
-		newClip->soloingInSessionMode = clip->soloingInSessionMode;
+	else {
+		// Start the MIDI clip now if it isn't playing, as a shift-press of its pad would, and the AudioClip with it
+		if (!thisSong->isClipActive(clip)) {
+			session.toggleClipStatus(clip, &midiIndex, true, 0);
+		}
 		newClip->setPos(modelStackWithAudioClip, clip->getCurrentPosAsIfPlayingInForwardDirection(), true);
 		newClip->resumePlayback(modelStackWithAudioClip);
-		beginWarmingUp();
 	}
-	else {
-		// Launch both at the MIDI clip's next launch
-		session.toggleClipStatus(clip, &midiIndex, false, 0);
-		newClip->armState = clip->armState;
-		state = State::STARTING;
-	}
+	beginWarmingUp();
 
 	uiNeedsRendering(&sessionView);
 }
@@ -258,9 +252,6 @@ bool ClipFreezer::stillValid() {
 	if (currentSong != song || sessionIndexOf(song, midiClip) < 0 || sessionIndexOf(song, audioClip) < 0) {
 		return false;
 	}
-	if (state == State::STARTING) {
-		return playbackHandler.isEitherClockActive() || midiClip->armState != ArmState::OFF;
-	}
 	return playbackHandler.isEitherClockActive() && currentPlaybackMode == &session;
 }
 
@@ -277,15 +268,6 @@ void ClipFreezer::routine() {
 	}
 
 	switch (state) {
-	case State::STARTING:
-		if (song->isClipActive(midiClip) && song->isClipActive(audioClip)) {
-			beginWarmingUp();
-		}
-		else if (midiClip->armState == ArmState::OFF) {
-			cancel(); // The launch got called off
-		}
-		break;
-
 	case State::WARMING_UP:
 		// Someone stopped one of them
 		if ((!song->isClipActive(midiClip) || !song->isClipActive(audioClip)) && safeToRestructure()) {

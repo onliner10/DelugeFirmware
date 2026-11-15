@@ -38,7 +38,6 @@ class ClipFreezer {
 public:
 	enum class State : uint8_t {
 		IDLE,
-		STARTING,   ///< Waiting for the MIDI clip, and with it the AudioClip, to launch
 		WARMING_UP, ///< Both playing, counting loop ends until recording starts
 		RECORDING,  ///< Recording the loop
 		SWAPPING,   ///< Recorded; waiting for routine() to put the AudioClip in the MIDI clip's place
