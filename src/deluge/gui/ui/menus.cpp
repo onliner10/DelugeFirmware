@@ -109,6 +109,7 @@
 #include "gui/menu_item/midi/follow/follow_feedback_automation.h"
 #include "gui/menu_item/midi/follow/follow_feedback_channel_type.h"
 #include "gui/menu_item/midi/follow/follow_kit_root_note.h"
+#include "gui/menu_item/midi/hardware_latency.h"
 #include "gui/menu_item/midi/mpe_to_mono.h"
 #include "gui/menu_item/midi/pgm.h"
 #include "gui/menu_item/midi/program.h"
@@ -680,6 +681,8 @@ PLACE_SDRAM_BSS cv::DualCVSelection cv2SourceMenu{STRING_FOR_CV2_SOURCE};
 PLACE_SDRAM_BSS midi::AftertouchToMono midiAftertouchCollapseMenu{STRING_FOR_PATCH_SOURCE_AFTERTOUCH,
                                                                   STRING_FOR_PATCH_SOURCE_AFTERTOUCH};
 PLACE_SDRAM_BSS midi::MPEToMono midiMPECollapseMenu{STRING_FOR_MPE, STRING_FOR_MPE};
+PLACE_SDRAM_BSS midi::HardwareLatency midiHardwareLatencyMenu{STRING_FOR_HARDWARE_LATENCY,
+                                                              STRING_FOR_HARDWARE_LATENCY_SHORT};
 PLACE_SDRAM_BSS submenu::PolyMonoConversion midiMPEMenu{STRING_FOR_MPE_MONO,
                                                         {&midiAftertouchCollapseMenu, &midiMPECollapseMenu}};
 // Clip-level stuff --------------------------------------------------------------------------
@@ -1719,6 +1722,7 @@ PLACE_SDRAM_BSS menu_item::Submenu soundEditorRootMenuMIDIOrCV{
         &mpeyToModWheelMenu,
         &midiMPEMenu,
         &sequenceDirectionMenu,
+        &midiHardwareLatencyMenu,
     },
 };
 
