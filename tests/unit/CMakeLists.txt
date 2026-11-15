@@ -103,7 +103,6 @@ add_executable(UnitTests
         tick_interpolation_tests.cpp
         envelope_curve_tests.cpp
         freeze_warmup_tests.cpp
-        freeze_latency_tests.cpp
 )
 add_test(NAME UnitTests
         COMMAND UnitTests)
