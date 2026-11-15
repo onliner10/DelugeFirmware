@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "definitions_cxx.hpp"
 #include <cstdint>
 
 class AudioClip;
@@ -26,51 +25,37 @@ class InstrumentClip;
 class ModelStackWithTimelineCounter;
 class Song;
 
-/// Freezing replaces a session MIDI clip, in place, with an AudioClip recorded from whatever the MIDI drives, coming
-/// back in through an audio input. The MIDI clip is kept, hidden inside the AudioClip (AudioClip::frozen), and
-/// unfreezing puts it back.
+/// Freezing records what a session MIDI clip plays, coming back in through an audio input, into a new AudioClip on a
+/// new audio track just below it, then stops the MIDI clip. The MIDI clip stays in the song as it was, so going back to
+/// it is a matter of launching it again.
 ///
-/// Recording: a new AudioClip, playing in sync with the MIDI clip, lets warmupPasses() loop ends go by so the gear's
-/// tails and effects settle, then records exactly one loop, from one loop end to the next. The MIDI clip is armed to
-/// stop at that same loop end, so as it stops, the AudioClip starts playing back what it recorded - which, having been
-/// recorded with the previous pass's tails at its start, loops seamlessly. Then the two clips swap places.
+/// The AudioClip plays in step with the MIDI clip and lets warmupPasses() loop ends go by, so the gear's tails and
+/// effects settle, then records exactly one loop, from one loop end to the next. The MIDI clip is armed to stop at that
+/// same loop end, so as it stops, the AudioClip starts playing back what it recorded - which, having been recorded with
+/// the previous pass's tails at its start, loops seamlessly.
 class ClipFreezer {
 public:
-	enum class State : uint8_t {
-		IDLE,
-		WARMING_UP, ///< Both playing, counting loop ends until recording starts
-		RECORDING,  ///< Recording the loop
-		SWAPPING,   ///< Recorded; waiting for routine() to put the AudioClip in the MIDI clip's place
-	};
-
 	/// Whether the clip can be frozen. If not and showPopup, says why.
 	static bool canFreeze(Clip* clip, bool showPopup);
 	/// Start freezing a session MIDI clip. It's recorded from the input new audio tracks get (see
 	/// Song::createNewAudioOutput()), or the stereo line input if that's an internal source. Starts playback if it's
 	/// stopped.
 	void start(InstrumentClip* clip);
-	/// Stop freezing, leaving the MIDI clip as it was
+	/// Stop freezing, deleting the AudioClip it was recording into
 	void cancel();
-	/// Put an AudioClip's frozen MIDI clip back in its place. Returns whether it did.
-	static bool unfreeze(AudioClip* clip);
 
-	bool isBusy() const { return state != State::IDLE; }
 	/// Whether this clip is the MIDI clip being frozen or the AudioClip being recorded for it
 	bool involves(Clip const* clip) const;
 	bool isRecordingInto(AudioClip const* clip) const;
-
 	/// Called from AudioClip::posReachedEnd() in place of its usual handling, for the AudioClip being recorded
 	void loopEnded(ModelStackWithTimelineCounter* modelStack);
-	/// Called regularly by the task scheduler, to move things along outside of the tick processing
-	void routine();
+	/// Called as an AudioClip is deleted, in case it's the one being recorded
+	void forget(AudioClip const* clip);
 
 private:
-	bool stillValid();
-	bool safeToRestructure() const;
-	void beginWarmingUp();
-	void swapInPlace();
-	void finish(bool cancelled);
+	void stop();
 
+	enum class State : uint8_t { IDLE, WARMING_UP, RECORDING };
 	State state = State::IDLE;
 	Song* song = nullptr;
 	InstrumentClip* midiClip = nullptr;

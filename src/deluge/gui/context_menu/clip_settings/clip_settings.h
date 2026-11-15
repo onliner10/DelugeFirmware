@@ -45,7 +45,7 @@ public:
 	ActionResult padAction(int32_t x, int32_t y, int32_t on) override;
 
 private:
-	enum class Option : uint8_t { CONVERT_TO_AUDIO, FREEZE, UNFREEZE, CANCEL_FREEZE, CLIP_MODE, CLIP_NAME };
+	enum class Option : uint8_t { CONVERT_TO_AUDIO, FREEZE, CANCEL_FREEZE, CLIP_MODE, CLIP_NAME };
 	static constexpr size_t kMaxOptions = 4;
 	std::array<Option, kMaxOptions> optionIDs{};
 	std::array<char const*, kMaxOptions> optionNames{};

@@ -23,7 +23,6 @@
 #include "gui/ui/root_ui.h"
 #include "gui/views/session_view.h"
 #include "hid/display/display.h"
-#include "model/clip/audio_clip.h"
 #include "model/clip/clip.h"
 #include "model/clip/clip_freezer.h"
 #include "model/clip/instrument_clip.h"
@@ -59,10 +58,6 @@ std::span<char const*> ClipSettingsMenu::getOptions() {
 			add(Option::FREEZE, STRING_FOR_FREEZE);
 		}
 	}
-	else if (static_cast<AudioClip*>(clip)->hasFrozenSource()) {
-		// Offered even with the feature turned off, so nobody's stuck with a frozen clip
-		add(Option::UNFREEZE, STRING_FOR_UNFREEZE);
-	}
 	add(Option::CLIP_MODE, STRING_FOR_CLIP_MODE);
 	add(Option::CLIP_NAME, STRING_FOR_CLIP_NAME);
 	return {optionNames.data(), numOptions};
@@ -91,10 +86,6 @@ bool ClipSettingsMenu::acceptCurrentOption() {
 	case Option::FREEZE:
 		clipFreezer.start(static_cast<InstrumentClip*>(clip));
 		return false; // exit UI
-
-	case Option::UNFREEZE:
-		ClipFreezer::unfreeze(static_cast<AudioClip*>(clip));
-		return false;
 
 	case Option::CANCEL_FREEZE:
 		clipFreezer.cancel();
