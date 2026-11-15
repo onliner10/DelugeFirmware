@@ -34,7 +34,6 @@
 #include "modulation/params/param_set.h"
 #include "storage/storage_manager.h"
 #include "util/d_stringbuf.h"
-#include <algorithm>
 #include <cstring>
 #include <string_view>
 
@@ -372,9 +371,6 @@ bool MIDIInstrument::writeDataToFile(Serializer& writer, Clip* clipForSavingOutp
 	// NonAudioInstrument::writeDataToFile(writer, clipForSavingOutputOnly, song); // Nope, this gets called within the
 	// below call
 	writeMelodicInstrumentAttributesToFile(writer, clipForSavingOutputOnly, song);
-	if (hardwareLatencyMs != 0) {
-		writer.writeAttribute("hardwareLatencyMs", hardwareLatencyMs);
-	}
 
 	if (editedByUser || clipForSavingOutputOnly) { // Otherwise, there'll be nothing in here
 		writer.writeOpeningTagEnd();
@@ -519,9 +515,6 @@ bool MIDIInstrument::readTagFromFile(Deserializer& reader, char const* tagName) 
 	}
 	else if (!strcmp(tagName, "midiDevice")) {
 		readDeviceDefinitionFile(reader, true);
-	}
-	else if (!strcmp(tagName, "hardwareLatencyMs")) {
-		hardwareLatencyMs = std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, kMaxHardwareLatencyMs);
 	}
 	else if (NonAudioInstrument::readTagFromFile(reader, tagName)) {
 		return true;

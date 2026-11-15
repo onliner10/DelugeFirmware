@@ -76,7 +76,6 @@ private:
 	InstrumentClip* midiClip = nullptr;
 	AudioClip* audioClip = nullptr;
 	int32_t loopEndsUntilRecording = 0;
-	int32_t recordingLatency = 0; ///< Samples the recording is taken later by
 };
 
 extern ClipFreezer clipFreezer;

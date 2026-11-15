@@ -27,7 +27,6 @@
 #include "model/clip/audio_clip.h"
 #include "model/clip/freeze_warmup.h"
 #include "model/clip/instrument_clip.h"
-#include "model/instrument/midi_instrument.h"
 #include "model/model_stack.h"
 #include "model/settings/runtime_feature_settings.h"
 #include "model/song/song.h"
@@ -223,11 +222,7 @@ void ClipFreezer::loopEnded(ModelStackWithTimelineCounter* modelStack) {
 		// Recording takes the loop from here to the next loop end, as when a session clip is launched to record
 		audioClip->originalLength = audioClip->loopLength;
 		audioClip->isPendingOverdub = false;
-		// But taken later by the MIDI track's hardware latency, so the recording lines up with the notes that made it.
-		// This is the SampleRecorder's button press latency compensation, the other way round
-		recordingLatency =
-		    deluge::freeze::latencySamples(static_cast<MIDIInstrument*>(midiClip->output)->hardwareLatencyMs);
-		if (audioClip->beginLinearRecording(modelStack, -recordingLatency) != Error::NONE) {
+		if (audioClip->beginLinearRecording(modelStack, 0) != Error::NONE) {
 			// routine() sees there's no recording, and cancels
 			state = State::SWAPPING;
 			return;
@@ -240,7 +235,7 @@ void ClipFreezer::loopEnded(ModelStackWithTimelineCounter* modelStack) {
 		break;
 
 	case State::RECORDING:
-		audioClip->finishLinearRecording(modelStack, nullptr, -recordingLatency);
+		audioClip->finishLinearRecording(modelStack, nullptr, 0);
 		state = State::SWAPPING;
 		break;
 

@@ -4,7 +4,6 @@
 
 using deluge::freeze::kMaxWarmupPasses;
 using deluge::freeze::kMinWarmupSamples;
-using deluge::freeze::latencySamples;
 using deluge::freeze::warmupPasses;
 
 TEST_GROUP(FreezeWarmupTests){};
@@ -42,13 +41,4 @@ TEST(FreezeWarmupTests, passesNeverIncreaseWithLength) {
 		CHECK(static_cast<uint64_t>(passes) * length >= kMinWarmupSamples || passes == kMaxWarmupPasses);
 		previous = passes;
 	}
-}
-
-// Hardware latency in ms to samples, rounded
-TEST(FreezeWarmupTests, latencyMsToSamples) {
-	CHECK_EQUAL(0, latencySamples(0));
-	CHECK_EQUAL(44, latencySamples(1)); // 44.1
-	CHECK_EQUAL(441, latencySamples(10));
-	CHECK_EQUAL(11025, latencySamples(250));
-	CHECK_EQUAL(48, latencySamples(1, 48000));
 }
