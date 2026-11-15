@@ -112,8 +112,7 @@ public:
 		/// The MIDI clip. Not in any of the song's clip arrays, and not the active clip of its Output - but its output
 		/// pointer stays set.
 		InstrumentClip* clip = nullptr;
-		/// The clip's Output, if it had no other clips and so was taken out of the song's list of Outputs too.
-		/// Otherwise null, and the Output is still in the song.
+		/// The clip's Output, taken out of the song's list of Outputs with it - it was the Output's only clip
 		Output* detachedOutput = nullptr;
 	};
 	FrozenSource frozen;

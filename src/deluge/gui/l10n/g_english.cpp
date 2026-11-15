@@ -1006,6 +1006,7 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_FREEZE_MIDI_CLIPS_ONLY, "Only MIDI clips can be frozen"},
         {STRING_FOR_FREEZE_BUSY, "Already freezing or recording"},
         {STRING_FOR_FREEZE_CLIP_IN_ARRANGEMENT, "Clip is used in the arrangement"},
+        {STRING_FOR_FREEZE_TRACK_HAS_OTHER_CLIPS, "Track has other clips"},
         {STRING_FOR_FREEZE_NOT_IN_ARRANGER, "Stop the arrangement first"},
         {STRING_FOR_FREEZE_EMPTY_CLIP, "Clip is empty"},
         {STRING_FOR_HARDWARE_LATENCY, "Hardware latency"},

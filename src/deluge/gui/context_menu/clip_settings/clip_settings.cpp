@@ -79,7 +79,7 @@ void ClipSettingsMenu::selectEncoderAction(int8_t offset) {
 }
 
 bool ClipSettingsMenu::acceptCurrentOption() {
-	getOptions(); // In case anything changed while the menu was open
+	// The options as shown. Each one checks it can still be done, in case anything changed while the menu was open
 	if (this->currentOption < 0 || static_cast<size_t>(this->currentOption) >= numOptions) {
 		return false;
 	}

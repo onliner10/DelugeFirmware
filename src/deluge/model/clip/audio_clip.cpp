@@ -1271,13 +1271,11 @@ void AudioClip::claimFrozenSourceOutput(ModelStack* modelStack) {
 	if (!hasFrozenSource()) {
 		return;
 	}
-	ModelStackWithTimelineCounter* modelStackWithClip = modelStack->addTimelineCounter(frozen.clip);
-	if (frozen.detachedOutput != nullptr) {
-		// Its own Output, which isn't in the song for claimOutput() to find. claimOutput() still does the rest of its
-		// setup, like giving the clip its MIDI ParamManager
-		frozen.clip->output = frozen.detachedOutput;
-	}
-	if (frozen.clip->claimOutput(modelStackWithClip) != Error::NONE) {
+	// A frozen clip always has its own Output, which isn't in the song for claimOutput() to look for. claimOutput()
+	// still does the rest of its setup, like giving the clip its MIDI ParamManager
+	frozen.clip->output = frozen.detachedOutput;
+	if (frozen.clip->output != nullptr
+	    && frozen.clip->claimOutput(modelStack->addTimelineCounter(frozen.clip)) != Error::NONE) {
 		frozen.clip->output = nullptr;
 	}
 	if (frozen.clip->output == nullptr || frozen.clip->output->type != OutputType::MIDI_OUT) {

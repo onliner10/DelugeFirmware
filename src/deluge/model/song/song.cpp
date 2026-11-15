@@ -2185,12 +2185,10 @@ loadOutput:
 		}
 	}
 
-	// Frozen clips' MIDI clips aren't in the arrays above. Match them up too, before anything picks active clips
-	for (int32_t c = 0; c < sessionClips.getNumElements(); c++) {
-		Clip* thisClip = sessionClips.getClipAtIndex(c);
-		if (thisClip->type == ClipType::AUDIO) {
-			static_cast<AudioClip*>(thisClip)->claimFrozenSourceOutput(modelStack);
-		}
+	// Frozen clips' MIDI clips aren't in the arrays above. Match them up too, before anything picks active clips. A
+	// frozen AudioClip can be arrangement-only too, if it was deleted from the session while used in the arrangement
+	for (AudioClip* audioClip : AudioClips::everywhere(this)) {
+		audioClip->claimFrozenSourceOutput(modelStack);
 	}
 
 	AudioEngine::logAction("matched up");

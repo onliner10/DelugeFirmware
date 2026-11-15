@@ -97,6 +97,12 @@ bool ClipFreezer::canFreeze(Clip* clip, bool showPopup) {
 	if (sessionIndexOf(currentSong, clip) < 0 || clip->output->clipHasInstance(clip)) {
 		return refuse(L10nString::STRING_FOR_FREEZE_CLIP_IN_ARRANGEMENT);
 	}
+	// The frozen clip takes its MIDI track with it, out of the song, so nothing else may be using that. (As with
+	// converting an instrument clip to audio.)
+	if (currentSong->getClipWithOutput(clip->output, false, clip) != nullptr
+	    || clip->output->clipInstances.getNumElements() != 0) {
+		return refuse(L10nString::STRING_FOR_FREEZE_TRACK_HAS_OTHER_CLIPS);
+	}
 	if (playbackHandler.isEitherClockActive() && currentPlaybackMode != &session) {
 		return refuse(L10nString::STRING_FOR_FREEZE_NOT_IN_ARRANGER);
 	}
@@ -289,8 +295,15 @@ void ClipFreezer::routine() {
 			}
 		}
 		else if (safeToRestructure()) {
-			swapInPlace();
-			finish(false);
+			// Its MIDI track has to leave the song with it, so not if another clip's been put on that meanwhile
+			if (song->getClipWithOutput(midiClip->output, false, midiClip) != nullptr
+			    || midiClip->output->clipInstances.getNumElements() != 0) {
+				cancel();
+			}
+			else {
+				swapInPlace();
+				finish(false);
+			}
 		}
 		// Otherwise the AudioClip's already playing in place of the MIDI clip, and the swap waits for its view to close
 		break;
@@ -301,9 +314,6 @@ void ClipFreezer::routine() {
 }
 
 void ClipFreezer::swapInPlace() {
-	char modelStackMemory[MODEL_STACK_MAX_SIZE];
-	ModelStack* modelStack = setupModelStackWithSong(modelStackMemory, song);
-
 	// Normally the MIDI clip has just stopped, armed to at the end of the recording. If someone called that off, stop
 	// it
 	int32_t midiIndex = sessionIndexOf(song, midiClip);
@@ -323,27 +333,24 @@ void ClipFreezer::swapInPlace() {
 	retargetClipReferences(song, midiClip, audioClip);
 
 	// The MIDI clip keeps its ParamManager (MIDI clips hold their own) and its link to its Output, but isn't the
-	// Output's clip any more
+	// Output's clip any more. canFreeze() made sure it was the Output's only clip, so the Output leaves the song with
+	// it, and the AudioClip's Output takes its place in the list - which, overall, is as long as before freezing began
 	Output* midiOutput = midiClip->output;
 	if (midiClip->isActiveOnOutput()) {
 		midiOutput->detachActiveClip(song);
 	}
-	midiOutput->pickAnActiveClipIfPossible(modelStack, true, PgmChangeSend::NEVER, true);
-
+	forgetOutputMacros(song, midiOutput);
+	Output* audioOutput = audioClip->output;
+	int32_t arrangementYScroll = song->arrangementYScroll;
+	song->removeOutputFromMainList(audioOutput, false);
+	int32_t outputIndex = song->removeOutputFromMainList(midiOutput);
+	song->insertOutputAtIndex(audioOutput, outputIndex);
+	song->arrangementYScroll = arrangementYScroll - 1; // createNewAudioOutput() added 1, for adding at the start
 	audioClip->frozen.clip = midiClip;
-
-	// If it was the Output's only clip, the Output goes too, and the AudioClip's Output takes its place in the list
-	if (song->getClipWithOutput(midiOutput) == nullptr && midiOutput->clipInstances.getNumElements() == 0) {
-		forgetOutputMacros(song, midiOutput);
-		Output* audioOutput = audioClip->output;
-		song->removeOutputFromMainList(audioOutput, false);
-		int32_t outputIndex = song->removeOutputFromMainList(midiOutput);
-		song->insertOutputAtIndex(audioOutput, outputIndex);
-		audioClip->frozen.detachedOutput = midiOutput;
-	}
+	audioClip->frozen.detachedOutput = midiOutput;
 
 	actionLogger.deleteAllLogs();
-	if (getRootUI() == &sessionView) {
+	if (getRootUI() == &sessionView || view.activeModControllableModelStack.getTimelineCounterAllowNull() == midiClip) {
 		view.setActiveModControllableTimelineCounter(audioClip);
 	}
 	popup(L10nString::STRING_FOR_FROZEN);
@@ -403,7 +410,8 @@ bool ClipFreezer::unfreeze(AudioClip* clip) {
 	Output* detachedOutput = clip->frozen.detachedOutput;
 	clip->frozen = {}; // The song owns them again from here
 
-	// Its Output goes back where the AudioClip's is
+	// Its Output goes back where the AudioClip's is, which is deleted below: the list stays as long, and as scrolled
+	int32_t arrangementYScroll = thisSong->arrangementYScroll;
 	if (detachedOutput != nullptr) {
 		thisSong->insertOutputAtIndex(detachedOutput, thisSong->getOutputIndex(clip->output));
 	}
@@ -443,6 +451,9 @@ bool ClipFreezer::unfreeze(AudioClip* clip) {
 
 	view.setActiveModControllableTimelineCounter(midiClip);
 	thisSong->deleteClipObject(clip, false, InstrumentRemoval::DELETE);
+	if (detachedOutput != nullptr) {
+		thisSong->arrangementYScroll = arrangementYScroll;
+	}
 
 	actionLogger.deleteAllLogs();
 	popup(L10nString::STRING_FOR_UNFROZEN);
