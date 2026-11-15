@@ -2185,12 +2185,6 @@ loadOutput:
 		}
 	}
 
-	// Frozen clips' MIDI clips aren't in the arrays above. Match them up too, before anything picks active clips. A
-	// frozen AudioClip can be arrangement-only too, if it was deleted from the session while used in the arrangement
-	for (AudioClip* audioClip : AudioClips::everywhere(this)) {
-		audioClip->claimFrozenSourceOutput(modelStack);
-	}
-
 	AudioEngine::logAction("matched up");
 
 	AudioEngine::routineWithClusterLoading();
@@ -3349,26 +3343,6 @@ void Song::addOutput(Output* output, bool atStart) {
 	}
 
 	// Must resync LFOs - these (if synced) will roll even when no activeClip
-	if (this == currentSong) {
-		output->resyncLFOs();
-	}
-}
-
-void Song::insertOutputAtIndex(Output* output, int32_t index) {
-	if (index <= 0) {
-		addOutput(output, true);
-		return;
-	}
-	Output** prevPointer = &firstOutput;
-	for (int32_t i = 0; i < index && *prevPointer != nullptr; i++) {
-		prevPointer = &(*prevPointer)->next;
-	}
-	output->next = *prevPointer;
-	*prevPointer = output;
-
-	if (output->soloingInArrangementMode) {
-		anyOutputsSoloingInArrangement = true;
-	}
 	if (this == currentSong) {
 		output->resyncLFOs();
 	}
