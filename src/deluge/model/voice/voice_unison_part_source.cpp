@@ -59,8 +59,10 @@ bool VoiceUnisonPartSource::noteOn(Voice* voice, Source* source, VoiceSamplePlay
 			voiceSample->beenUnassigned(false);
 		}
 		voiceSample->noteOn(guide, samplesLate, voice->getPriorityRating());
+		preview_diag::sampleNoteOns.fetch_add(1, std::memory_order_relaxed); // DIAGNOSTIC
 		if (samplesLate != 0u) {
-			return true; // We're finished in this case
+			preview_diag::lateNoteOns.fetch_add(1, std::memory_order_relaxed); // DIAGNOSTIC
+			return true;                                                       // We're finished in this case
 		}
 		bool ok =
 		    voiceSample->setupClusersForInitialPlay(guide, (Sample*)guide->audioFileHolder->audioFile, 0, false, 1);

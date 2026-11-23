@@ -25,6 +25,7 @@
 #include "dsp/util.hpp"
 #include "gui/waveform/waveform_renderer.h"
 #include "io/debug/log.h"
+#include "io/debug/preview_diag.h"
 #include "memory/general_memory_allocator.h"
 #include "model/clip/instrument_clip.h"
 #include "model/model_stack.h"
@@ -2120,9 +2121,16 @@ pitchTooHigh:
 				                                                                    getPriorityRating(), numSamples);
 
 				if (result == LateStartAttemptStatus::FAILURE) {
+					preview_diag::lateStartFailures.fetch_add(1, std::memory_order_relaxed); // DIAGNOSTIC
 					goto instantUnassign;
 				}
 				else if (result == LateStartAttemptStatus::WAIT) {
+					// DIAGNOSTIC
+					preview_diag::lateStartWaitSamples.fetch_add(numSamples, std::memory_order_relaxed);
+					uint32_t w = voiceSample->pendingSamplesLate;
+					if (w > preview_diag::lateStartWaitMaxSamples.load(std::memory_order_relaxed)) {
+						preview_diag::lateStartWaitMaxSamples.store(w, std::memory_order_relaxed);
+					}
 					continue;
 				}
 				// Otherwise, it started fine!

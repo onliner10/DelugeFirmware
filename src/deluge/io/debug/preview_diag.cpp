@@ -6,14 +6,33 @@
 #include "hid/encoders.h"
 #include "io/debug/log.h"
 #include "processing/engines/audio_engine.h"
+#include "storage/audio/audio_file_manager.h"
 #include <cstdio>
 
 namespace preview_diag {
 namespace {
 uint32_t lastShownDrops = 0;
-}
+uint32_t lastNoteOns = 0;
+bool startsPending = false;
+} // namespace
 
 void routine() {
+	bool pending = audioFileManager.loadingQueueHasAnySampleStarts();
+	if (pending != startsPending) {
+		startsPending = pending;
+		D_PRINTLN("PREVIEW_DIAG sample-start clusters pending: %d", (int)pending);
+	}
+	uint32_t ons = sampleNoteOns.load(std::memory_order_relaxed);
+	uint32_t fails = lateStartFailures.load(std::memory_order_relaxed);
+	uint32_t waited = lateStartWaitSamples.exchange(0, std::memory_order_relaxed);
+	uint32_t waitMax = lateStartWaitMaxSamples.exchange(0, std::memory_order_relaxed);
+	if (ons != lastNoteOns || waited) {
+		lastNoteOns = ons;
+		D_PRINTLN("PREVIEW_DIAG note-ons=%d (late=%d) lateStartFailures=%d waitedSilentMs=%d longestWaitMs=%d",
+		          (int)ons, (int)lateNoteOns.load(std::memory_order_relaxed), (int)fails, (int)(waited / 44),
+		          (int)(waitMax / 44));
+	}
+
 	uint32_t drops = notesDroppedStartNotLoaded.load(std::memory_order_relaxed);
 	if (drops != lastShownDrops) {
 		lastShownDrops = drops;

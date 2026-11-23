@@ -30,14 +30,19 @@ def main() -> int:
     ap.add_argument("card")
     ap.add_argument("--name", default="preset-preview")
     ap.add_argument("--audio", default=None, help="run.sh --audio driver, e.g. wav")
-    ap.add_argument("--presets", type=int, default=4)
+    ap.add_argument("--presets", type=int, default=3)
+    ap.add_argument("--icount", default=None, help="QEMU -icount shift (e.g. 1)")
     ap.add_argument(
         "--dwell", type=float, default=3.0, help="seconds to listen to each preset"
     )
     args = ap.parse_args()
 
     with EmuSession.start(
-        name=args.name, sd=args.card, boot_wait=8.0, audio=args.audio
+        name=args.name,
+        sd=args.card,
+        boot_wait=8.0,
+        audio=args.audio,
+        icount=args.icount,
     ) as emu:
         dz = emu.dz
         print("--- after boot:\n" + dz.oled_text(), flush=True)
