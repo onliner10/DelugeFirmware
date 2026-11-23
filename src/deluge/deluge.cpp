@@ -47,6 +47,7 @@
 #include "hid/led/pad_leds.h"
 #include "hid/matrix/matrix_driver.h"
 #include "io/debug/log.h"
+#include "io/debug/preview_diag.h"
 #include "io/midi/midi_device_manager.h"
 #include "io/midi/midi_engine.h"
 #include "io/midi/midi_follow.h"
@@ -600,6 +601,8 @@ void registerTasks() {
 	                 RESOURCE_SD);
 	// 31-39: Idle priority (40 for dyn tasks)
 	p = 31;
+	addRepeatingTask([]() { preview_diag::routine(); }, p++, 0.05, 0.05, 0.1, "preview diag",
+	                 RESOURCE_NONE); // DIAGNOSTIC
 	addRepeatingTask(&(PIC::flush), p++, 0.001, 0.001, 0.02, "PIC flush", RESOURCE_NONE);
 	// needs to be called very frequently,
 	// handles animations and checks on the timers for any infrequent actions

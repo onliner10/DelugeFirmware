@@ -18,6 +18,7 @@
 #include "model/voice/voice_unison_part_source.h"
 #include "dsp/dx/dx7note.h"
 #include "dsp/dx/engine.h"
+#include "io/debug/preview_diag.h"
 #include "memory/general_memory_allocator.h"
 #include "model/sample/sample_cache.h"
 #include "model/song/song.h"
@@ -61,7 +62,12 @@ bool VoiceUnisonPartSource::noteOn(Voice* voice, Source* source, VoiceSamplePlay
 		if (samplesLate != 0u) {
 			return true; // We're finished in this case
 		}
-		return voiceSample->setupClusersForInitialPlay(guide, (Sample*)guide->audioFileHolder->audioFile, 0, false, 1);
+		bool ok =
+		    voiceSample->setupClusersForInitialPlay(guide, (Sample*)guide->audioFileHolder->audioFile, 0, false, 1);
+		if (!ok && voiceSample->clusters[0] != nullptr && !voiceSample->clusters[0]->loaded) {
+			preview_diag::notesDroppedStartNotLoaded.fetch_add(1, std::memory_order_relaxed); // DIAGNOSTIC
+		}
+		return ok;
 	}
 
 	if (synthMode != SynthMode::FM

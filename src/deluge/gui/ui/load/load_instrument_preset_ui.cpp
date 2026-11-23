@@ -31,6 +31,7 @@
 #include "hid/led/indicator_leds.h"
 #include "hid/led/pad_leds.h"
 #include "io/debug/log.h"
+#include "io/debug/preview_diag.h"
 #include "memory/general_memory_allocator.h"
 #include "model/action/action_logger.h"
 #include "model/clip/instrument_clip.h"
@@ -303,6 +304,9 @@ void LoadInstrumentPresetUI::currentFileChanged(int32_t movementDirection) {
 		currentInstrumentLoadError = performLoad();
 	}
 	currentUIMode = UI_MODE_NONE;
+	// DIAGNOSTIC
+	preview_diag::loadAborted = (currentInstrumentLoadError == Error::ABORTED_BY_USER);
+	preview_diag::loadAbortedAt = AudioEngine::audioSampleTimer;
 	//}
 }
 
@@ -970,6 +974,7 @@ giveUsedError:
 		return error;
 	}
 
+	D_PRINTLN("PREVIEW_DIAG preset swapped in (browser): %s", newInstrument->name.get()); // DIAGNOSTIC
 	if (newInstrumentWasHibernating) {
 		currentSong->removeInstrumentFromHibernationList(newInstrument);
 	}

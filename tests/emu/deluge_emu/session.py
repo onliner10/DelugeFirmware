@@ -111,6 +111,7 @@ class EmuSession:
         boot_wait: float = 6.0,
         extra_qemu: tuple[str, ...] = (),
         qmp_sock: str | Path | None = None,
+        audio: str | None = None,
     ) -> EmuSession:
         """Boot the firmware in delugemu.
 
@@ -170,6 +171,7 @@ class EmuSession:
             extra_qemu=tuple(qemu),
             repo_root=str(paths.delugemu_root()),
             artifacts_dir=str(out),
+            audio=audio,
         )
         watcher = None
         try:

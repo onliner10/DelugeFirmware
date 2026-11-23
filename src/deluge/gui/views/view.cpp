@@ -47,6 +47,7 @@
 #include "hid/led/indicator_leds.h"
 #include "hid/led/pad_leds.h"
 #include "hid/matrix/matrix_driver.h"
+#include "io/debug/log.h"
 #include "io/midi/device_specific/specific_midi_device.h"
 #include "io/midi/learned_midi.h"
 #include "io/midi/midi_device.h"
@@ -2557,6 +2558,7 @@ getOut:
 
 		newInstrument = results.fileItem->instrument;
 		bool instrumentAlreadyInSong = results.fileItem->instrumentAlreadyInSong;
+		D_PRINTLN("PREVIEW_DIAG preset swapped in (clip view): %s", newInstrument->name.get()); // DIAGNOSTIC
 		Browser::emptyFileItems();
 
 		// For Kits, ensure that every SoundDrum has a ParamManager somewhere
