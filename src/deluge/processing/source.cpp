@@ -30,6 +30,7 @@
 #include "storage/multi_range/multisample_range.h"
 #include "storage/wave_table/wave_table.h"
 #include "util/functions.h"
+#include <algorithm>
 #include <cstring>
 
 Source::Source() {
@@ -122,7 +123,101 @@ Error Source::loadAllSamples(bool mayActuallyReadFiles) {
 		                                                     mayActuallyReadFiles, CLUSTER_ENQUEUE, nullptr, true);
 	}
 
+	if (mayActuallyReadFiles) {
+		lazyPending = false; // Every zone's been loaded, or tried
+	}
 	return Error::NONE;
+}
+
+// Multisamples with at least this many zones get loaded lazily when previewing presets
+constexpr int32_t kMinRangesToLoadLazily = 8;
+
+bool Source::rangePlaysAnyOf(int32_t e, std::span<const int16_t> notes) {
+	for (int16_t note : notes) {
+		if (getRangeIndex(note) == e) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void Source::loadRange(int32_t e) {
+	ranges.getElement(e)->getAudioFileHolder()->loadFile(sampleControls.isCurrentlyReversed(), false, true,
+	                                                     CLUSTER_ENQUEUE, nullptr, true);
+}
+
+Error Source::loadSamplesForNotes(std::span<const int16_t> notes) {
+	int32_t numRanges = ranges.getNumElements();
+	if (oscType != OscType::SAMPLE || numRanges < kMinRangesToLoadLazily || numRanges > kMaxLazyRanges) {
+		return loadAllSamples(true);
+	}
+
+	lazyTried.reset();
+	lazyNumRanges = numRanges;
+	lazyPending = false;
+	int32_t numLoaded = 0;
+	for (int32_t e = 0; e < numRanges; e++) {
+		if (ranges.getElement(e)->getAudioFileHolder()->audioFile) {
+			lazyTried[e] = true; // Was already in memory
+			continue;
+		}
+		if (!rangePlaysAnyOf(e, notes)) {
+			lazyPending = true;
+			continue;
+		}
+		if (!(numLoaded++ & 3)) { // As in loadAllSamples()
+			AudioEngine::routineWithClusterLoading();
+		}
+		if (shouldAbortLoading()) {
+			return Error::ABORTED_BY_USER;
+		}
+		lazyTried[e] = true;
+		loadRange(e);
+	}
+	return Error::NONE;
+}
+
+bool Source::loadLazySample(std::span<const int16_t> notes, bool anyOther) {
+	if (!lazyPending) {
+		return false;
+	}
+	int32_t numRanges = ranges.getNumElements();
+	if (numRanges != lazyNumRanges || numRanges > kMaxLazyRanges) {
+		// Zones were added or removed since: just try any that aren't loaded, once more
+		lazyTried.reset();
+		lazyNumRanges = std::min(numRanges, kMaxLazyRanges);
+	}
+
+	int32_t toLoad = -1;
+	bool anyLeft = false;
+	for (int32_t e = 0; e < lazyNumRanges; e++) {
+		if (lazyTried[e]) {
+			continue;
+		}
+		if (ranges.getElement(e)->getAudioFileHolder()->audioFile) {
+			lazyTried[e] = true;
+			continue;
+		}
+		anyLeft = true;
+		if (rangePlaysAnyOf(e, notes)) {
+			toLoad = e; // These first
+			break;
+		}
+		if (anyOther && toLoad < 0) {
+			toLoad = e;
+		}
+	}
+
+	if (!anyLeft) {
+		lazyPending = false;
+		return false;
+	}
+	if (toLoad < 0) {
+		return false;
+	}
+	lazyTried[toLoad] = true;
+	loadRange(toLoad);
+	return true;
 }
 
 // Only to be called if already determined that oscType == OscType::SAMPLE

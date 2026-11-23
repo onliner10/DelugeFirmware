@@ -21,6 +21,8 @@
 #include "model/sample/sample_controls.h"
 #include "storage/multi_range/multi_range_array.h"
 #include "util/phase_increment_fine_tuner.h"
+#include <bitset>
+#include <span>
 
 class Sound;
 class ParamManagerForTimeline;
@@ -58,6 +60,13 @@ public:
 	int32_t getLengthInSamplesAtSystemSampleRate(int32_t note, bool forTimeStretching = false);
 	void detachAllAudioFiles();
 	Error loadAllSamples(bool mayActuallyReadFiles);
+	/// For a multisample with many zones, loads just the zones that would play these notes, leaving the rest for
+	/// loadLazySample(). Otherwise loads everything, like loadAllSamples().
+	Error loadSamplesForNotes(std::span<const int16_t> notes);
+	/// Loads one of the zones loadSamplesForNotes() skipped: one that plays one of these notes, or, if anyOther, any.
+	/// Returns whether it loaded one.
+	bool loadLazySample(std::span<const int16_t> notes, bool anyOther);
+	bool hasLazySamples() const { return lazyPending; }
 	void setReversed(bool newReversed);
 	int32_t getRangeIndex(int32_t note);
 	MultiRange* getRange(int32_t note);
@@ -72,4 +81,12 @@ public:
 
 private:
 	void destructAllMultiRanges();
+	bool rangePlaysAnyOf(int32_t e, std::span<const int16_t> notes);
+	void loadRange(int32_t e);
+
+	// Lazy loading. Multisamples with more zones than this are just loaded in full.
+	static constexpr int32_t kMaxLazyRanges = 256;
+	bool lazyPending = false;              ///< Some zones skipped by loadSamplesForNotes() may still need loading
+	int16_t lazyNumRanges = 0;             ///< How many zones there were when lazyTried was set up
+	std::bitset<kMaxLazyRanges> lazyTried; ///< Zones already loaded or tried, so a missing file isn't retried forever
 };

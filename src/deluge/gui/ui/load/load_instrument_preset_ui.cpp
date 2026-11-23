@@ -39,6 +39,7 @@
 #include "model/song/clip_iterators.h"
 #include "model/song/song.h"
 #include "processing/engines/audio_engine.h"
+#include "processing/sound/sound_instrument.h"
 #include "storage/audio/audio_file_manager.h"
 #include "storage/file_item.h"
 #include "storage/storage_manager.h"
@@ -47,6 +48,15 @@
 
 using namespace deluge;
 namespace encoders = deluge::hid::encoders;
+
+// While scrolling through presets: for a synth, loads just the samples needed to hear it straight away, and leaves the
+// rest of a big multisample to load in the background (see SoundInstrument::loadAudioFilesForPreview())
+static Error loadAudioFilesForPreview(Instrument* instrument, Output* replacing) {
+	if (instrument->type == OutputType::SYNTH) {
+		return static_cast<SoundInstrument*>(instrument)->loadAudioFilesForPreview(currentSong, replacing);
+	}
+	return instrument->loadAllAudioFiles(true);
+}
 
 PLACE_SDRAM_BSS LoadInstrumentPresetUI loadInstrumentPresetUI{};
 
@@ -956,7 +966,7 @@ giveUsedError:
 		}
 	}
 	display->displayLoadingAnimationText("Loading", false, true);
-	Error error = newInstrument->loadAllAudioFiles(true);
+	Error error = loadAudioFilesForPreview(newInstrument, instrumentToReplace);
 
 	display->removeLoadingAnimation();
 
@@ -1668,7 +1678,7 @@ doPendingPresetNavigation:
 	display->displayLoadingAnimationText("Loading", false, true);
 	int32_t oldUIMode = currentUIMode;
 	currentUIMode = UI_MODE_LOADING_BUT_ABORT_IF_SELECT_ENCODER_TURNED;
-	toReturn.fileItem->instrument->loadAllAudioFiles(true);
+	loadAudioFilesForPreview(toReturn.fileItem->instrument, oldInstrument);
 	currentUIMode = oldUIMode;
 
 	// If user wants to move on...
