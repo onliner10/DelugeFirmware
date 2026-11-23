@@ -517,6 +517,16 @@ Here is a list of general improvements that have been made, ordered from newest 
   - The battery level menu item can be toggled on/off via the Community Features menu
   - This feature is `ON` by default and can be set to `ON` or `OFF` via `SETTINGS > COMMUNITY FEATURES > SHOW BATTERY LEVEL`
 
+### 3.38 - Fast Preset Scrolling for Big Multisamples
+
+- <Badge text="c1.4" variant="tip" /> Scrolling through synth presets that are big multisamples (8 or more sample zones) no longer waits for every sample to load before you can hear the preset.
+  - The samples the clip's notes play are loaded straight away, so the clip can be heard right after scrolling.
+  - The samples the visible audition pads play are loaded next, in the background.
+  - Once you stop scrolling for a second, the rest of the preset's samples load in the background.
+  - Until a sample has loaded, a note that would play it is silent. This only matters for notes outside the clip and the visible pads, e.g. from a MIDI keyboard, in the first few seconds after scrolling.
+  - Saving a song first loads any samples not loaded yet, so "Collect media" still copies them all.
+  - This feature is `ON` by default and can be set to `ON` or `OFF` via `SETTINGS > COMMUNITY FEATURES > FAST PRESET SCROLLING`. When `OFF`, every sample of a preset is loaded before it can be heard, as before.
+
 ## 4. New Features Added
 
 Here is a list of features that have been added to the firmware as a list, grouped by category:
@@ -1405,6 +1415,8 @@ Note: these settings are saved to `SETTINGS/CommunityFeatures.XML` on your SD ca
   - `Off` disables the coloured shortcut overlay.
   - `On - Menu only (MENU)` (default) shows it while holding Shift in a sound editing menu.
   - `On - Menu + Clip (FULL)` also shows it while holding Shift in instrument and audio clip views.
+- `Fast Preset Scrolling (FAST)` <Badge text="c1.4" variant="tip" />
+  - When On (default), scrolling to a big multisample synth preset loads only the samples needed to hear it straight away, and the rest in the background. See [Fast Preset Scrolling for Big Multisamples](#338---fast-preset-scrolling-for-big-multisamples).
 
 ## 6. Sysex Handling
 

@@ -36,6 +36,7 @@
 #include "model/clip/instrument_clip.h"
 #include "model/instrument/instrument.h"
 #include "model/instrument/midi_instrument.h"
+#include "model/settings/runtime_feature_settings.h"
 #include "model/song/clip_iterators.h"
 #include "model/song/song.h"
 #include "processing/engines/audio_engine.h"
@@ -52,7 +53,8 @@ namespace encoders = deluge::hid::encoders;
 // While scrolling through presets: for a synth, loads just the samples needed to hear it straight away, and leaves the
 // rest of a big multisample to load in the background (see SoundInstrument::loadAudioFilesForPreview())
 static Error loadAudioFilesForPreview(Instrument* instrument, Output* replacing) {
-	if (instrument->type == OutputType::SYNTH) {
+	if (instrument->type == OutputType::SYNTH
+	    && runtimeFeatureSettings.isOn(RuntimeFeatureSettingType::FastPresetScrolling)) {
 		return static_cast<SoundInstrument*>(instrument)->loadAudioFilesForPreview(currentSong, replacing);
 	}
 	return instrument->loadAllAudioFiles(true);
