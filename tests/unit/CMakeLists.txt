@@ -74,6 +74,8 @@ file(GLOB_RECURSE deluge_SOURCES
         ../../src/deluge/io/midi/midi_queue.cpp
         # For FFT magnitude tests
         ../../src/deluge/util/fast_pythag.cpp
+        # For SD sector cache tests
+        ../../src/RZA1/sd_sector_cache.c
 )
 
 add_executable(UnitTests
@@ -102,6 +104,7 @@ add_executable(UnitTests
         fast_divide_tests.cpp
         tick_interpolation_tests.cpp
         envelope_curve_tests.cpp
+        sd_sector_cache_tests.cpp
 )
 add_test(NAME UnitTests
         COMMAND UnitTests)

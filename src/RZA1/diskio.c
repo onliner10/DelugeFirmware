@@ -41,6 +41,10 @@
 #include "deluge/drivers/uart/uart.h"
 #include "diskio.h"
 #include "ff.h"
+#include "sd_sector_cache.h"
+#ifdef SD_SECTOR_CACHE_VERIFY
+#include <string.h>
+#endif
 
 uint8_t currentlyAccessingCard = 0;
 
@@ -68,6 +72,8 @@ uint16_t ioRegGet2(volatile uint16_t* reg, uint8_t p, uint8_t q)
 
 DRESULT disk_read_without_streaming_first(BYTE pdrv, BYTE* buff, LBA_t sector, UINT count);
 static DRESULT readSectors(BYTE* buff, LBA_t sector, UINT count, bool letClustersLoadFirst);
+static DRESULT readSectorsCached(BYTE* buff, LBA_t sector, UINT count, bool letClustersLoadFirst);
+extern BYTE diskStatus;
 
 static bool asyncReadsIdle(void)
 {
@@ -122,7 +128,7 @@ DRESULT disk_read(BYTE pdrv, /* Physical drive nmuber (0) */
 
     loadAnyEnqueuedClustersRoutine(); // Always ensure SD streaming is fulfilled before anything else
 
-    DRESULT result = readSectors(buff, sector, count, true);
+    DRESULT result = readSectorsCached(buff, sector, count, true);
 
     if (currentlySearchingForCluster)
         pendingGlobalMIDICommandNumClustersWritten++;
@@ -146,6 +152,7 @@ int sdIntCallback(int sd_port, int cd)
 {
     if (sd_port == SD_PORT)
     {
+        sd_sector_cache_invalidate_all(); // Whichever way, it may not be the same card any more
         if (cd)
         {
             uartPrintln("SD Card insert!\n");
@@ -175,6 +182,8 @@ uint32_t initializationWorkArea[SD_SIZE_OF_INIT / sizeof(uint32_t)];
 DSTATUS disk_initialize(BYTE pdrv /* Physical drive nmuber to identify the drive */
 )
 {
+    sd_sector_cache_invalidate_all();
+
     // If no card, return early
     if (diskStatus & STA_NODISK)
         return SD_ERR_NO_CARD;
@@ -236,7 +245,33 @@ DRESULT disk_read_without_streaming_first(BYTE pdrv, /* Physical drive nmuber to
 {
     logAudioAction("disk_read_without_streaming_first");
 
-    return readSectors(buff, sector, count, false);
+    return readSectorsCached(buff, sector, count, false);
+}
+
+static int cacheFillRead(uint8_t* buff, uint32_t sector, uint32_t count, void* letClustersLoadFirst)
+{
+    return readSectors(buff, sector, count, *(bool*)letClustersLoadFirst) != RES_OK;
+}
+
+// Single-sector reads (FatFs's directory, FAT and partial-sector reads) go through the sector cache. Bigger reads are
+// already efficient, and the cache always matches the card, so they can bypass it.
+static DRESULT readSectorsCached(BYTE* buff, LBA_t sector, UINT count, bool letClustersLoadFirst)
+{
+    // Same checks the SD driver makes before touching the card, so a cached sector is never handed out for a card
+    // that's gone, even before its card-detect interrupt has been handled.
+    if (count != 1 || (diskStatus & STA_NOINIT) || sd_check_media(SD_PORT) != SD_OK)
+        return readSectors(buff, sector, count, letClustersLoadFirst);
+
+    if (sd_sector_cache_read(buff, sector, cacheFillRead, &letClustersLoadFirst))
+        return RES_ERROR;
+
+#ifdef SD_SECTOR_CACHE_VERIFY // Testing only: check every cached sector against the card
+    static BYTE check[SD_SECTOR_CACHE_SECTOR_SIZE] __attribute__((aligned(32)));
+    if (readSectors(check, sector, 1, letClustersLoadFirst) == RES_OK
+        && memcmp(check, buff, SD_SECTOR_CACHE_SECTOR_SIZE))
+        FREEZE_WITH_ERROR("SSC1");
+#endif
+    return RES_OK;
 }
 
 static DRESULT readSectors(BYTE* buff, LBA_t sector, UINT count, bool letClustersLoadFirst)
@@ -260,6 +295,9 @@ static DRESULT readSectors(BYTE* buff, LBA_t sector, UINT count, bool letCluster
 
     releaseCardFromAsyncReads();
     currentlyAccessingCard = 0;
+
+    if (err)
+        sd_sector_cache_invalidate_all(); // The card may be in trouble, or gone - don't trust anything cached
 
     /*
     uint16_t endTime = MTU2.TCNT_0;
@@ -308,6 +346,8 @@ DRESULT disk_write(BYTE pdrv, /* Physical drive nmuber to identify the drive */
 
     releaseCardFromAsyncReads();
     currentlyAccessingCard = 0;
+
+    sd_sector_cache_wrote(buff, sector, count, err == 0);
 
     if (err == 0)
     {
