@@ -1152,6 +1152,26 @@ For a detailed description of this feature, please refer to the feature document
   - `DEFAULTS > SCALE > ACTIVE SCALES` sets the active scales for new songs. When `RANDOM` is set as
     `DEFAULTS > SCALE > INIT SCALE`, the random scale is selected from default active scales.
 
+### 4.4.3 - Preset Lock <Badge text="c1.4" variant="tip" />
+
+Keep parts of a synth clip when changing its preset, so new sounds can be auditioned with your own arpeggio, mix and
+effect sends instead of the preset's.
+
+- Open the preset browser (:key[Load + Synth]) and hold :key[Shift]. The QWERTY keyboard is replaced by the lockable
+  modules, shown on their usual shortcut pads. Dim pads are unlocked, bright pads are locked.
+- While holding :key[Shift], tap any pad of a module to lock or unlock the whole module:
+  - `ARP` (orange): all arpeggiator and arp randomizer settings.
+  - `LEVEL / PAN` (white): the synth's master level and pan.
+  - `SIDECHAIN` (green): send to sidechain, volume ducking, shape, attack, release and sync.
+  - `REVERB` (blue): reverb send amount (the other reverb settings are song-wide anyway).
+  - `DELAY` (purple): delay amount, rate, sync, ping-pong and type.
+- Locking a module puts the clip's own settings back immediately; unlocking it switches to the settings of the preset
+  being previewed.
+- Locked modules are kept whenever the clip's preset changes, both in the browser and when turning :key[Select] in clip
+  view. What you hear is what gets saved if you then save the preset.
+- Locks are stored per clip and saved with the song.
+- Currently only available for synth clips. Automation of locked parameters isn't kept yet.
+
 ## 4.5 - Instrument Clip View - Synth/Kit Clip Features
 
 ### 4.5.1 - Mod Matrix

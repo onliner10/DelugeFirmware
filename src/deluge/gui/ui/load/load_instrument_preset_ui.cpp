@@ -34,6 +34,7 @@
 #include "memory/general_memory_allocator.h"
 #include "model/action/action_logger.h"
 #include "model/clip/instrument_clip.h"
+#include "model/clip/preset_lock.h"
 #include "model/instrument/instrument.h"
 #include "model/instrument/midi_instrument.h"
 #include "model/song/clip_iterators.h"
@@ -44,11 +45,19 @@
 #include "storage/storage_manager.h"
 #include "util/functions.h"
 #include "util/try.h"
+#include <cstdio>
 
 using namespace deluge;
 namespace encoders = deluge::hid::encoders;
 
 PLACE_SDRAM_BSS LoadInstrumentPresetUI loadInstrumentPresetUI{};
+
+namespace {
+// The locked Clip's modules as they were when the browser was opened - what locked modules get restored to
+PLACE_SDRAM_BSS preset_lock::Snapshot presetLockInitial;
+// The same modules as they came with the preset being previewed - what unlocking a module goes back to
+PLACE_SDRAM_BSS preset_lock::Snapshot presetLockFromPreset;
+} // namespace
 
 bool LoadInstrumentPresetUI::getGreyoutColsAndRows(uint32_t* cols, uint32_t* rows) {
 	// grey out the mute pads, not the audition pads or main pads
@@ -108,6 +117,24 @@ bool LoadInstrumentPresetUI::opened() {
 
 	changedInstrumentForClip = false;
 	replacedWholeInstrument = false;
+
+	showingPresetLockOverlay = false;
+	presetLockClip = nullptr;
+	presetLockInitial.valid = false;
+	presetLockFromPreset.valid = false;
+	if (!loadingSynthToKitRow) {
+		InstrumentClip* clip = instrumentClipToLoadFor;
+		if (clip == nullptr && instrumentToReplace != nullptr) {
+			Clip* activeClip = instrumentToReplace->getActiveClip();
+			if (activeClip != nullptr && activeClip->type == ClipType::INSTRUMENT) {
+				clip = static_cast<InstrumentClip*>(activeClip);
+			}
+		}
+		preset_lock::capture(presetLockInitial, clip);
+		if (presetLockInitial.valid) {
+			presetLockClip = clip;
+		}
+	}
 
 	if (instrumentClipToLoadFor) {
 		instrumentClipToLoadFor
@@ -358,8 +385,17 @@ ActionResult LoadInstrumentPresetUI::buttonAction(deluge::hid::Button b, bool on
 
 	OutputType newOutputType;
 
+	// Shift shows / hides the preset lock overlay. Shift's own state only changes after this returns, so the overlay
+	// gets drawn on the next render.
+	if (b == SHIFT) {
+		if (presetLockAvailable()) {
+			uiNeedsRendering(this, 0xFFFFFFFF, 0);
+		}
+		return LoadUI::buttonAction(b, on, inCardRoutine);
+	}
+
 	// Load button
-	if (b == LOAD) {
+	else if (b == LOAD) {
 		return mainButtonAction(on);
 	}
 
@@ -677,6 +713,11 @@ gotAnInstrument:
 		}
 
 		changedInstrumentForClip = true;
+	}
+
+	// The initial preset may have been reloaded from file, so put the locked modules back too
+	if (presetLockClip != nullptr && presetLockClip->presetLocks) {
+		preset_lock::apply(presetLockInitial, presetLockClip->presetLocks, presetLockClip);
 	}
 }
 
@@ -1037,6 +1078,8 @@ giveUsedError:
 	instrumentToReplace = newInstrument;
 	display->removeWorkingAnimation();
 
+	applyPresetLocksAfterLoad();
+
 	// for the instrument we just loaded, let's check if there's any midi labels we should load
 	if (newInstrument->type == OutputType::MIDI_OUT) {
 		MIDIInstrument* midiInstrument = (MIDIInstrument*)newInstrument;
@@ -1186,10 +1229,110 @@ potentiallyExit:
 	}
 
 	else {
+		// While the preset lock overlay is showing, the pads lock / unlock modules instead of typing. The favourites
+		// row keeps working as normal.
+		if (shouldShowPresetLockOverlay() && !(isFavouritesVisible() && y == favouriteRow)) {
+			if (on) {
+				presetLockPadPress(x, y);
+			}
+			return ActionResult::DEALT_WITH;
+		}
 		return LoadUI::padAction(x, y, on);
 	}
 
 	return ActionResult::DEALT_WITH;
+}
+
+bool LoadInstrumentPresetUI::renderMainPads(uint32_t whichRows, RGB image[][kDisplayWidth + kSideBarWidth],
+                                            uint8_t occupancyMask[][kDisplayWidth + kSideBarWidth],
+                                            bool drawUndefinedArea) {
+	// The QWERTY keys are drawn straight into PadLEDs::image when needed, so normally there's nothing to do here
+	// beyond swapping between them and the preset lock overlay.
+	if (image != nullptr) {
+		bool wantOverlay = shouldShowPresetLockOverlay();
+		if (wantOverlay != showingPresetLockOverlay) {
+			showingPresetLockOverlay = wantOverlay;
+			if (wantOverlay) {
+				drawPresetLockOverlay();
+			}
+			else {
+				drawKeys();
+			}
+		}
+	}
+	return true;
+}
+
+bool LoadInstrumentPresetUI::presetLockAvailable() {
+	return presetLockClip != nullptr && presetLockInitial.valid && outputTypeToLoad == OutputType::SYNTH;
+}
+
+bool LoadInstrumentPresetUI::shouldShowPresetLockOverlay() {
+	return getCurrentUI() == this && Buttons::isShiftButtonPressed() && presetLockAvailable();
+}
+
+void LoadInstrumentPresetUI::drawPresetLockOverlay() {
+	PadLEDs::clearMainPadsWithoutSending();
+
+	for (int32_t x = 0; x < kDisplayWidth; x++) {
+		for (int32_t y = 0; y < kDisplayHeight; y++) {
+			uint8_t module = preset_lock::moduleForPad(x, y);
+			if (module != 0) {
+				PadLEDs::image[y][x] = preset_lock::padColour(module, presetLockClip->presetLocks & module);
+			}
+		}
+	}
+
+	if (isFavouritesVisible()) {
+		renderFavourites(); // Sends the pad colours out too
+	}
+	else {
+		PadLEDs::sendOutMainPadColours();
+	}
+}
+
+void LoadInstrumentPresetUI::presetLockPadPress(int32_t x, int32_t y) {
+	uint8_t module = preset_lock::moduleForPad(x, y);
+	if (module == 0 || !presetLockAvailable()) {
+		return;
+	}
+
+	presetLockClip->presetLocks ^= module;
+	bool locked = presetLockClip->presetLocks & module;
+
+	// Hear the change straight away: locking brings back the Clip's own settings, unlocking the previewed preset's.
+	if (locked) {
+		preset_lock::apply(presetLockInitial, module, presetLockClip);
+	}
+	else if (presetLockFromPreset.valid) {
+		preset_lock::apply(presetLockFromPreset, module, presetLockClip);
+	}
+
+	if (display->haveOLED()) {
+		char popupText[32];
+		snprintf(popupText, sizeof(popupText), "%s %s", preset_lock::moduleName(module),
+		         locked ? "locked" : "unlocked");
+		display->displayPopup(popupText);
+	}
+	else {
+		display->displayPopup(locked ? "LOCK" : "FREE");
+	}
+
+	drawPresetLockOverlay();
+}
+
+void LoadInstrumentPresetUI::applyPresetLocksAfterLoad() {
+	if (presetLockClip == nullptr || !presetLockInitial.valid) {
+		return;
+	}
+
+	// Remember what the preset itself brought, so a module can be unlocked back to it. Stays invalid if the new
+	// preset can't be locked (e.g. a kit).
+	preset_lock::capture(presetLockFromPreset, presetLockClip);
+
+	if (presetLockClip->presetLocks) {
+		preset_lock::apply(presetLockInitial, presetLockClip->presetLocks, presetLockClip);
+	}
 }
 
 ActionResult LoadInstrumentPresetUI::verticalEncoderAction(int32_t offset, bool inCardRoutine) {

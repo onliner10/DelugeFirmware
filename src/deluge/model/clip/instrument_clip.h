@@ -102,6 +102,9 @@ public:
 
 	ArpeggiatorSettings arpSettings;
 
+	/// Bitmask of deluge::preset_lock::Module - the modules kept when this Clip's preset changes.
+	uint8_t presetLocks = 0;
+
 	ParamManagerForTimeline backedUpParamManagerMIDI;
 
 	bool inScaleMode; // Probably don't quiz this directly - call isScaleModeClip() instead

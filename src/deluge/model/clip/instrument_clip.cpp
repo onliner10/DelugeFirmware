@@ -149,6 +149,7 @@ void InstrumentClip::copyBasicsFrom(Clip const* otherClip) {
 	}
 
 	arpSettings.cloneFrom(&otherInstrumentClip->arpSettings);
+	presetLocks = otherInstrumentClip->presetLocks;
 }
 
 // Will replace the Clip in the modelStack, if success.
@@ -2351,6 +2352,9 @@ void InstrumentClip::writeDataToFile(Serializer& writer, Song* song) {
 	if (output->type == OutputType::KIT) {
 		writer.writeAttribute("affectEntire", affectEntire);
 	}
+	if (presetLocks) {
+		writer.writeAttribute("presetLocks", presetLocks);
+	}
 
 	Instrument* instrument = (Instrument*)output;
 
@@ -2502,6 +2506,10 @@ someError:
 		}
 		else if (!strcmp(tagName, "inKeyMode")) {
 			inScaleMode = reader.readTagOrAttributeValueInt();
+		}
+
+		else if (!strcmp(tagName, "presetLocks")) {
+			presetLocks = reader.readTagOrAttributeValueInt() & 0xFF;
 		}
 
 		else if (!strcmp(tagName, "instrumentPresetSlot")) {

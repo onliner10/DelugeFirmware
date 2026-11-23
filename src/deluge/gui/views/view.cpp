@@ -59,6 +59,7 @@
 #include "model/clip/clip_instance.h"
 #include "model/clip/instrument_clip.h"
 #include "model/clip/instrument_clip_minder.h"
+#include "model/clip/preset_lock.h"
 #include "model/consequence/consequence.h"
 #include "model/drum/drum.h"
 #include "model/instrument/cv_instrument.h"
@@ -2296,6 +2297,9 @@ void View::navigateThroughAudioOutputsForAudioClip(int32_t offset, AudioClip* cl
 	setActiveModControllableTimelineCounter(clip); // Necessary? Does ParamManager get moved over too?
 }
 
+// Big enough to keep off the stack
+PLACE_SDRAM_BSS static deluge::preset_lock::Snapshot presetLockSnapshot;
+
 void View::navigateThroughPresetsForInstrumentClip(int32_t offset, ModelStackWithTimelineCounter* modelStack,
                                                    bool doBlink) {
 
@@ -2543,6 +2547,12 @@ gotAnInstrument:
 	// Or if we're on a Kit or Synth...
 	else {
 
+		// Remember the locked modules, to restore them once the new preset is in place
+		bool restoreLocks = clip->presetLocks && deluge::preset_lock::canLock(clip);
+		if (restoreLocks) {
+			deluge::preset_lock::capture(presetLockSnapshot, clip);
+		}
+
 		PresetNavigationResult results =
 		    loadInstrumentPresetUI.doPresetNavigation(offset, oldInstrument, availabilityRequirement, false, clip);
 		if (results.error == Error::NO_ERROR_BUT_GET_OUT) {
@@ -2613,6 +2623,10 @@ getOut:
 			if (!instrumentAlreadyInSong) {
 				modelStack->song->addOutput(newInstrument);
 			}
+		}
+
+		if (restoreLocks) {
+			deluge::preset_lock::apply(presetLockSnapshot, clip->presetLocks, clip);
 		}
 
 		// Kit-specific stuff

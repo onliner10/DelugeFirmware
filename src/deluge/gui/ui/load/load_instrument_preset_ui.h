@@ -42,10 +42,8 @@ public:
 	ActionResult timerCallback() override;
 	bool getGreyoutColsAndRows(uint32_t* cols, uint32_t* rows) override;
 	bool renderMainPads(uint32_t whichRows, RGB image[][kDisplayWidth + kSideBarWidth] = nullptr,
-	                    uint8_t occupancyMask[][kDisplayWidth + kSideBarWidth] = nullptr, bool drawUndefinedArea = true,
-	                    int32_t navSys = -1) {
-		return true;
-	}
+	                    uint8_t occupancyMask[][kDisplayWidth + kSideBarWidth] = nullptr,
+	                    bool drawUndefinedArea = true) override;
 	bool renderSidebar(uint32_t whichRows, RGB image[][kDisplayWidth + kSideBarWidth],
 	                   uint8_t occupancyMask[][kDisplayWidth + kSideBarWidth]) override;
 	std::expected<FileItem*, Error>
@@ -113,6 +111,16 @@ private:
 
 	String initialName;
 	String initialDirPath;
+
+	// Preset lock: hold shift to see the lockable modules on the pads, and tap one to lock / unlock it
+	bool presetLockAvailable();
+	bool shouldShowPresetLockOverlay();
+	void drawPresetLockOverlay();
+	void presetLockPadPress(int32_t x, int32_t y);
+	void applyPresetLocksAfterLoad();
+
+	InstrumentClip* presetLockClip; // The Clip whose locks are being edited / applied. NULL if locking unavailable
+	bool showingPresetLockOverlay;
 };
 
 extern LoadInstrumentPresetUI loadInstrumentPresetUI;
