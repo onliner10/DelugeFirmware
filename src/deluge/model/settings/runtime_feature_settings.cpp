@@ -205,6 +205,11 @@ void RuntimeFeatureSettings::init() {
 	SetupOnOffSetting(settings[RuntimeFeatureSettingType::RoundedCorners], STRING_FOR_COMMUNITY_FEATURE_ROUNDED_CORNERS,
 	                  "roundedCorners", RuntimeFeatureStateToggle::On);
 
+	// Fast Preset Scrolling
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::FastPresetScrolling],
+	                  STRING_FOR_COMMUNITY_FEATURE_FAST_PRESET_SCROLLING, "fastPresetScrolling",
+	                  RuntimeFeatureStateToggle::On);
+
 	// Shortcut Overlay
 	auto& overlay = settings[RuntimeFeatureSettingType::ShortcutOverlay];
 	overlay.displayName = STRING_FOR_COMMUNITY_FEATURE_SHORTCUT_OVERLAY;

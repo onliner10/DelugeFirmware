@@ -22,6 +22,7 @@
 #include "model/clip/instrument_clip.h"
 #include "model/model_stack.h"
 #include "model/note/note_row.h"
+#include "model/song/clip_iterators.h"
 #include "model/song/song.h"
 #include "model/voice/voice.h"
 #include "modulation/arpeggiator.h"
@@ -217,6 +218,138 @@ Error SoundInstrument::loadAllAudioFiles(bool mayActuallyReadFiles) {
 	}
 
 	return error;
+}
+
+namespace {
+
+// When loadAudioFilesForPreview() was last called, in AudioEngine::audioSampleTimer units
+uint32_t lastPreviewTime = 0;
+// How long after the last preset change before loading the rest of a multisample
+constexpr uint32_t kLazyLoadRestDelay = kSampleRate;
+
+// A small set of notes, transposed the way Voice::noteOn() picks a zone
+class PreviewNotes {
+public:
+	explicit PreviewNotes(int32_t transpose) : transpose_(transpose) {}
+	/// Returns false if full
+	bool add(int32_t note) {
+		note += transpose_;
+		for (size_t i = 0; i < size_; i++) {
+			if (notes_[i] == note) {
+				return true;
+			}
+		}
+		if (size_ == notes_.size()) {
+			return false;
+		}
+		notes_[size_++] = static_cast<int16_t>(note);
+		return true;
+	}
+	std::span<const int16_t> span() const { return {notes_.data(), size_}; }
+
+private:
+	std::array<int16_t, 256> notes_;
+	size_t size_ = 0;
+	int32_t transpose_;
+};
+
+} // namespace
+
+Error SoundInstrument::loadAudioFilesForPreview(Song* song, Output* notesFrom) {
+	lastPreviewTime = AudioEngine::audioSampleTimer;
+
+	// The notes that the Clips will play, including any octaves the arpeggiator adds
+	PreviewNotes notes(transpose);
+	bool fits = (notesFrom != nullptr);
+	for (Clip* clip : AllClips::everywhere(song)) {
+		if (!fits) {
+			break;
+		}
+		if (clip->output != notesFrom || clip->type != ClipType::INSTRUMENT) {
+			continue;
+		}
+		auto* instrumentClip = static_cast<InstrumentClip*>(clip);
+		int32_t numOctaves =
+		    (instrumentClip->arpSettings.mode == ArpMode::OFF) ? 1 : instrumentClip->arpSettings.numOctaves;
+		for (int32_t i = 0; fits && i < instrumentClip->noteRows.getNumElements(); i++) {
+			NoteRow* noteRow = instrumentClip->noteRows.getElement(i);
+			if (noteRow->hasNoNotes()) {
+				continue;
+			}
+			for (int32_t o = 0; o < numOctaves; o++) {
+				fits = fits && notes.add(noteRow->y + o * 12);
+			}
+		}
+	}
+	if (!fits) {
+		return loadAllAudioFiles(true);
+	}
+
+	bool doingAlternatePath = (audioFileManager.alternateLoadDirStatus == AlternateLoadDirStatus::NONE_SET);
+	if (doingAlternatePath) {
+		Error error = setupDefaultAudioFileDir();
+		if (error != Error::NONE) {
+			return error;
+		}
+	}
+
+	Error error = Error::NONE;
+	for (int32_t s = 0; s < kNumSources && error == Error::NONE; s++) {
+		if (sources[s].oscType == OscType::SAMPLE || sources[s].oscType == OscType::WAVETABLE) {
+			error = sources[s].loadSamplesForNotes(notes.span());
+		}
+	}
+
+	if (doingAlternatePath) {
+		audioFileManager.thingFinishedLoading();
+	}
+	return error;
+}
+
+bool SoundInstrument::loadLazyAudioFile(bool anyOther) {
+	if (!hasLazyAudioFiles()) {
+		return false;
+	}
+
+	// The notes the audition pads play, if one of this Instrument's Clips is on screen
+	PreviewNotes visibleNotes(transpose);
+	Clip* clip = getCurrentClip();
+	if (clip && clip->output == this && clip->type == ClipType::INSTRUMENT) {
+		for (int32_t yDisplay = 0; yDisplay < kDisplayHeight; yDisplay++) {
+			visibleNotes.add(static_cast<InstrumentClip*>(clip)->getYNoteFromYDisplay(yDisplay, currentSong));
+		}
+	}
+	if (!anyOther && visibleNotes.span().empty()) {
+		return false;
+	}
+
+	Error error = setupDefaultAudioFileDir();
+	if (error != Error::NONE) {
+		return false;
+	}
+	bool loaded = false;
+	for (int32_t s = 0; s < kNumSources && !loaded; s++) {
+		loaded = sources[s].loadLazySample(visibleNotes.span(), anyOther);
+	}
+	audioFileManager.thingFinishedLoading();
+	return loaded;
+}
+
+void loadLazyAudioFilesTask() {
+	// Not while anything else is being loaded: that uses the same alternate-folder state in audioFileManager
+	if (!currentSong || audioFileManager.thingTypeBeingLoaded != ThingType::NONE
+	    || audioFileManager.alternateLoadDirStatus != AlternateLoadDirStatus::NONE_SET) {
+		return;
+	}
+	bool loadTheRest = (AudioEngine::audioSampleTimer - lastPreviewTime) >= kLazyLoadRestDelay;
+
+	// Only Instruments in the Song: one the user has scrolled past has been deleted or hibernated, so its loading stops
+	for (Output* output = currentSong->firstOutput; output; output = output->next) {
+		if (output->type == OutputType::SYNTH
+		    && static_cast<SoundInstrument*>(output)->loadLazyAudioFile(loadTheRest)) {
+			return; // One file at a time
+		}
+	}
 }
 
 void SoundInstrument::resyncLFOs(bool reset_state) {

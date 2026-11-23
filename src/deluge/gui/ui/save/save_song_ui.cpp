@@ -26,6 +26,7 @@
 #include "model/sample/sample.h"
 #include "model/settings/runtime_feature_settings.h"
 #include "model/song/song.h"
+#include "processing/sound/sound_instrument.h"
 #include "storage/audio/audio_file_manager.h"
 #include "storage/flash_storage.h"
 #include "storage/storage_manager.h"
@@ -155,6 +156,13 @@ gotError:
 		else {
 			error = Error::UNSPECIFIED;
 			goto gotError;
+		}
+	}
+
+	// Samples not yet loaded after previewing presets wouldn't get copied below, so load them first
+	for (Output* output = currentSong->firstOutput; output; output = output->next) {
+		if (output->type == OutputType::SYNTH && static_cast<SoundInstrument*>(output)->hasLazyAudioFiles()) {
+			output->loadAllAudioFiles(true);
 		}
 	}
 

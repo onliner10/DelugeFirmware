@@ -50,6 +50,13 @@ public:
 	}
 
 	Error loadAllAudioFiles(bool mayActuallyReadFiles) override;
+	/// For previewing presets quickly: of a big multisample, loads only the samples that the clips of notesFrom (the
+	/// Instrument this one is replacing) play, and leaves the rest to loadLazyAudioFilesTask().
+	Error loadAudioFilesForPreview(Song* song, Output* notesFrom);
+	/// Loads one sample left by loadAudioFilesForPreview(): one the visible audition pads would play, or, if anyOther,
+	/// any. Returns whether it loaded one.
+	bool loadLazyAudioFile(bool anyOther);
+	bool hasLazyAudioFiles() { return sources[0].hasLazySamples() || sources[1].hasLazySamples(); }
 	void resyncLFOs(bool reset_state = false) override;
 	ModControllable* toModControllable() override;
 	bool setActiveClip(ModelStackWithTimelineCounter* modelStack, PgmChangeSend maySendMIDIPGMs) override;
@@ -86,3 +93,7 @@ public:
 
 	ArpeggiatorSettings defaultArpSettings;
 };
+
+/// Scheduler task: loads, one at a time, the samples that loadAudioFilesForPreview() left out. First those the
+/// visible audition pads play, then, once the user has stopped changing presets for a moment, the rest.
+void loadLazyAudioFilesTask();

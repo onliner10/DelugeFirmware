@@ -62,6 +62,7 @@
 #include "playback/mode/session.h"
 #include "processing/engines/audio_engine.h"
 #include "processing/engines/cv_engine.h"
+#include "processing/sound/sound_instrument.h"
 #include "scheduler_api.h"
 #include "storage/audio/audio_file_manager.h"
 #include "storage/flash_storage.h"
@@ -594,6 +595,9 @@ void registerTasks() {
 	// Needs the SD resources: it can call finishRecording(), which frees the SampleRecorder, and that must not happen
 	// while the card routine is part-way through using it.
 	addRepeatingTask([]() { audioRecorder.slowRoutine(); }, p++, 0.01, 0.09, 0.1, "audio recorder slow",
+	                 RESOURCE_SD | RESOURCE_SD_ROUTINE);
+	// Samples of multisamples left out while previewing presets, one at a time
+	addRepeatingTask(&loadLazyAudioFilesTask, p++, 0.005, 0.01, 0.05, "lazy sample load",
 	                 RESOURCE_SD | RESOURCE_SD_ROUTINE);
 	// formerly part of cluster loading (why? no idea), actions undo/redo midi commands
 	addRepeatingTask([]() { playbackHandler.slowRoutine(); }, p++, 0.01, 0.09, 0.1, "playback slow routine",
