@@ -1,6 +1,7 @@
 #include "dsp/voice_mix.h"
 
 #include "cppspec.hpp"
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -11,15 +12,15 @@ constexpr int32_t kCanary = 0x5A5A5A5A;
 
 // smmulr, written out: the high word of x·a, rounded
 int32_t smmulr(int32_t x, int32_t a) {
-	return static_cast<int32_t>((static_cast<int64_t>(x) * a + 0x80000000LL) >> 32);
+	return static_cast<int32_t>(((static_cast<int64_t>(x) * a) + 0x80000000LL) >> 32);
 }
 
 // Voice::render's per-sample loop before the kernel, with its wrapping made explicit
 void referenceRamp(int32_t* out, int32_t const* in, int32_t numSamples, int32_t amplitude, int32_t increment) {
-	uint32_t amplitudeNow = amplitude;
+	uint32_t amplitude_now = amplitude;
 	for (int32_t i = 0; i < numSamples; i++) {
-		amplitudeNow += static_cast<uint32_t>(increment);
-		uint32_t const output = static_cast<uint32_t>(smmulr(in[i], static_cast<int32_t>(amplitudeNow))) << 1;
+		amplitude_now += static_cast<uint32_t>(increment);
+		uint32_t const output = static_cast<uint32_t>(smmulr(in[i], static_cast<int32_t>(amplitude_now))) << 1;
 		out[i] = static_cast<int32_t>(static_cast<uint32_t>(out[i]) + output);
 	}
 }
@@ -27,13 +28,13 @@ void referenceRamp(int32_t* out, int32_t const* in, int32_t numSamples, int32_t 
 struct Random {
 	uint32_t state;
 	int32_t next() {
-		state = state * 1664525u + 1013904223u;
+		state = (state * 1664525u) + 1013904223u;
 		return static_cast<int32_t>(state);
 	}
 };
 
-int32_t const kExtremes[] = {INT32_MIN,     INT32_MAX,     0,          1,           -1,
-                             INT32_MIN + 1, INT32_MAX - 1, 0x40000000, -0x40000000, 0x00008000};
+constexpr std::array<int32_t, 10> kExtremes = {INT32_MIN,     INT32_MAX,     0,          1,           -1,
+                                               INT32_MIN + 1, INT32_MAX - 1, 0x40000000, -0x40000000, 0x00008000};
 
 // Samples from the generator, with the extremes mixed in at a stride so every lane meets them
 std::vector<int32_t> makeSamples(size_t size, Random& random, bool extremes) {
@@ -41,7 +42,7 @@ std::vector<int32_t> makeSamples(size_t size, Random& random, bool extremes) {
 	for (size_t i = 0; i < size; i++) {
 		samples[i] = random.next();
 		if (extremes && i % 3 == 0) {
-			samples[i] = kExtremes[(i / 3 + random.state) % std::size(kExtremes)];
+			samples[i] = kExtremes[((i / 3) + random.state) % kExtremes.size()];
 		}
 	}
 	return samples;
@@ -84,7 +85,10 @@ bool matches(Kernel kernel, Reference reference, int32_t numSamples, size_t offs
 bool rampMatches(int32_t numSamples, int32_t amplitude, int32_t increment, size_t offset, Random& random,
                  bool extremes) {
 	return matches(
-	    [&](int32_t* out, int32_t const* in) { addMonoWithAmplitudeRamp(out, in, numSamples, amplitude, increment); },
+	    // The kernel writes through out with NEON stores, which readability-non-const-parameter doesn't see
+	    [&](int32_t* out, int32_t const* in) { // NOLINT(readability-non-const-parameter)
+		    addMonoWithAmplitudeRamp(out, in, numSamples, amplitude, increment);
+	    },
 	    [&](int32_t* out, int32_t const* in) { referenceRamp(out, in, numSamples, amplitude, increment); }, numSamples,
 	    offset, random, extremes);
 }
@@ -95,37 +99,37 @@ bool rampMatches(int32_t numSamples, int32_t amplitude, int32_t increment, size_
 describe voice_mix("Voice mono mix", $ {
 	it("matches the per-sample ramp for every length from 1 to 130, random samples and ramps", _ {
 		Random random{1};
-		bool allMatch = true;
+		bool all_match = true;
 		for (int32_t n = 1; n <= 130; n++) {
 			for (size_t offset = 0; offset < 4; offset++) {
-				allMatch = allMatch && rampMatches(n, random.next(), random.next() >> (n % 32), offset, random, false);
+				all_match = all_match && rampMatches(n, random.next(), random.next() >> (n % 32), offset, random, false);
 			}
 		}
-		expect(allMatch).to_be_true();
+		expect(all_match).to_be_true();
 	});
 
 	it("matches the per-sample ramp on extreme samples and amplitudes", _ {
 		Random random{2};
-		bool allMatch = true;
+		bool all_match = true;
 		for (int32_t amplitude : kExtremes) {
 			for (int32_t increment : {0, 1, -1, INT32_MIN, INT32_MAX, 0x10000000, -0x10000000}) {
 				for (int32_t n : {1, 3, 4, 5, 7, 8, 9, 12, 16, 17, 33, 128}) {
-					allMatch = allMatch && rampMatches(n, amplitude, increment, n % 4, random, true);
+					all_match = all_match && rampMatches(n, amplitude, increment, n % 4, random, true);
 				}
 			}
 		}
-		expect(allMatch).to_be_true();
+		expect(all_match).to_be_true();
 	});
 
 	it("matches the per-sample ramp where the amplitude wraps mid-block", _ {
 		Random random{3};
-		bool allMatch = true;
+		bool all_match = true;
 		// Steps of 2^28 from just under INT32_MAX wrap to negative on the first step, and wrap around every 16
 		for (int32_t n : {4, 8, 15, 16, 31, 64, 130}) {
-			allMatch = allMatch && rampMatches(n, INT32_MAX - 5, 0x10000000, 0, random, true);
-			allMatch = allMatch && rampMatches(n, INT32_MIN + 5, -0x10000000, 1, random, true);
+			all_match = all_match && rampMatches(n, INT32_MAX - 5, 0x10000000, 0, random, true);
+			all_match = all_match && rampMatches(n, INT32_MIN + 5, -0x10000000, 1, random, true);
 		}
-		expect(allMatch).to_be_true();
+		expect(all_match).to_be_true();
 	});
 
 #if defined(__ARM_NEON)
