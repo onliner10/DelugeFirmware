@@ -226,7 +226,8 @@ public:
 	                 const char* pathAttribute = NULL);
 
 	void voiceUnassigned(ModelStackWithSoundFlags* modelStack);
-	bool isSourceActiveCurrently(int32_t s, ParamManagerForTimeline* paramManager);
+	/// modelStack must be this Sound's. Caches whether the source has a file in modelStack's flags.
+	bool isSourceActiveCurrently(ModelStackWithSoundFlags* modelStack, int32_t s);
 	bool isSourceActiveEverDisregardingMissingSample(int32_t s, ParamManager* paramManager);
 	bool isSourceActiveEver(int32_t s, ParamManager* paramManager);
 	bool isNoiseActiveEver(ParamManagerForTimeline* paramManager);

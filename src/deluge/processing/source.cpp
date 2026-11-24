@@ -283,13 +283,26 @@ MultiRange* Source::getOrCreateFirstRange() {
 	}
 }
 
-bool Source::hasAtLeastOneAudioFileLoaded() {
+namespace {
+template <typename Range, auto holder>
+bool anyRangeHasAudioFile(MultiRangeArray& ranges) {
 	for (int32_t e = 0; e < ranges.getNumElements(); e++) {
-		if (ranges.getElement(e)->getAudioFileHolder()->audioFile) {
+		if ((static_cast<Range*>(ranges.getElementAddress(e))->*holder).audioFile) {
 			return true;
 		}
 	}
 	return false;
+}
+} // namespace
+
+bool Source::hasAtLeastOneAudioFileLoaded() {
+	// Every range is of the type the array's element size says (see MultiRangeArray::insertMultiRange()), so read
+	// their holders directly rather than through getElement() and a virtual getAudioFileHolder() per range
+	static_assert(sizeof(MultisampleRange) != sizeof(MultiWaveTableRange));
+	if (ranges.elementSize == sizeof(MultisampleRange)) {
+		return anyRangeHasAudioFile<MultisampleRange, &MultisampleRange::sampleHolder>(ranges);
+	}
+	return anyRangeHasAudioFile<MultiWaveTableRange, &MultiWaveTableRange::waveTableHolder>(ranges);
 }
 
 void Source::doneReadingFromFile(Sound* sound) {

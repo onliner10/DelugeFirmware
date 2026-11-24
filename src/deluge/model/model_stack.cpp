@@ -216,9 +216,18 @@ bool ModelStackWithSoundFlags::checkSourceEverActive(int32_t s) {
 			flagValue =
 			    sound->synthMode == SynthMode::FM
 			    || (sound->sources[s].oscType != OscType::SAMPLE && sound->sources[s].oscType != OscType::WAVETABLE)
-			    || sound->sources[s].hasAtLeastOneAudioFileLoaded();
+			    || checkSourceHasAudioFile(s);
 		}
 		soundFlags[SOUND_FLAG_SOURCE_0_ACTIVE + s] = flagValue;
+	}
+	return flagValue;
+}
+
+bool ModelStackWithSoundFlags::checkSourceHasAudioFile(int32_t s) {
+	int32_t flagValue = soundFlags[SOUND_FLAG_SOURCE_0_HAS_AUDIO_FILE + s];
+	if (flagValue == FLAG_TBD) {
+		flagValue = ((Sound*)modControllable)->sources[s].hasAtLeastOneAudioFileLoaded();
+		soundFlags[SOUND_FLAG_SOURCE_0_HAS_AUDIO_FILE + s] = flagValue;
 	}
 	return flagValue;
 }

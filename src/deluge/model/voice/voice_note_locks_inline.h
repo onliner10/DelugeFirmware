@@ -42,10 +42,10 @@ inline bool VoiceNoteLocks::sourceEverActive(ModelStackWithSoundFlags* modelStac
 	return sourceEverActiveLocked(modelStack, s);
 }
 
-inline bool VoiceNoteLocks::sourceActiveCurrently(Sound& sound, int32_t s,
-                                                  ParamManagerForTimeline* paramManager) const {
+inline bool VoiceNoteLocks::sourceActiveCurrently(ModelStackWithSoundFlags* modelStack, int32_t s) const {
+	Sound& sound = *static_cast<Sound*>(modelStack->modControllable);
 	if (!volumeLocked(deluge::modulation::params::LOCAL_OSC_A_VOLUME + s)) [[likely]] {
-		return sound.isSourceActiveCurrently(s, paramManager);
+		return sound.isSourceActiveCurrently(modelStack, s);
 	}
 	return sourceActiveCurrentlyLocked(sound, s);
 }

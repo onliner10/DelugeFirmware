@@ -1210,7 +1210,7 @@ skipAutoRelease: {}
 			}
 
 			// This this source isn't active...
-			if (!noteLocks.sourceActiveCurrently(sound, s, paramManager)) {
+			if (!noteLocks.sourceActiveCurrently(modelStack, s)) {
 
 				// If we're doing osc sync...
 				if (getPhaseIncrements) {
@@ -1259,7 +1259,7 @@ skipAutoRelease: {}
 
 					uint32_t* getPhaseIncrements = ((s == 0) && doingOscSync) ? oscSyncPhaseIncrement : nullptr;
 					bool getOutAfterGettingPhaseIncrements =
-					    getPhaseIncrements && !noteLocks.sourceActiveCurrently(sound, s, paramManager);
+					    getPhaseIncrements && !noteLocks.sourceActiveCurrently(modelStack, s);
 
 					renderBasicSource(sound, paramManager, s, oscBuffer, numSamples, true, sourceAmplitudesNow[s],
 					                  &unisonPartBecameInactive, overallPitchAdjust, (s == 1) && doingOscSync,

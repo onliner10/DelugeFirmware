@@ -60,8 +60,7 @@ public:
 	/// stays true for a source the sound has on and a lock turns off: that only skips its rendering.
 	[[nodiscard]] inline bool sourceEverActive(ModelStackWithSoundFlags* modelStack, int32_t s) const;
 	/// Sound::isSourceActiveCurrently, with a lock on the source's volume in place of its knob value
-	[[nodiscard]] inline bool sourceActiveCurrently(Sound& sound, int32_t s,
-	                                                ParamManagerForTimeline* paramManager) const;
+	[[nodiscard]] inline bool sourceActiveCurrently(ModelStackWithSoundFlags* modelStack, int32_t s) const;
 	/// Sound::renderingOscillatorSyncCurrently, with a lock on osc B's volume in place of its knob value
 	[[nodiscard]] inline bool oscSyncCurrently(Sound& sound, ParamManagerForTimeline* paramManager) const;
 	/// The FM modulator's volume is above -inf, from a lock if there is one, else its knob value

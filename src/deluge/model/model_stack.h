@@ -272,7 +272,9 @@ public:
 #define SOUND_FLAG_SOURCE_1_ACTIVE_DISREGARDING_MISSING_SAMPLE 1
 #define SOUND_FLAG_SOURCE_0_ACTIVE 2
 #define SOUND_FLAG_SOURCE_1_ACTIVE 3
-#define NUM_SOUND_FLAGS 4
+#define SOUND_FLAG_SOURCE_0_HAS_AUDIO_FILE 4
+#define SOUND_FLAG_SOURCE_1_HAS_AUDIO_FILE 5
+#define NUM_SOUND_FLAGS 6
 
 #define FLAG_FALSE 0
 #define FLAG_TRUE 1
@@ -285,9 +287,13 @@ public:
 
 	bool checkSourceEverActiveDisregardingMissingSample(int32_t s);
 	bool checkSourceEverActive(int32_t s);
+	/// Source::hasAtLeastOneAudioFileLoaded(), worked out once per model stack: it scans every range of a
+	/// multisample, and rendering asks it for every voice
+	bool checkSourceHasAudioFile(int32_t s);
 };
 
 #define MODEL_STACK_MAX_SIZE sizeof(ModelStackWithAutoParam)
+static_assert(sizeof(ModelStackWithSoundFlags) <= MODEL_STACK_MAX_SIZE);
 
 ModelStackWithThreeMainThings* getModelStackFromSoundDrum(void* memory, SoundDrum* soundDrum);
 
