@@ -35,7 +35,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           short=$(echo "$GITHUB_SHA" | cut -c1-8)
-          cp bundle/deluge.bin "deluge-next-$short.bin"
+          ls -R bundle
+          bin=$(find bundle -name '*.bin' | head -1)
+          test -n "$bin" || { echo "no .bin in the build bundle"; exit 1; }
+          cp "$bin" "deluge-next-$short.bin"
           gh release delete next-build --yes --cleanup-tag || true
           gh release create next-build "deluge-next-$short.bin" \
             --target "$GITHUB_SHA" --prerelease \
