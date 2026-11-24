@@ -43,7 +43,8 @@ inline bool VoiceNoteLocks::sourceEverActive(ModelStackWithSoundFlags* modelStac
 }
 
 inline bool VoiceNoteLocks::sourceActiveCurrently(ModelStackWithSoundFlags* modelStack, int32_t s) const {
-	Sound& sound = *static_cast<Sound*>(modelStack->modControllable);
+	// A local reference, not a static: clang-tidy's dynamic-static-initializers check misreads it in a header
+	Sound& sound = *static_cast<Sound*>(modelStack->modControllable); // NOLINT(bugprone-dynamic-static-initializers)
 	if (!volumeLocked(deluge::modulation::params::LOCAL_OSC_A_VOLUME + s)) [[likely]] {
 		return sound.isSourceActiveCurrently(modelStack, s);
 	}
