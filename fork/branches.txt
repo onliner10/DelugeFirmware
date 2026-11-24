@@ -1,0 +1,5 @@
+# Feature branches that make up `next`, on origin (this fork). sync.ps1 merges each into `next`.
+# One branch per change, each started from upstream/main, so it can also go upstream as its own PR.
+# Drop a line once upstream has merged that change.
+perf/sample-folder-index
+perf/lazy-multisample-load
