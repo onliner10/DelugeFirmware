@@ -293,11 +293,20 @@ bool anyRangeHasAudioFile(MultiRangeArray& ranges) {
 	}
 	return false;
 }
+
+#pragma GCC diagnostic push
+// Both are non-standard-layout, but GCC supports offsetof on them
+#pragma GCC diagnostic ignored "-Winvalid-offsetof"
+// Both range types keep their file at the same place, so which of the two loops below runs doesn't change the answer,
+// even if a range isn't of the type the array's element size says (Sound::readSourceFromFile() picks it by oscType)
+static_assert(__builtin_offsetof(MultisampleRange, sampleHolder.audioFile)
+              == __builtin_offsetof(MultiWaveTableRange, waveTableHolder.audioFile));
+#pragma GCC diagnostic pop
 } // namespace
 
 bool Source::hasAtLeastOneAudioFileLoaded() {
-	// Every range is of the type the array's element size says (see MultiRangeArray::insertMultiRange()), so read
-	// their holders directly rather than through getElement() and a virtual getAudioFileHolder() per range
+	// Read the ranges' holders directly, rather than through getElement() and a virtual getAudioFileHolder() per
+	// range. The element size gives the range type, as in MultiRangeArray::insertMultiRange().
 	static_assert(sizeof(MultisampleRange) != sizeof(MultiWaveTableRange));
 	if (ranges.elementSize == sizeof(MultisampleRange)) {
 		return anyRangeHasAudioFile<MultisampleRange, &MultisampleRange::sampleHolder>(ranges);
