@@ -48,15 +48,18 @@ private:
 		                                   .BitwiseAnd(std::numeric_limits<int16_t>::max())
 		                                   .As<int16_t>();
 
-		// Pair index into the interleaved {value, diff} table. The gather scales
-		// offsets by its stride internally (base + offset*stride since argon
-		// 90fde9a "Fix load bugs"), so do NOT pre-multiply by 2 here — doing both
-		// read past the 512-entry table (caught by the golden-master FM cases).
+		// Each {value, diff} pair in the interleaved table is one aligned 32-bit word, value in the low
+		// half (the same layout doFMNew() reads). Gather the 4 words with plain 32-bit lane loads and split
+		// them by narrowing. This replaces LoadGatherOffsetIndexInterleaved<2>, whose int16x4x2_t lane loads
+		// GCC 14 wraps in 3 redundant vorr register shuffles per lane. Bit-exact with the old gather
+		// (see tests/spec/sine_osc_spec.cpp).
+		// LoadGatherOffsetIndex scales the offsets by the word size, so `indices` is the pair index (0-255).
 		Argon<uint32_t> indices = phase >> (32 - kSineTableSizeMagnitude);
+		Argon<uint32_t> pairs =
+		    Argon<uint32_t>::LoadGatherOffsetIndex(reinterpret_cast<const uint32_t*>(sineWaveDiff.data()), indices);
 
-		//  load our two relevent table components
-		auto [sine, diff] =
-		    ArgonHalf<int16_t>::LoadGatherOffsetIndexInterleaved<2>(sineWaveDiff.data(), indices.Narrow());
+		ArgonHalf<int16_t> sine = pairs.Narrow().As<int16_t>();               // low halves
+		ArgonHalf<int16_t> diff = pairs.ShiftRightNarrow<16>().As<int16_t>(); // high halves
 
 		// Essentially a MultiplyAddFixedPoint, but without the reduction back down to q31
 		return sine.ShiftLeftLong<16>().MultiplyDoubleAddSaturateLong(diff, strength2);

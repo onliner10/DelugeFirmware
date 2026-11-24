@@ -14,6 +14,7 @@ add_library(deluge_spec STATIC
 ../../src/deluge/hid/display/starfield.cpp
 ../../src/deluge/hid/display/rainfall.cpp
 ../../src/deluge/dsp/reverb/freeverb/freeverb.cpp
+../../src/deluge/dsp/oscillators/sine_osc.cpp
 ../32bit_unit_tests/mocks/mock_display.cpp
 ../32bit_unit_tests/mocks/mock_print.cpp
 )
