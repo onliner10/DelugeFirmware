@@ -528,6 +528,13 @@ Here is a list of general improvements that have been made, ordered from newest 
   - Saving a song first loads any samples not loaded yet, so "Collect media" still copies them all.
   - This feature is `ON` by default and can be set to `ON` or `OFF` via `SETTINGS > COMMUNITY FEATURES > FAST PRESET SCROLLING`. When `OFF`, every sample of a preset is loaded before it can be heard, as before.
 
+### 3.39 - Antialiased Wavefolder
+
+- The synth wavefolder can fold with first-order antiderivative antialiasing (ADAA), which lowers the aliasing it adds, most of all on bright sounds and high notes. <Badge text="c1.4" variant="tip" />
+  - The fold keeps its shape and level. Each sample is the average of the fold between the previous input and this one, which adds half a sample of delay and takes a little off the top end.
+  - At the most extreme fold settings, where the input reaches the edge of the fold's range, those samples fold as before.
+  - This feature is `OFF` by default and can be set to `ON` or `OFF` via `SETTINGS > COMMUNITY FEATURES > ANTIALIASED WAVEFOLDER`. When `OFF`, the wavefolder sounds exactly as before.
+
 ## 4. New Features Added
 
 Here is a list of features that have been added to the firmware as a list, grouped by category:
@@ -1454,6 +1461,8 @@ Note: these settings are saved to `SETTINGS/CommunityFeatures.XML` on your SD ca
   - `On - Menu + Clip (FULL)` also shows it while holding Shift in instrument and audio clip views.
 - `Fast Preset Scrolling (FAST)` <Badge text="c1.4" variant="tip" />
   - When On (default), scrolling to a big multisample synth preset loads only the samples needed to hear it straight away, and the rest in the background. See [Fast Preset Scrolling for Big Multisamples](#338---fast-preset-scrolling-for-big-multisamples).
+- `Antialiased Wavefolder (AAFD)` <Badge text="c1.4" variant="tip" />
+  - When On, the synth wavefolder is antialiased. Off by default. See [Antialiased Wavefolder](#339---antialiased-wavefolder).
 
 ## 6. Sysex Handling
 

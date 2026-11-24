@@ -76,6 +76,9 @@ public:
 
 	std::array<uint32_t, 2> lastSaturationTanHWorkingValue;
 
+	// The previous wavefolder input of each channel, for the antialiased fold
+	std::array<q31_t, 2> lastFoldInput{};
+
 	int32_t overallOscAmplitudeLastTime;
 	std::array<int32_t, kNumSources> sourceAmplitudesLastTime;
 	std::array<int32_t, kNumModulators> modulatorAmplitudeLastTime;

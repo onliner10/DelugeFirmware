@@ -108,4 +108,63 @@ inline q31_t toQ31Saturating(float scaled) {
 	constexpr float kMin = -2147483648.f;
 	return static_cast<q31_t>(std::clamp(scaled, kMin, kMax));
 }
+
+/**
+ * polynomialOscillatorApproximation() applies T(u) = 3u - 8u^3 twice, so for real x it computes
+ * P(x) = 9x - 240x^3 + 1728x^5 - 4608x^7 + 4096x^9 (which is T9(sqrt(2) x) / sqrt(2), a 9th-order Chebyshev
+ * fold). Past |x| ~ 0.7106 the integer steps wrap, so the antialiased fold below only takes over inside this limit.
+ */
+constexpr q31_t FOLD_ADAA_LIMIT = 0.71 * ONE_Q31;
+
+/**
+ * The mean of P over [x0, x1]: (F(x1) - F(x0)) / (x1 - x0), with F the antiderivative of P. Since F is a
+ * polynomial the division cancels out, which leaves no special case for x0 == x1 (where this is P(x0)).
+ *
+ * F(x) = G(x^2) with G(y) = 4.5y - 60y^2 + 288y^3 - 576y^4 + 409.6y^5, so the divided difference splits into
+ * (x0 + x1) * G[y0, y1], and G[y0, y1] is a polynomial in a = y0 + y1 and b = y0 * y1.
+ */
+inline float foldPolynomialMean(float x0, float x1) {
+	float s = x0 + x1;
+	float a = (x0 * x0) + (x1 * x1);
+	float p = x0 * x1;
+	float b = p * p;
+	float a2 = a * a;
+	// Grouped in pairs rather than nested, which keeps the chain of dependent multiplies short
+	float termsA = (4.5f - (60.f * a)) + (a2 * ((288.f - (576.f * a)) + (409.6f * a2)));
+	float termsB = (-288.f + (1152.f * a)) - (1228.8f * a2);
+	return s * (termsA + (b * (termsB + (409.6f * b))));
+}
+
+/**
+ * foldBufferPolyApproximation() with first-order antiderivative antialiasing (ADAA1): each output is the mean of
+ * the fold over the line from the previous input to this one, rather than the fold of this input alone. That
+ * removes much of the aliasing of the degree-9 polynomial, for half a sample of delay and a slight treble cut.
+ *
+ * Folds every stride-th sample, so a channel of an interleaved stereo buffer is folded with stride 2. lastX is
+ * that channel's previous polynomial input, kept between calls. Where either input is past FOLD_ADAA_LIMIT, the
+ * sample is the same as foldBufferPolyApproximation() gives.
+ */
+inline void foldBufferPolyApproximationAntialiased(q31_t* startSample, q31_t* endSample, q31_t level, int32_t stride,
+                                                   q31_t& lastX) {
+	q31_t fold_level = add_saturate(level, FOLD_MIN);
+	q31_t x0 = lastX;
+
+	for (q31_t* currentSample = startSample; currentSample < endSample; currentSample += stride) {
+		q31_t x1 = lshiftAndSaturateUnknown(multiply_32x32_rshift32(fold_level, *currentSample), 8);
+
+		if (x0 >= -FOLD_ADAA_LIMIT && x0 <= FOLD_ADAA_LIMIT && x1 >= -FOLD_ADAA_LIMIT && x1 <= FOLD_ADAA_LIMIT)
+		    [[likely]] {
+			float mean = foldPolynomialMean(static_cast<float>(x0) * 0x1p-31f, static_cast<float>(x1) * 0x1p-31f);
+			// The same volume compensation as polynomialOscillatorApproximation(x) >> 7. Inside the limit |mean| < 1,
+			// so this can't overflow.
+			*currentSample = static_cast<q31_t>(mean * 0x1p24f);
+		}
+		else {
+			*currentSample = polynomialOscillatorApproximation(x1) >> 7;
+		}
+
+		x0 = x1;
+	}
+	lastX = x0;
+}
 } // namespace deluge::dsp

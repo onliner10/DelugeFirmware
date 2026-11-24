@@ -31,6 +31,7 @@
 #include "model/sample/sample.h"
 #include "model/sample/sample_cache.h"
 #include "model/sample/sample_holder_for_voice.h"
+#include "model/settings/runtime_feature_settings.h"
 #include "model/song/song.h"
 #include "model/voice/voice_note_locks_inline.h"
 #include "model/voice/voice_sample.h"
@@ -185,6 +186,7 @@ bool Voice::noteOn(ModelStackWithSoundFlags* modelStack, int32_t newNoteCodeBefo
 
 		lastSaturationTanHWorkingValue[0] = 2147483648;
 		lastSaturationTanHWorkingValue[1] = 2147483648;
+		lastFoldInput.fill(0);
 	}
 
 	// Porta
@@ -1537,7 +1539,15 @@ skipUnisonPart: {}
 		int32_t* const oscBufferEnd = oscBuffer + (numSamples << 1);
 		// fold
 		if (paramFinalValues[params::LOCAL_FOLD] > 0) {
-			dsp::foldBufferPolyApproximation(oscBuffer, oscBufferEnd, paramFinalValues[params::LOCAL_FOLD]);
+			if (runtimeFeatureSettings.isOn(RuntimeFeatureSettingType::AntialiasedWavefolder)) {
+				q31_t foldAmount = paramFinalValues[params::LOCAL_FOLD];
+				dsp::foldBufferPolyApproximationAntialiased(oscBuffer, oscBufferEnd, foldAmount, 2, lastFoldInput[0]);
+				dsp::foldBufferPolyApproximationAntialiased(oscBuffer + 1, oscBufferEnd, foldAmount, 2,
+				                                            lastFoldInput[1]);
+			}
+			else {
+				dsp::foldBufferPolyApproximation(oscBuffer, oscBufferEnd, paramFinalValues[params::LOCAL_FOLD]);
+			}
 		}
 		// Filters
 		filterSet.renderLongStereo(oscBuffer, oscBufferEnd);
@@ -1621,7 +1631,12 @@ skipUnisonPart: {}
 		if (paramFinalValues[params::LOCAL_FOLD] > 0) {
 			q31_t foldAmount = paramFinalValues[params::LOCAL_FOLD];
 
-			dsp::foldBufferPolyApproximation(oscBuffer, oscBufferEnd, foldAmount);
+			if (runtimeFeatureSettings.isOn(RuntimeFeatureSettingType::AntialiasedWavefolder)) {
+				dsp::foldBufferPolyApproximationAntialiased(oscBuffer, oscBufferEnd, foldAmount, 1, lastFoldInput[0]);
+			}
+			else {
+				dsp::foldBufferPolyApproximation(oscBuffer, oscBufferEnd, foldAmount);
+			}
 		}
 
 		filterSet.renderLong(oscBuffer, oscBufferEnd, numSamples);
