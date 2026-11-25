@@ -210,6 +210,11 @@ void RuntimeFeatureSettings::init() {
 	                  STRING_FOR_COMMUNITY_FEATURE_FAST_PRESET_SCROLLING, "fastPresetScrolling",
 	                  RuntimeFeatureStateToggle::On);
 
+	// Antialiased Wavefolder
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::AntialiasedWavefolder],
+	                  STRING_FOR_COMMUNITY_FEATURE_ANTIALIASED_WAVEFOLDER, "antialiasedWavefolder",
+	                  RuntimeFeatureStateToggle::Off);
+
 	// Shortcut Overlay
 	auto& overlay = settings[RuntimeFeatureSettingType::ShortcutOverlay];
 	overlay.displayName = STRING_FOR_COMMUNITY_FEATURE_SHORTCUT_OVERLAY;
