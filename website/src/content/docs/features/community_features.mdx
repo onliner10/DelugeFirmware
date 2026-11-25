@@ -530,7 +530,7 @@ Here is a list of general improvements that have been made, ordered from newest 
 
 ### 3.39 - Bigger Output Queue for Busy Songs
 
-- <Badge text="c1.4" variant="tip" /> The Deluge keeps a short queue of rendered audio in front of its output: 128 samples (2.9 ms). When a song is busy enough that rendering can't always keep that queue from running out, voices get cut and quality is reduced to keep up. With this setting `ON` the queue is 256 samples, which gives a busy song much more room before that starts.
+- The Deluge keeps a short queue of rendered audio in front of its output: 128 samples (2.9 ms). When a song is busy enough that rendering can't always keep that queue from running out, voices get cut and quality is reduced to keep up. With this setting `ON` the queue is 256 samples, which gives a busy song much more room before that starts.
   - Everything is heard 2.9 ms later than before: notes from the pads or from MIDI, and the song itself. MIDI and gate outputs are sent that much later too, so they stay lined up with the audio.
   - Audio coming in the inputs and back out (monitoring, or as an oscillator source) takes about 12 ms instead of about 6 ms, as the input is read later by as much again. Recordings of an input still line up with what was played to.
   - The Deluge follows an external clock 2.9 ms later.
