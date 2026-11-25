@@ -20,10 +20,19 @@
 #include "util/functions.h"
 #include "util/lookuptables/lookuptables.h"
 #include <argon.hpp>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
 namespace deluge::dsp {
+
+namespace detail {
+/// The 32 bits at a 2-byte aligned table address, {t[x], t[x + 1]}, for a NEON lane load. The firmware runs
+/// with alignment checking off.
+inline uint32_t const* tablePairAt(int16_t const* address) {
+	return reinterpret_cast<uint32_t const*>(address); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+}
+} // namespace detail
 
 /// The per-sample antialiased tanh saturation, applied in place to a block: what calling
 /// getTanHAntialiased(sample, &lastWorkingValues[channel], saturationAmount) << shiftAmount on every sample does.
@@ -60,79 +69,70 @@ inline void saturateTanHAntialiased(int32_t* buffer, size_t count, uint32_t* las
 		return;
 	}
 
-	size_t const vectorCount = count & ~size_t{3};
-	auto* const words = reinterpret_cast<uint32_t*>(buffer);
+	size_t const vector_count = count & ~size_t{3};
 
 	// Pass 1: working values
 	{
 		int32x4_t const shift = vdupq_n_s32(static_cast<int32_t>(saturationAmount));
-		uint32x4_t const lowBits = vdupq_n_u32((1u << saturationAmount) - 1);
-		uint32x4_t const signBit = vdupq_n_u32(2147483648u);
-		for (size_t i = 0; i < vectorCount; i += 4) {
+		uint32x4_t const low_bits = vdupq_n_u32((1u << saturationAmount) - 1);
+		uint32x4_t const sign_bit = vdupq_n_u32(2147483648u);
+		for (size_t i = 0; i < vector_count; i += 4) {
 			uint32x4_t saturated = vreinterpretq_u32_s32(vqshlq_s32(vld1q_s32(&buffer[i]), shift));
-			vst1q_u32(&words[i], veorq_u32(vbicq_u32(saturated, lowBits), signBit));
+			vst1q_s32(&buffer[i], vreinterpretq_s32_u32(veorq_u32(vbicq_u32(saturated, low_bits), sign_bit)));
 		}
 	}
 
 	// Pass 2: the 2d table lookup, as in interpolateTableSigned2d(workingValue, lastWorkingValue, 32, 32,
 	// tanH2d, 7, 6) >> (saturationAmount + 1), then << shiftAmount
 	{
-		constexpr size_t kRowBytes = sizeof(tanH2d[0]);
-		auto const* const table = reinterpret_cast<uint8_t const*>(&tanH2d[0][0]);
-		int32x4_t const finalRShift = vdupq_n_s32(-static_cast<int32_t>(saturationAmount + 1));
-		int32x4_t const finalLShift = vdupq_n_s32(shiftAmount);
-		int32x4_t const maxStrength = vdupq_n_s32(2147483647);
+		constexpr size_t row_length = sizeof(tanH2d[0]) / sizeof(tanH2d[0][0]);
+		int16_t const* const table = &tanH2d[0][0];
+		int32x4_t const final_right_shift = vdupq_n_s32(-static_cast<int32_t>(saturationAmount + 1));
+		int32x4_t const final_left_shift = vdupq_n_s32(shiftAmount);
+		int32x4_t const max_strength = vdupq_n_s32(2147483647);
 
 		// The working values kNumChannels samples back, as a vector (its last kNumChannels lanes) and as scalars
-		uint32_t carried[kNumChannels];
-		uint32x4_t carriedVector = vdupq_n_u32(lastWorkingValues[0]);
+		std::array<uint32_t, kNumChannels> carried{};
+		uint32x4_t carried_vector = vdupq_n_u32(lastWorkingValues[0]);
 		for (size_t c = 0; c < kNumChannels; c++) {
 			carried[c] = lastWorkingValues[c];
 		}
 		if constexpr (kNumChannels == 2) {
-			carriedVector = vsetq_lane_u32(lastWorkingValues[1], carriedVector, 3);
+			carried_vector = vsetq_lane_u32(lastWorkingValues[1], carried_vector, 3);
 		}
 
-		for (size_t i = 0; i < vectorCount; i += 4) {
-			uint32_t const w0 = words[i];
-			uint32_t const w1 = words[i + 1];
-			uint32_t const w2 = words[i + 2];
-			uint32_t const w3 = words[i + 3];
-			uint32_t p0, p1, p2, p3;
-			if constexpr (kNumChannels == 1) {
-				p0 = carried[0];
-				p1 = w0;
-				p2 = w1;
-				p3 = w2;
-			}
-			else {
-				p0 = carried[0];
-				p1 = carried[1];
-				p2 = w0;
-				p3 = w1;
-			}
+		for (size_t i = 0; i < vector_count; i += 4) {
+			auto const w0 = static_cast<uint32_t>(buffer[i]);
+			auto const w1 = static_cast<uint32_t>(buffer[i + 1]);
+			auto const w2 = static_cast<uint32_t>(buffer[i + 2]);
+			auto const w3 = static_cast<uint32_t>(buffer[i + 3]);
+			// The previous working value of each of the 4 samples
+			uint32_t const p0 = carried[0];
+			uint32_t const p1 = (kNumChannels == 1) ? w0 : carried[kNumChannels - 1];
+			uint32_t const p2 = (kNumChannels == 1) ? w1 : w0;
+			uint32_t const p3 = (kNumChannels == 1) ? w2 : w1;
 
-			// Byte address of t[y][x]; t[y + 1][x] is one row further on
+			// Address of t[y][x]; t[y + 1][x] is one row further on
 			auto address = [table](uint32_t workingValue, uint32_t previous) {
-				return table + ((previous >> 26) * kRowBytes) + ((workingValue >> 25) << 1);
+				return table + ((previous >> 26) * row_length) + (workingValue >> 25);
 			};
-			uint8_t const* a0 = address(w0, p0);
-			uint8_t const* a1 = address(w1, p1);
-			uint8_t const* a2 = address(w2, p2);
-			uint8_t const* a3 = address(w3, p3);
+			int16_t const* a0 = address(w0, p0);
+			int16_t const* a1 = address(w1, p1);
+			int16_t const* a2 = address(w2, p2);
+			int16_t const* a3 = address(w3, p3);
 
 			// {t[x] in the low half, t[x + 1] in the high half} for row y and row y + 1
-			uint32x4_t pairs1 = vld1q_dup_u32(reinterpret_cast<uint32_t const*>(a0));
-			pairs1 = vld1q_lane_u32(reinterpret_cast<uint32_t const*>(a1), pairs1, 1);
-			pairs1 = vld1q_lane_u32(reinterpret_cast<uint32_t const*>(a2), pairs1, 2);
-			pairs1 = vld1q_lane_u32(reinterpret_cast<uint32_t const*>(a3), pairs1, 3);
-			uint32x4_t pairs2 = vld1q_dup_u32(reinterpret_cast<uint32_t const*>(a0 + kRowBytes));
-			pairs2 = vld1q_lane_u32(reinterpret_cast<uint32_t const*>(a1 + kRowBytes), pairs2, 1);
-			pairs2 = vld1q_lane_u32(reinterpret_cast<uint32_t const*>(a2 + kRowBytes), pairs2, 2);
-			pairs2 = vld1q_lane_u32(reinterpret_cast<uint32_t const*>(a3 + kRowBytes), pairs2, 3);
+			uint32x4_t pairs1 = vld1q_dup_u32(detail::tablePairAt(a0));
+			pairs1 = vld1q_lane_u32(detail::tablePairAt(a1), pairs1, 1);
+			pairs1 = vld1q_lane_u32(detail::tablePairAt(a2), pairs1, 2);
+			pairs1 = vld1q_lane_u32(detail::tablePairAt(a3), pairs1, 3);
+			uint32x4_t pairs2 = vld1q_dup_u32(detail::tablePairAt(a0 + row_length));
+			pairs2 = vld1q_lane_u32(detail::tablePairAt(a1 + row_length), pairs2, 1);
+			pairs2 = vld1q_lane_u32(detail::tablePairAt(a2 + row_length), pairs2, 2);
+			pairs2 = vld1q_lane_u32(detail::tablePairAt(a3 + row_length), pairs2, 3);
 
-			uint32x4_t const working = vld1q_u32(&words[i]);
-			uint32x4_t const previous = vextq_u32(carriedVector, working, 4 - kNumChannels);
+			uint32x4_t const working = vreinterpretq_u32_s32(vld1q_s32(&buffer[i]));
+			uint32x4_t const previous = vextq_u32(carried_vector, working, 4 - kNumChannels);
 
 			// Along x: t[x] * (65536 - f) + t[x + 1] * f == (t[x] << 16) + (t[x + 1] - t[x]) * f, mod 2^32,
 			// and the true value fits in an int32
@@ -149,13 +149,13 @@ inline void saturateTanHAntialiased(int32_t* buffer, size_t count, uint32_t* las
 			// INT32_MIN. (Strength first: SIMDe's host vqdmulh, which the spec runs, wrongly saturates when its
 			// first operand is INT32_MIN, as a value can be.)
 			int32x4_t const strength2 = vreinterpretq_s32_u32(vshrq_n_u32(vshlq_n_u32(previous, 6), 1));
-			int32x4_t const strength1 = vsubq_s32(maxStrength, strength2);
+			int32x4_t const strength1 = vsubq_s32(max_strength, strength2);
 			int32x4_t result = vshrq_n_s32(vqdmulhq_s32(strength1, value1), 1);
 			result = vsraq_n_s32(result, vqdmulhq_s32(strength2, value2), 1);
-			result = vshlq_s32(vshlq_s32(result, finalRShift), finalLShift);
+			result = vshlq_s32(vshlq_s32(result, final_right_shift), final_left_shift);
 			vst1q_s32(&buffer[i], result);
 
-			carriedVector = working;
+			carried_vector = working;
 			if constexpr (kNumChannels == 1) {
 				carried[0] = w3;
 			}
@@ -171,7 +171,7 @@ inline void saturateTanHAntialiased(int32_t* buffer, size_t count, uint32_t* las
 	}
 
 	// The last 1-3 samples
-	saturateTanHAntialiasedScalar<kNumChannels>(&buffer[vectorCount], count - vectorCount, lastWorkingValues,
+	saturateTanHAntialiasedScalar<kNumChannels>(&buffer[vector_count], count - vector_count, lastWorkingValues,
 	                                            saturationAmount, shiftAmount);
 }
 

@@ -1574,14 +1574,14 @@ skipUnisonPart: {}
 		// Yes clipping. Scale by the amplitude in place, saturate the whole block, then mix it in
 		else {
 			if (synthMode != SynthMode::FM) {
-				int32_t* __restrict__ oscBufferPos = oscBuffer;
-				int32_t overallOscAmplitudeNow = overallOscAmplitudeLastTime;
+				int32_t* __restrict__ sample = oscBuffer;
+				int32_t amplitude_now = overallOscAmplitudeLastTime;
 				do {
-					overallOscAmplitudeNow += overallOscillatorAmplitudeIncrement;
-					oscBufferPos[0] = multiply_32x32_rshift32_rounded(oscBufferPos[0], overallOscAmplitudeNow) << 1;
-					oscBufferPos[1] = multiply_32x32_rshift32_rounded(oscBufferPos[1], overallOscAmplitudeNow) << 1;
-					oscBufferPos += 2;
-				} while (oscBufferPos != oscBufferEnd);
+					amplitude_now += overallOscillatorAmplitudeIncrement;
+					sample[0] = multiply_32x32_rshift32_rounded(sample[0], amplitude_now) << 1;
+					sample[1] = multiply_32x32_rshift32_rounded(sample[1], amplitude_now) << 1;
+					sample += 2;
+				} while (sample != oscBufferEnd);
 			}
 
 			sound.saturateBlock<2>(oscBuffer, numSamples << 1, lastSaturationTanHWorkingValue.data());
@@ -1660,12 +1660,12 @@ skipUnisonPart: {}
 		// Yes clipping. Scale by the amplitude in place, saturate the whole block, then mix it in
 		else {
 			if (synthMode != SynthMode::FM) {
-				int32_t* __restrict__ oscBufferPos = oscBuffer;
-				int32_t overallOscAmplitudeNow = overallOscAmplitudeLastTime;
+				int32_t* __restrict__ sample = oscBuffer;
+				int32_t amplitude_now = overallOscAmplitudeLastTime;
 				do {
-					overallOscAmplitudeNow += overallOscillatorAmplitudeIncrement;
-					*oscBufferPos = multiply_32x32_rshift32_rounded(*oscBufferPos, overallOscAmplitudeNow) << 1;
-				} while (++oscBufferPos != oscBufferEnd);
+					amplitude_now += overallOscillatorAmplitudeIncrement;
+					*sample = multiply_32x32_rshift32_rounded(*sample, amplitude_now) << 1;
+				} while (++sample != oscBufferEnd);
 			}
 
 			sound.saturateBlock<1>(oscBuffer, numSamples, lastSaturationTanHWorkingValue.data());

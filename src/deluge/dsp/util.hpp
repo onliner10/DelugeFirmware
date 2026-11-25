@@ -66,7 +66,7 @@ inline q31_t polynomialOscillatorApproximation(q31_t x) {
 	return out;
 }
 
-inline void foldBufferPolyApproximationScalar(q31_t* startSample, q31_t* endSample, q31_t level) {
+inline void foldBufferPolyApproximationScalar(q31_t* startSample, q31_t const* endSample, q31_t level) {
 	q31_t* currentSample = startSample;
 	q31_t fold_level = add_saturate(level, FOLD_MIN);
 
@@ -112,29 +112,29 @@ inline void foldBufferPolyApproximation(q31_t* startSample, q31_t* endSample, q3
 		return;
 	}
 
-	int32x4_t const foldLevel = vdupq_n_s32(fold_level);
-	int32x4_t const threeFourths = vdupq_n_s32(THREE_FOURTHS);
-	q31_t* currentSample = startSample;
-	for (; endSample - currentSample >= 4; currentSample += 4) {
-		int32x4_t const c = vld1q_s32(currentSample);
+	int32x4_t const fold_level_vector = vdupq_n_s32(fold_level);
+	int32x4_t const three_fourths = vdupq_n_s32(THREE_FOURTHS);
+	q31_t* current_sample = startSample;
+	for (; endSample - current_sample >= 4; current_sample += 4) {
+		int32x4_t const c = vld1q_s32(current_sample);
 
 		// lshiftAndSaturateUnknown(.., 8): a saturating shift saturates to INT32_MAX, not to 0x7FFFFF00
-		int32x4_t x = vqshlq_n_s32(multiplyHighByNotMin(c, foldLevel), 8);
+		int32x4_t x = vqshlq_n_s32(multiplyHighByNotMin(c, fold_level_vector), 8);
 		x = vbicq_s32(x, vdupq_n_s32(0xFF));
 
 		int32x4_t const x2 = vshlq_n_s32(multiplyHigh(x, x), 1);
 		int32x4_t const x3 = vshlq_n_s32(multiplyHigh(x2, x), 1);
-		int32x4_t const r1 = vshlq_n_s32(vsubq_s32(multiplyHighByNotMin(x, threeFourths), x3), 3);
+		int32x4_t const r1 = vshlq_n_s32(vsubq_s32(multiplyHighByNotMin(x, three_fourths), x3), 3);
 
 		int32x4_t const r2 = vshlq_n_s32(multiplyHigh(r1, r1), 1);
 		int32x4_t const r3 = vshlq_n_s32(multiplyHigh(r2, r1), 1);
-		int32x4_t const out = vshlq_n_s32(vsubq_s32(multiplyHighByNotMin(r1, threeFourths), r3), 3);
+		int32x4_t const out = vshlq_n_s32(vsubq_s32(multiplyHighByNotMin(r1, three_fourths), r3), 3);
 
 		// volume compensation
-		vst1q_s32(currentSample, vshrq_n_s32(out, 7));
+		vst1q_s32(current_sample, vshrq_n_s32(out, 7));
 	}
-	if (currentSample < endSample) {
-		foldBufferPolyApproximationScalar(currentSample, endSample, level);
+	if (current_sample < endSample) {
+		foldBufferPolyApproximationScalar(current_sample, endSample, level);
 	}
 }
 /**

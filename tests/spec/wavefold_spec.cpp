@@ -27,20 +27,20 @@ uint32_t lcg(uint32_t& x) {
 }
 
 // Verbatim copy of the old foldBufferPolyApproximation()
-void foldOld(q31_t* startSample, q31_t* endSample, q31_t level) {
-	q31_t* currentSample = startSample;
+void foldOld(q31_t* startSample, q31_t const* endSample, q31_t level) {
+	q31_t* current_sample = startSample;
 	q31_t fold_level = add_saturate(level, deluge::dsp::FOLD_MIN);
 
 	do {
-		q31_t c = *currentSample;
+		q31_t c = *current_sample;
 
 		q31_t x = lshiftAndSaturateUnknown(multiply_32x32_rshift32(fold_level, c), 8);
 
 		// volume compensation
-		*currentSample = deluge::dsp::polynomialOscillatorApproximation(x) >> 7;
+		*current_sample = deluge::dsp::polynomialOscillatorApproximation(x) >> 7;
 
-		currentSample += 1;
-	} while (currentSample < endSample);
+		current_sample += 1;
+	} while (current_sample < endSample);
 }
 
 struct Tally {
@@ -68,12 +68,12 @@ void compare(Tally& tally, std::vector<int32_t> const& input, int32_t level) {
 // [-2^23 - 1, 2^23] as c runs over [-2^24 - 4, 2^24 + 4], so every x reaches the polynomial, saturated ones too
 Tally checkEveryX() {
 	Tally tally;
-	constexpr int32_t kBlock = 1 << 16;
+	constexpr int32_t block_size = 1 << 16;
 	std::vector<int32_t> input;
-	input.reserve(kBlock);
+	input.reserve(block_size);
 	for (int64_t c = -(int64_t{1} << 24) - 4; c <= (int64_t{1} << 24) + 4; c++) {
 		input.push_back(static_cast<int32_t>(c));
-		if (input.size() == kBlock) {
+		if (input.size() == block_size) {
 			compare(tally, input, kMax);
 			input.clear();
 		}
@@ -101,9 +101,9 @@ std::vector<int32_t> edgeLevels() {
 // Inputs at the int32 limits and at both sides of the 24-bit saturation of multiply_32x32_rshift32(level, c)
 std::vector<int32_t> edgeInputs(int32_t level) {
 	std::vector<int32_t> v = {0, 1, -1, 2, -2, kMin, kMin + 1, kMax, kMax - 1};
-	int64_t const foldLevel = add_saturate(level, deluge::dsp::FOLD_MIN);
+	int64_t const folded_level = add_saturate(level, deluge::dsp::FOLD_MIN);
 	for (int64_t t : {int64_t{1} << 23, -(int64_t{1} << 23), int64_t{1} << 22, -(int64_t{1} << 22)}) {
-		int64_t const c = (t << 32) / foldLevel;
+		int64_t const c = (t << 32) / folded_level;
 		for (int64_t d = -3; d <= 3; d++) {
 			int64_t const x = c + d;
 			if (x >= kMin && x <= kMax) {

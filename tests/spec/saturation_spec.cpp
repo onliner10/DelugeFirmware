@@ -1,13 +1,13 @@
 // Bit-exactness check for the block saturation Voice::render uses when a sound has clipping.
 //
 // Voice::render used to call Sound::saturate() on each sample, i.e.
-//     sample = getTanHAntialiased(sample, &lastWorkingValue[channel], 5 + clippingAmount) << shiftAmount;
+//     sample = getTanHAntialiased(sample, &lastWorkingValue[channel], 5 + clipping_amount) << shift_amount;
 // interleaved with the amplitude scaling and the mixing. It now scales the whole block in place, saturates it
 // with dsp::saturateTanHAntialiased() (NEON, 4 samples at a time), then mixes. This spec runs the old per-sample
 // code (getTanHAntialiased() itself is unchanged, and reads the real tanH2d table) against the new function and
 // checks every output sample and the working values left behind for the next call are identical.
 //
-// RMSFeedbackCompressor::render saturated its output the same way (saturationAmount 3, no shift), one channel
+// RMSFeedbackCompressor::render saturated its output the same way (saturation_amount 3, no shift), one channel
 // at a time; it now uses the same block function, which the last case checks the same way.
 //
 // On the host the NEON intrinsics run through SIMDe, so this checks the algorithm, not the ARM code generation.
@@ -32,17 +32,17 @@ uint32_t lcg(uint32_t& x) {
 }
 
 // Sound::getShiftAmountForSaturation()
-int32_t shiftAmountFor(uint32_t clippingAmount) {
-	return (clippingAmount >= 2) ? static_cast<int32_t>(clippingAmount - 2) : 0;
+int32_t shiftAmountFor(uint32_t clipping_amount) {
+	return (clipping_amount >= 2) ? static_cast<int32_t>(clipping_amount - 2) : 0;
 }
 
 // Verbatim per-sample code of Sound::saturate(), channel by channel through the interleaved buffer
 template <size_t kNumChannels>
-void saturateOld(std::vector<int32_t>& buffer, std::array<uint32_t, 2>& working, uint32_t saturationAmount,
-                 int32_t shiftAmount) {
+void saturateOld(std::vector<int32_t>& buffer, std::array<uint32_t, 2>& working, uint32_t saturation_amount,
+                 int32_t shift_amount) {
 	for (size_t i = 0; i < buffer.size(); i++) {
 		int32_t* data = &buffer[i];
-		*data = getTanHAntialiased(*data, &working[i % kNumChannels], saturationAmount) << (shiftAmount);
+		*data = getTanHAntialiased(*data, &working[i % kNumChannels], saturation_amount) << (shift_amount);
 	}
 }
 
@@ -56,17 +56,18 @@ struct Tally {
 // given sizes (cycling), carrying its working values between calls, the way consecutive render calls do.
 template <size_t kNumChannels>
 void compare(Tally& tally, std::vector<int32_t> const& input, std::array<uint32_t, 2> working,
-             uint32_t saturationAmount, int32_t shiftAmount, std::vector<size_t> const& chunks) {
+             uint32_t saturation_amount, int32_t shift_amount, std::vector<size_t> const& chunks) {
 	std::vector<int32_t> expected = input;
-	std::array<uint32_t, 2> expectedWorking = working;
-	saturateOld<kNumChannels>(expected, expectedWorking, saturationAmount, shiftAmount);
+	std::array<uint32_t, 2> expected_working = working;
+	saturateOld<kNumChannels>(expected, expected_working, saturation_amount, shift_amount);
 
 	std::vector<int32_t> actual = input;
 	size_t position = 0;
 	for (size_t c = 0; position < actual.size(); c++) {
 		size_t length = chunks[c % chunks.size()] * kNumChannels;
 		length = std::min(length, actual.size() - position);
-		saturateTanHAntialiased<kNumChannels>(&actual[position], length, working.data(), saturationAmount, shiftAmount);
+		saturateTanHAntialiased<kNumChannels>(&actual[position], length, working.data(), saturation_amount,
+		                                      shift_amount);
 		position += length;
 	}
 
@@ -77,7 +78,7 @@ void compare(Tally& tally, std::vector<int32_t> const& input, std::array<uint32_
 		}
 	}
 	for (size_t c = 0; c < kNumChannels; c++) {
-		if (working[c] != expectedWorking[c]) {
+		if (working[c] != expected_working[c]) {
 			tally.stateMismatches++;
 		}
 	}
@@ -85,9 +86,9 @@ void compare(Tally& tally, std::vector<int32_t> const& input, std::array<uint32_
 
 // Inputs around every edge for this saturation amount: the saturation thresholds +-2^(31-s), the int32 limits,
 // zero, and values that put the working value at table index 0 / 127 with fraction 0 / 65535
-std::vector<int32_t> edgeInputs(uint32_t saturationAmount) {
+std::vector<int32_t> edgeInputs(uint32_t saturation_amount) {
 	std::vector<int32_t> v = {0, 1, -1, 2, -2, kMin, kMin + 1, kMax, kMax - 1};
-	int64_t const limit = int64_t{1} << (31 - std::min<uint32_t>(saturationAmount, 31));
+	int64_t const limit = int64_t{1} << (31 - std::min<uint32_t>(saturation_amount, 31));
 	for (int64_t d = -2; d <= 2; d++) {
 		for (int64_t base : {limit, -limit, limit / 2, -limit / 2}) {
 			int64_t const x = base + d;
@@ -99,8 +100,8 @@ std::vector<int32_t> edgeInputs(uint32_t saturationAmount) {
 	// Working value w = (x << s) ^ 2^31 at x index (w >> 25) and fraction ((w >> 9) & 65535) boundaries
 	for (uint32_t w : {0x00000000u, 0x01FFFFFFu, 0x01FFFE00u, 0x02000000u, 0x7FFFFFFFu, 0x80000000u, 0x81FFFE00u,
 	                   0xFE000000u, 0xFE0001FFu, 0xFFFFFE00u, 0xFFFFFFFFu}) {
-		int32_t const shifted = static_cast<int32_t>(w ^ 0x80000000u);
-		v.push_back(shifted >> std::min<uint32_t>(saturationAmount, 31));
+		auto const shifted = static_cast<int32_t>(w ^ 0x80000000u);
+		v.push_back(shifted >> std::min<uint32_t>(saturation_amount, 31));
 	}
 	return v;
 }
@@ -138,8 +139,8 @@ Tally checkAll(uint32_t firstSaturationAmount, uint32_t lastSaturationAmount) {
 	uint32_t seed = 2024 + kNumChannels;
 	std::vector<std::vector<size_t>> const chunkings = {{1u << 20}, {1}, {3}, {4}, {5, 7, 1, 16}, {13, 2, 8}};
 	for (uint32_t s = firstSaturationAmount; s <= lastSaturationAmount; s++) {
-		uint32_t const clippingAmount = s - 5; // What Sound passes: s = 5 + clippingAmount
-		int32_t const shiftAmount = (s >= 5) ? shiftAmountFor(clippingAmount) : 0;
+		uint32_t const clipping_amount = s - 5; // What Sound passes: s = 5 + clipping_amount
+		int32_t const shift_amount = (s >= 5) ? shiftAmountFor(clipping_amount) : 0;
 
 		// Every edge input, at every position of a block, after every edge working value
 		std::vector<int32_t> const edges = edgeInputs(s);
@@ -152,7 +153,7 @@ Tally checkAll(uint32_t firstSaturationAmount, uint32_t lastSaturationAmount) {
 				}
 			}
 			std::array<uint32_t, 2> working = {w, ~w};
-			compare<kNumChannels>(tally, input, working, s, shiftAmount, chunkings[w % chunkings.size()]);
+			compare<kNumChannels>(tally, input, working, s, shift_amount, chunkings[w % chunkings.size()]);
 		}
 
 		// Random blocks of every length, from random working values, in every chunking
@@ -160,7 +161,7 @@ Tally checkAll(uint32_t firstSaturationAmount, uint32_t lastSaturationAmount) {
 			for (auto const& chunks : chunkings) {
 				std::vector<int32_t> const input = randomInputs(seed, length * kNumChannels);
 				std::array<uint32_t, 2> working = {lcg(seed), lcg(seed)};
-				compare<kNumChannels>(tally, input, working, s, shiftAmount, chunks);
+				compare<kNumChannels>(tally, input, working, s, shift_amount, chunks);
 			}
 		}
 
@@ -185,7 +186,7 @@ Tally checkAll(uint32_t firstSaturationAmount, uint32_t lastSaturationAmount) {
 				}
 			}
 			std::array<uint32_t, 2> working = {lcg(seed), lcg(seed)};
-			compare<kNumChannels>(tally, input, working, s, shiftAmount, chunkings[run % chunkings.size()]);
+			compare<kNumChannels>(tally, input, working, s, shift_amount, chunkings[run % chunkings.size()]);
 		}
 	}
 	return tally;
@@ -199,21 +200,21 @@ struct VoiceTally {
 };
 
 template <size_t kNumChannels>
-void checkVoiceOrder(VoiceTally& tally, uint32_t& seed, uint32_t clippingAmount, bool fm, size_t numSamples) {
-	std::vector<int32_t> osc(numSamples * kNumChannels);
+void checkVoiceOrder(VoiceTally& tally, uint32_t& seed, uint32_t clipping_amount, bool fm, size_t num_samples) {
+	std::vector<int32_t> osc(num_samples * kNumChannels);
 	for (auto& s : osc) {
 		s = static_cast<int32_t>(lcg(seed)) >> (lcg(seed) & 7);
 	}
-	int32_t const amplitudeLastTime = static_cast<int32_t>(lcg(seed) >> 1);
+	auto const amplitude_last_time = static_cast<int32_t>(lcg(seed) >> 1);
 	int32_t const increment = static_cast<int32_t>(lcg(seed)) >> 12;
-	std::array<uint32_t, 2> workingOld = {lcg(seed), lcg(seed)};
-	std::array<uint32_t, 2> workingNew = workingOld;
-	int32_t const shiftAmount = shiftAmountFor(clippingAmount);
+	std::array<uint32_t, 2> working_old = {lcg(seed), lcg(seed)};
+	std::array<uint32_t, 2> working_new = working_old;
+	int32_t const shift_amount = shiftAmountFor(clipping_amount);
 
 	// Old
 	std::vector<int32_t> expected(osc.size());
-	int32_t amplitude = amplitudeLastTime;
-	for (size_t i = 0; i < numSamples; i++) {
+	int32_t amplitude = amplitude_last_time;
+	for (size_t i = 0; i < num_samples; i++) {
 		if constexpr (kNumChannels == 2) {
 			int32_t l = osc[2 * i];
 			int32_t r = osc[(2 * i) + 1];
@@ -222,8 +223,8 @@ void checkVoiceOrder(VoiceTally& tally, uint32_t& seed, uint32_t clippingAmount,
 				l = multiply_32x32_rshift32_rounded(l, amplitude) << 1;
 				r = multiply_32x32_rshift32_rounded(r, amplitude) << 1;
 			}
-			l = getTanHAntialiased(l, &workingOld[0], 5 + clippingAmount) << shiftAmount;
-			r = getTanHAntialiased(r, &workingOld[1], 5 + clippingAmount) << shiftAmount;
+			l = getTanHAntialiased(l, &working_old[0], 5 + clipping_amount) << shift_amount;
+			r = getTanHAntialiased(r, &working_old[1], 5 + clipping_amount) << shift_amount;
 			expected[2 * i] = l;
 			expected[(2 * i) + 1] = r;
 		}
@@ -233,15 +234,15 @@ void checkVoiceOrder(VoiceTally& tally, uint32_t& seed, uint32_t clippingAmount,
 				amplitude += increment;
 				output = multiply_32x32_rshift32_rounded(output, amplitude) << 1;
 			}
-			expected[i] = getTanHAntialiased(output, &workingOld[0], 5 + clippingAmount) << shiftAmount;
+			expected[i] = getTanHAntialiased(output, &working_old[0], 5 + clipping_amount) << shift_amount;
 		}
 	}
 
 	// New
 	std::vector<int32_t> actual = osc;
 	if (!fm) {
-		amplitude = amplitudeLastTime;
-		for (size_t i = 0; i < numSamples; i++) {
+		amplitude = amplitude_last_time;
+		for (size_t i = 0; i < num_samples; i++) {
 			amplitude += increment;
 			for (size_t c = 0; c < kNumChannels; c++) {
 				int32_t& sample = actual[(i * kNumChannels) + c];
@@ -249,8 +250,8 @@ void checkVoiceOrder(VoiceTally& tally, uint32_t& seed, uint32_t clippingAmount,
 			}
 		}
 	}
-	saturateTanHAntialiased<kNumChannels>(actual.data(), actual.size(), workingNew.data(), 5 + clippingAmount,
-	                                      shiftAmount);
+	saturateTanHAntialiased<kNumChannels>(actual.data(), actual.size(), working_new.data(), 5 + clipping_amount,
+	                                      shift_amount);
 
 	tally.samples += actual.size();
 	for (size_t i = 0; i < actual.size(); i++) {
@@ -259,7 +260,7 @@ void checkVoiceOrder(VoiceTally& tally, uint32_t& seed, uint32_t clippingAmount,
 		}
 	}
 	for (size_t c = 0; c < kNumChannels; c++) {
-		if (workingNew[c] != workingOld[c]) {
+		if (working_new[c] != working_old[c]) {
 			tally.mismatches++;
 		}
 	}
@@ -268,11 +269,11 @@ void checkVoiceOrder(VoiceTally& tally, uint32_t& seed, uint32_t clippingAmount,
 VoiceTally checkVoice() {
 	VoiceTally tally;
 	uint32_t seed = 77;
-	for (uint32_t clippingAmount = 1; clippingAmount <= 15; clippingAmount++) {
+	for (uint32_t clipping_amount = 1; clipping_amount <= 15; clipping_amount++) {
 		for (bool fm : {false, true}) {
-			for (size_t numSamples : {1, 2, 3, 5, 64, 127, 128}) {
-				checkVoiceOrder<1>(tally, seed, clippingAmount, fm, numSamples);
-				checkVoiceOrder<2>(tally, seed, clippingAmount, fm, numSamples);
+			for (size_t num_samples : {1, 2, 3, 5, 64, 127, 128}) {
+				checkVoiceOrder<1>(tally, seed, clipping_amount, fm, num_samples);
+				checkVoiceOrder<2>(tally, seed, clipping_amount, fm, num_samples);
 			}
 		}
 	}
@@ -280,73 +281,75 @@ VoiceTally checkVoice() {
 }
 
 // RMSFeedbackCompressor::render: verbatim copy of the old per-channel loop (volume ramp, saturation with
-// saturationAmount 3, optional wet/dry blend) against the new arrangement: ramp both channels into the buffer,
+// saturation_amount 3, optional wet/dry blend) against the new arrangement: ramp both channels into the buffer,
 // saturate the interleaved block, then blend
 struct Frame {
 	int32_t l;
 	int32_t r;
 };
 
-void checkCompressorOnce(VoiceTally& tally, uint32_t& seed, size_t numSamples, bool blend, int32_t inputShift) {
-	constexpr uint8_t saturationAmount = 3;
-	std::vector<Frame> input(numSamples);
+void checkCompressorOnce(VoiceTally& tally, uint32_t& seed, size_t num_samples, bool blend, int32_t input_shift) {
+	constexpr uint8_t saturation_amount = 3;
+	std::vector<Frame> input(num_samples);
 	for (auto& f : input) {
-		f.l = static_cast<int32_t>(lcg(seed)) >> inputShift;
-		f.r = static_cast<int32_t>(lcg(seed)) >> inputShift;
+		f.l = static_cast<int32_t>(lcg(seed)) >> input_shift;
+		f.r = static_cast<int32_t>(lcg(seed)) >> input_shift;
 	}
-	std::vector<Frame> const dryBuffer = input;
-	int32_t const startVolume[2] = {static_cast<int32_t>(lcg(seed) >> 1), static_cast<int32_t>(lcg(seed) >> 2)};
-	int32_t const increment[2] = {static_cast<int32_t>(lcg(seed)) >> 10, static_cast<int32_t>(lcg(seed)) >> 14};
-	int32_t const wetAmount = static_cast<int32_t>(lcg(seed) >> 1);
-	int32_t const dryAmount = static_cast<int32_t>(lcg(seed) >> 1);
-	std::array<uint32_t, 2> const startWorking = {lcg(seed), lcg(seed)};
+	std::vector<Frame> const dry_buffer = input;
+	std::array<int32_t, 2> const start_volume = {static_cast<int32_t>(lcg(seed) >> 1),
+	                                             static_cast<int32_t>(lcg(seed) >> 2)};
+	std::array<int32_t, 2> const increment = {static_cast<int32_t>(lcg(seed)) >> 10,
+	                                          static_cast<int32_t>(lcg(seed)) >> 14};
+	auto const wet_amount = static_cast<int32_t>(lcg(seed) >> 1);
+	auto const dry_amount = static_cast<int32_t>(lcg(seed) >> 1);
+	std::array<uint32_t, 2> const start_working = {lcg(seed), lcg(seed)};
 
 	// Old
 	std::vector<Frame> expected = input;
-	int32_t expectedVolume[2] = {startVolume[0], startVolume[1]};
-	std::array<uint32_t, 2> expectedWorking = startWorking;
-	auto renderChannel = [&](int32_t Frame::* channel, int32_t& currentVolume, int32_t amplitudeIncrement,
-	                         uint32_t& lastWorkingValue) {
+	std::array<int32_t, 2> expected_volume = start_volume;
+	std::array<uint32_t, 2> expected_working = start_working;
+	auto render_channel = [&](int32_t Frame::* channel, int32_t& currentVolume, int32_t amplitudeIncrement,
+	                          uint32_t& lastWorkingValue) {
 		int32_t volume = currentVolume;
-		uint32_t workingValue = lastWorkingValue;
-		Frame const* dry_it = dryBuffer.data();
+		uint32_t working_value = lastWorkingValue;
+		Frame const* dry_it = dry_buffer.data();
 		for (Frame& sample : expected) {
 			volume += amplitudeIncrement;
 			int32_t value = multiply_32x32_rshift32(sample.*channel, volume) << 4;
-			value = getTanHAntialiased(value, &workingValue, saturationAmount);
+			value = getTanHAntialiased(value, &working_value, saturation_amount);
 			if (blend) {
-				value = multiply_32x32_rshift32(value, wetAmount);
-				value = multiply_accumulate_32x32_rshift32_rounded(value, (*dry_it).*channel, dryAmount);
+				value = multiply_32x32_rshift32(value, wet_amount);
+				value = multiply_accumulate_32x32_rshift32_rounded(value, (*dry_it).*channel, dry_amount);
 				value <<= 1;
 				++dry_it;
 			}
 			sample.*channel = value;
 		}
 		currentVolume = volume;
-		lastWorkingValue = workingValue;
+		lastWorkingValue = working_value;
 	};
-	renderChannel(&Frame::l, expectedVolume[0], increment[0], expectedWorking[0]);
-	renderChannel(&Frame::r, expectedVolume[1], increment[1], expectedWorking[1]);
+	render_channel(&Frame::l, expected_volume[0], increment[0], expected_working[0]);
+	render_channel(&Frame::r, expected_volume[1], increment[1], expected_working[1]);
 
 	// New
 	std::vector<Frame> actual = input;
-	int32_t volumeL = startVolume[0];
-	int32_t volumeR = startVolume[1];
-	std::array<uint32_t, 2> working = startWorking;
+	int32_t volume_l = start_volume[0];
+	int32_t volume_r = start_volume[1];
+	std::array<uint32_t, 2> working = start_working;
 	for (Frame& sample : actual) {
-		volumeL += increment[0];
-		volumeR += increment[1];
-		sample.l = multiply_32x32_rshift32(sample.l, volumeL) << 4;
-		sample.r = multiply_32x32_rshift32(sample.r, volumeR) << 4;
+		volume_l += increment[0];
+		volume_r += increment[1];
+		sample.l = multiply_32x32_rshift32(sample.l, volume_l) << 4;
+		sample.r = multiply_32x32_rshift32(sample.r, volume_r) << 4;
 	}
-	saturateTanHAntialiased<2>(&actual.data()->l, actual.size() * 2, working.data(), saturationAmount, 0);
+	saturateTanHAntialiased<2>(&actual.data()->l, actual.size() * 2, working.data(), saturation_amount, 0);
 	if (blend) {
-		Frame const* dry_it = dryBuffer.data();
+		Frame const* dry_it = dry_buffer.data();
 		for (Frame& sample : actual) {
-			int32_t l = multiply_32x32_rshift32(sample.l, wetAmount);
-			int32_t r = multiply_32x32_rshift32(sample.r, wetAmount);
-			l = multiply_accumulate_32x32_rshift32_rounded(l, dry_it->l, dryAmount);
-			r = multiply_accumulate_32x32_rshift32_rounded(r, dry_it->r, dryAmount);
+			int32_t l = multiply_32x32_rshift32(sample.l, wet_amount);
+			int32_t r = multiply_32x32_rshift32(sample.r, wet_amount);
+			l = multiply_accumulate_32x32_rshift32_rounded(l, dry_it->l, dry_amount);
+			r = multiply_accumulate_32x32_rshift32_rounded(r, dry_it->r, dry_amount);
 			sample.l = l << 1;
 			sample.r = r << 1;
 			++dry_it;
@@ -357,18 +360,19 @@ void checkCompressorOnce(VoiceTally& tally, uint32_t& seed, size_t numSamples, b
 	for (size_t i = 0; i < actual.size(); i++) {
 		tally.mismatches += (actual[i].l != expected[i].l) + (actual[i].r != expected[i].r);
 	}
-	tally.mismatches += (volumeL != expectedVolume[0]) + (volumeR != expectedVolume[1]);
-	tally.mismatches += (working[0] != expectedWorking[0]) + (working[1] != expectedWorking[1]);
+	tally.mismatches += static_cast<size_t>(volume_l != expected_volume[0]);
+	tally.mismatches += static_cast<size_t>(volume_r != expected_volume[1]);
+	tally.mismatches += (working[0] != expected_working[0]) + (working[1] != expected_working[1]);
 }
 
 VoiceTally checkCompressor() {
 	VoiceTally tally;
 	uint32_t seed = 31337;
-	for (size_t numSamples : {0, 1, 2, 3, 4, 5, 7, 64, 127, 128}) {
+	for (size_t num_samples : {0, 1, 2, 3, 4, 5, 7, 64, 127, 128}) {
 		for (bool blend : {false, true}) {
-			for (int32_t inputShift = 0; inputShift < 32; inputShift++) {
+			for (int32_t input_shift = 0; input_shift < 32; input_shift++) {
 				for (size_t run = 0; run < 8; run++) {
-					checkCompressorOnce(tally, seed, numSamples, blend, inputShift);
+					checkCompressorOnce(tally, seed, num_samples, blend, input_shift);
 				}
 			}
 		}

@@ -99,17 +99,17 @@ void RMSFeedbackCompressor::render(std::span<StereoSample> buffer, q31_t volAdju
 
 	// Ramp the volume into the buffer, saturate the whole block, then blend in the dry signal. Each step is per
 	// sample and per channel, so this gives the same output as doing all three sample by sample.
-	q31_t volumeL = currentVolumeL;
-	q31_t volumeR = currentVolumeR;
+	q31_t volume_l = currentVolumeL;
+	q31_t volume_r = currentVolumeR;
 	for (StereoSample& sample : buffer) {
-		volumeL += amplitudeIncrementL;
-		volumeR += amplitudeIncrementR;
+		volume_l += amplitudeIncrementL;
+		volume_r += amplitudeIncrementR;
 		// Need to shift left by 4 because currentVolume is a 5.26 signed number rather than a 1.30 signed.
-		sample.l = multiply_32x32_rshift32(sample.l, volumeL) << 4;
-		sample.r = multiply_32x32_rshift32(sample.r, volumeR) << 4;
+		sample.l = multiply_32x32_rshift32(sample.l, volume_l) << 4;
+		sample.r = multiply_32x32_rshift32(sample.r, volume_r) << 4;
 	}
-	currentVolumeL = volumeL;
-	currentVolumeR = volumeR;
+	currentVolumeL = volume_l;
+	currentVolumeR = volume_r;
 
 	static_assert(sizeof(StereoSample) == 2 * sizeof(q31_t));
 	deluge::dsp::saturateTanHAntialiased<2>(&buffer.data()->l, buffer.size() * 2, lastSaturationTanHWorkingValue,
