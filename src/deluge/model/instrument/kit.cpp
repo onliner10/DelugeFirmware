@@ -538,17 +538,17 @@ void Kit::cutAllSound() {
 static NoteRow* getNoteRowForRenderingDrum(InstrumentClip* clip, Drum* drum, int32_t* getIndex) {
 	int32_t hint = drum->noteRowIndexHint;
 	if (hint >= 0 && hint < clip->noteRows.getNumElements()) {
-		NoteRow* noteRow = clip->noteRows.getElement(hint);
-		if (noteRow->drum == drum) {
+		NoteRow* note_row = clip->noteRows.getElement(hint);
+		if (note_row->drum == drum) {
 			*getIndex = hint;
-			return noteRow;
+			return note_row;
 		}
 	}
-	NoteRow* noteRow = clip->getNoteRowForDrum(drum, getIndex);
-	if (noteRow != nullptr) {
+	NoteRow* note_row = clip->getNoteRowForDrum(drum, getIndex);
+	if (note_row != nullptr) {
 		drum->noteRowIndexHint = *getIndex;
 	}
-	return noteRow;
+	return note_row;
 }
 
 // Beware - unlike usual, modelStack, a ModelStackWithThreeMainThings*,  might have a NULL timelineCounter
@@ -807,7 +807,7 @@ ArpeggiatorSettings* Kit::getArpSettings(InstrumentClip* clip) {
 void Kit::renderNonAudioArpPostOutput(std::span<StereoSample> output) {
 	// Without any MIDI or gate drums there's nothing to do below, so don't read every NoteRow's Drum (a cache miss
 	// each) to find that out
-	if (activeClip == nullptr || NonAudioDrum::numExisting == 0) {
+	if (activeClip == nullptr || NonAudioDrum::num_existing == 0) {
 		return;
 	}
 	for (int32_t i = 0; i < ((InstrumentClip*)activeClip)->noteRows.getNumElements(); i++) {
