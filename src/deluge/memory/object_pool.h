@@ -64,12 +64,17 @@ public:
 	/// @returns The number of objects in the pool
 	[[nodiscard]] size_t size() const { return objects_.size(); }
 
+	/// @brief Gets the number of objects acquired and not yet recycled
+	/// @returns The number of live objects handed out by this pool
+	[[nodiscard]] size_t numLive() const { return live_; }
+
 	/// Recycles an object back into the pool
 	/// @param obj The object to recycle
 	static void recycle(gsl::owner<T*> obj) {
 		obj->~T();
 
 		ObjectPool& op = get();
+		op.live_--;
 		if (op.objects_.size() < op.capacity_) {
 			op.objects_.push(obj);
 		}
@@ -104,7 +109,9 @@ public:
 			obj = objects_.top();
 			objects_.pop();
 		}
-		return {new (obj) T(std::forward<Args>(args)...), &recycle};
+		pointer_type acquired{new (obj) T(std::forward<Args>(args)...), &recycle};
+		live_++; // Only once constructed: a throwing constructor hands nothing out
+		return acquired;
 	}
 
 	/// @brief Clears the pool
@@ -121,6 +128,7 @@ public:
 
 private:
 	size_t capacity_ = kDefaultSize;
+	size_t live_ = 0;
 	std::stack<T*, std::vector<T*, Alloc<T*>>> objects_;
 	Alloc<T> alloc_;
 };

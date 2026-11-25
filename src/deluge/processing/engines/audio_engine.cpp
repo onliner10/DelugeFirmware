@@ -356,6 +356,12 @@ void init() {
 }
 
 void killAllVoices(bool deletingSong) {
+	// Rare enough (song swaps, stopping everything) to check the O(1) voice count against a full count here
+	if constexpr (ALPHA_OR_BETA_VERSION) {
+		if (getNumVoices() != countVoicesInSounds()) {
+			FREEZE_WITH_ERROR("A001");
+		}
+	}
 	for (Sound* sound : sounds) {
 		sound->killAllVoices();
 	}
@@ -510,7 +516,16 @@ int32_t getNumAudio() {
 	return currentSong != nullptr ? currentSong->countAudioVoices() : 0;
 }
 
+// Every live Voice from VoicePool is in exactly one Sound's voices_, and every Sound is in `sounds`: a Voice is only
+// acquired straight into Sound::voices_ (Sound::acquireVoice()), is only recycled by being erased from there or by
+// voices_ itself going away, and a Sound adds itself to `sounds` when it's constructed and removes itself when it's
+// destroyed. So the pool's live count is the sum of all Sounds' voice counts, without visiting every Sound (every kit
+// row is one) and taking a cache miss on each
 int32_t getNumVoices() {
+	return static_cast<int32_t>(VoicePool::get().numLive());
+}
+
+int32_t countVoicesInSounds() {
 	return std::transform_reduce(sounds.cbegin(), sounds.cend(), 0, std::plus{},
 	                             [](auto sound) { return sound->voices().size(); });
 }
