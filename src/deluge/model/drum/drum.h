@@ -51,6 +51,9 @@ public:
 
 	const DrumType type;
 	bool noteRowAssignedTemp;
+	/// Where this Drum's NoteRow was last found in its Kit's active Clip. Only a hint, checked before use, see
+	/// getNoteRowForRenderingDrum() in kit.cpp
+	int32_t noteRowIndexHint = -1;
 	uint8_t earlyNoteVelocity; // If 0, then there's none
 	bool earlyNoteStillActive;
 

@@ -531,6 +531,26 @@ void Kit::cutAllSound() {
 	}
 }
 
+// The same as clip->getNoteRowForDrum(drum, getIndex), without searching every NoteRow each render. A Drum has at most
+// one NoteRow in a Clip (setDrum() only hands out drums without one, and loading a song drops a second NoteRow for the
+// same drum), so a NoteRow found at the hinted index is the one the search would find. If the NoteRows moved, or this
+// is another Clip, the check fails and we search as before.
+static NoteRow* getNoteRowForRenderingDrum(InstrumentClip* clip, Drum* drum, int32_t* getIndex) {
+	int32_t hint = drum->noteRowIndexHint;
+	if (hint >= 0 && hint < clip->noteRows.getNumElements()) {
+		NoteRow* noteRow = clip->noteRows.getElement(hint);
+		if (noteRow->drum == drum) {
+			*getIndex = hint;
+			return noteRow;
+		}
+	}
+	NoteRow* noteRow = clip->getNoteRowForDrum(drum, getIndex);
+	if (noteRow != nullptr) {
+		drum->noteRowIndexHint = *getIndex;
+	}
+	return noteRow;
+}
+
 // Beware - unlike usual, modelStack, a ModelStackWithThreeMainThings*,  might have a NULL timelineCounter
 bool Kit::renderGlobalEffectableForClip(ModelStackWithTimelineCounter* modelStack,
                                         std::span<StereoSample> globalEffectableBuffer, int32_t* bufferToTransferTo,
@@ -561,7 +581,7 @@ bool Kit::renderGlobalEffectableForClip(ModelStackWithTimelineCounter* modelStac
 		int32_t noteRowIndex;
 
 		if (activeClip) {
-			thisNoteRow = ((InstrumentClip*)activeClip)->getNoteRowForDrum(thisDrum, &noteRowIndex);
+			thisNoteRow = getNoteRowForRenderingDrum((InstrumentClip*)activeClip, thisDrum, &noteRowIndex);
 
 			// If a new Clip had just launched on this Kit, but an old Drum was still sounding which isn't present in
 			// the new Clip. In a perfect world, maybe we'd instead have it check and cut the voice / Drum on switch.
@@ -594,76 +614,62 @@ bool Kit::renderGlobalEffectableForClip(ModelStackWithTimelineCounter* modelStac
 		for (int32_t i = 0; i < noteRows->getNumElements(); i++) {
 			NoteRow* thisNoteRow = noteRows->getElement(i);
 
+			// No time to call the proper function and do error checking, sorry.
+			// Look at the NoteRow's own flags before its Drum: most rows aren't interpolating anything, and the Drum
+			// is a cold cache line for every row that isn't playing.
+			ParamCollectionSummary* summaries = thisNoteRow->paramManager.summaries;
+
+			ParamCollectionSummary* patchedParamsSummary = &summaries[1];
+			bool anyInterpolating = false;
+			if constexpr (deluge::modulation::params::kNumParams > 64) {
+				anyInterpolating = patchedParamsSummary->whichParamsAreInterpolating[0]
+				                   || patchedParamsSummary->whichParamsAreInterpolating[1]
+				                   || patchedParamsSummary->whichParamsAreInterpolating[2];
+			}
+			else {
+				anyInterpolating = patchedParamsSummary->whichParamsAreInterpolating[0]
+				                   || patchedParamsSummary->whichParamsAreInterpolating[1];
+			}
+
+			ParamCollectionSummary* unpatchedParamsSummary = &summaries[0];
+			if constexpr (params::UNPATCHED_SOUND_MAX_NUM > 32) {
+				anyInterpolating = anyInterpolating || unpatchedParamsSummary->whichParamsAreInterpolating[0]
+				                   || unpatchedParamsSummary->whichParamsAreInterpolating[1];
+			}
+			else {
+				anyInterpolating = anyInterpolating || unpatchedParamsSummary->whichParamsAreInterpolating[0];
+			}
+
+			ParamCollectionSummary* patchCablesSummary = &summaries[2];
+			if constexpr (kMaxNumPatchCables > 32) {
+				anyInterpolating = anyInterpolating || patchCablesSummary->whichParamsAreInterpolating[0]
+				                   || patchCablesSummary->whichParamsAreInterpolating[1];
+			}
+			else {
+				anyInterpolating = anyInterpolating || patchCablesSummary->whichParamsAreInterpolating[0];
+			}
+
+			// Was that right? Until Jan 2022 I didn't have it checking for expression params automation here for
+			// some reason...
+			ParamCollectionSummary* expressionParamsSummary = &summaries[3];
+			if constexpr (kNumExpressionDimensions > 32) {
+				anyInterpolating = anyInterpolating || expressionParamsSummary->whichParamsAreInterpolating[0]
+				                   || expressionParamsSummary->whichParamsAreInterpolating[1];
+			}
+			else {
+				anyInterpolating = anyInterpolating || expressionParamsSummary->whichParamsAreInterpolating[0];
+			}
+
+			if (!anyInterpolating) {
+				continue;
+			}
+
 			// Just don't bother ticking other ones for now - their MPE doesn't need to interpolate.
 			if (thisNoteRow->drum && thisNoteRow->drum->type == DrumType::SOUND) {
-
-				// No time to call the proper function and do error checking, sorry.
-				ParamCollectionSummary* patchedParamsSummary = &thisNoteRow->paramManager.summaries[1];
-
-				bool anyInterpolating = false;
-				if constexpr (deluge::modulation::params::kNumParams > 64) {
-					anyInterpolating = patchedParamsSummary->whichParamsAreInterpolating[0]
-					                   || patchedParamsSummary->whichParamsAreInterpolating[1]
-					                   || patchedParamsSummary->whichParamsAreInterpolating[2];
-				}
-				else {
-					anyInterpolating = patchedParamsSummary->whichParamsAreInterpolating[0]
-					                   || patchedParamsSummary->whichParamsAreInterpolating[1];
-				}
-				if (anyInterpolating) {
-yesTickParamManager:
-					ModelStackWithThreeMainThings* modelStackWithThreeMainThings =
-					    modelStack->addNoteRow(i, thisNoteRow)
-					        ->addOtherTwoThings((SoundDrum*)thisNoteRow->drum, &thisNoteRow->paramManager);
-					thisNoteRow->paramManager.tickSamples(globalEffectableBuffer.size(), modelStackWithThreeMainThings);
-					continue;
-				}
-
-				// Try other options too.
-
-				// No time to call the proper function and do error checking, sorry.
-				ParamCollectionSummary* unpatchedParamsSummary = &thisNoteRow->paramManager.summaries[0];
-				if constexpr (params::UNPATCHED_SOUND_MAX_NUM > 32) {
-					if (unpatchedParamsSummary->whichParamsAreInterpolating[0]
-					    || unpatchedParamsSummary->whichParamsAreInterpolating[1]) {
-						goto yesTickParamManager;
-					}
-				}
-				else {
-					if (unpatchedParamsSummary->whichParamsAreInterpolating[0]) {
-						goto yesTickParamManager;
-					}
-				}
-
-				// No time to call the proper function and do error checking, sorry.
-				ParamCollectionSummary* patchCablesSummary = &thisNoteRow->paramManager.summaries[2];
-				if constexpr (kMaxNumPatchCables > 32) {
-					if (patchCablesSummary->whichParamsAreInterpolating[0]
-					    || patchCablesSummary->whichParamsAreInterpolating[1]) {
-						goto yesTickParamManager;
-					}
-				}
-				else {
-					if (patchCablesSummary->whichParamsAreInterpolating[0]) {
-						goto yesTickParamManager;
-					}
-				}
-
-				// No time to call the proper function and do error checking, sorry.
-				ParamCollectionSummary* expressionParamsSummary = &thisNoteRow->paramManager.summaries[3];
-				if constexpr (kNumExpressionDimensions > 32) {
-					if (expressionParamsSummary->whichParamsAreInterpolating[0]
-					    || expressionParamsSummary->whichParamsAreInterpolating[1]) {
-						goto yesTickParamManager;
-					}
-				}
-				else {
-					if (expressionParamsSummary->whichParamsAreInterpolating[0]) {
-						goto yesTickParamManager;
-					}
-				}
-				// Was that right? Until Jan 2022 I didn't have it checking for expression params automation here for
-				// some reason...
+				ModelStackWithThreeMainThings* modelStackWithThreeMainThings =
+				    modelStack->addNoteRow(i, thisNoteRow)
+				        ->addOtherTwoThings((SoundDrum*)thisNoteRow->drum, &thisNoteRow->paramManager);
+				thisNoteRow->paramManager.tickSamples(globalEffectableBuffer.size(), modelStackWithThreeMainThings);
 			}
 		}
 	}
@@ -799,7 +805,9 @@ ArpeggiatorSettings* Kit::getArpSettings(InstrumentClip* clip) {
 }
 
 void Kit::renderNonAudioArpPostOutput(std::span<StereoSample> output) {
-	if (activeClip == nullptr) {
+	// Without any MIDI or gate drums there's nothing to do below, so don't read every NoteRow's Drum (a cache miss
+	// each) to find that out
+	if (activeClip == nullptr || NonAudioDrum::numExisting == 0) {
 		return;
 	}
 	for (int32_t i = 0; i < ((InstrumentClip*)activeClip)->noteRows.getNumElements(); i++) {
