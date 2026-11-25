@@ -1864,7 +1864,7 @@ void PlaybackHandler::inputTick(bool fromTriggerClock, uint32_t time) {
 		timeTilInputTick =
 		    (((uint32_t)(time - (uint32_t)AudioEngine::i2sTXBufferPos) >> (2 + NUM_MONO_OUTPUT_CHANNELS_MAGNITUDE))
 		     + 40)
-		    & (SSI_TX_BUFFER_NUM_SAMPLES - 1);
+		    & (AudioEngine::getOutputQueueNumSamples() - 1);
 	}
 	else {
 		timeTilInputTick = 0;

@@ -52,6 +52,9 @@ extern void freezeWithError(char const* errmsg);
 #define TIMER_SYSTEM_SUPERFAST 1
 
 #define SSI_TX_BUFFER_NUM_SAMPLES 128
+// The most the SSI TX ring - the queue of rendered audio in front of the codec - can be grown to: see
+// ssiTxRingNumSamples in drivers/ssi/ssi.h. A render is at most SSI_TX_BUFFER_NUM_SAMPLES either way
+#define SSI_TX_BUFFER_MAX_NUM_SAMPLES (SSI_TX_BUFFER_NUM_SAMPLES * 2)
 #define SSI_RX_BUFFER_NUM_SAMPLES 2048
 #define NUM_MONO_INPUT_CHANNELS (NUM_STEREO_INPUT_CHANNELS * 2)
 #define NUM_MONO_OUTPUT_CHANNELS (NUM_STEREO_OUTPUT_CHANNELS * 2)

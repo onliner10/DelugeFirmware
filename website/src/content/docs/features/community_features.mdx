@@ -528,6 +528,16 @@ Here is a list of general improvements that have been made, ordered from newest 
   - Saving a song first loads any samples not loaded yet, so "Collect media" still copies them all.
   - This feature is `ON` by default and can be set to `ON` or `OFF` via `SETTINGS > COMMUNITY FEATURES > FAST PRESET SCROLLING`. When `OFF`, every sample of a preset is loaded before it can be heard, as before.
 
+### 3.39 - Bigger Output Queue for Busy Songs
+
+- <Badge text="c1.4" variant="tip" /> The Deluge keeps a short queue of rendered audio in front of its output: 128 samples (2.9 ms). When a song is busy enough that rendering can't always keep that queue from running out, voices get cut and quality is reduced to keep up. With this setting `ON` the queue is 256 samples, which gives a busy song much more room before that starts.
+  - Everything is heard 2.9 ms later than before: notes from the pads or from MIDI, and the song itself. MIDI and gate outputs are sent that much later too, so they stay lined up with the audio.
+  - Audio coming in the inputs and back out (monitoring, or as an oscillator source) takes about 12 ms instead of about 6 ms, as the input is read later by as much again. Recordings of an input still line up with what was played to.
+  - The Deluge follows an external clock 2.9 ms later.
+  - Notes you record live and recordings you start or stop with a button are timed as before, against sound that now reaches you 2.9 ms later.
+  - The setting is read when the Deluge starts, so restart it after changing it. If the bigger queue can't be set up then, the queue stays at 128 samples and the setting shows `OFF`.
+  - This feature is `OFF` by default and can be set to `ON` or `OFF` via `SETTINGS > COMMUNITY FEATURES > BIGGER OUTPUT QUEUE`.
+
 ## 4. New Features Added
 
 Here is a list of features that have been added to the firmware as a list, grouped by category:
@@ -1454,6 +1464,8 @@ Note: these settings are saved to `SETTINGS/CommunityFeatures.XML` on your SD ca
   - `On - Menu + Clip (FULL)` also shows it while holding Shift in instrument and audio clip views.
 - `Fast Preset Scrolling (FAST)` <Badge text="c1.4" variant="tip" />
   - When On (default), scrolling to a big multisample synth preset loads only the samples needed to hear it straight away, and the rest in the background. See [Fast Preset Scrolling for Big Multisamples](#338---fast-preset-scrolling-for-big-multisamples).
+- `Bigger Output Queue (QUEU)` <Badge text="c1.4" variant="tip" />
+  - When On, the queue of rendered audio in front of the output is 256 samples instead of 128, so busy songs cut fewer voices, and everything is heard 2.9 ms later. Takes effect when the Deluge is next started. See [Bigger Output Queue for Busy Songs](#339---bigger-output-queue-for-busy-songs).
 
 ## 6. Sysex Handling
 

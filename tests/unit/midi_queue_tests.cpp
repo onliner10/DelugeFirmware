@@ -10,6 +10,8 @@ namespace {
 
 constexpr int32_t kMaxTicksAhead = MIDIQueue::kMaxTicksAhead;
 constexpr int32_t kTxBufferNumSamples = SSI_TX_BUFFER_NUM_SAMPLES;
+// The TX ring with the bigger output queue on
+constexpr int32_t kBiggerTxRingNumSamples = SSI_TX_BUFFER_MAX_NUM_SAMPLES;
 
 /// Drives the firmware MIDIQueue the way MidiEngine does, with the system timer passed in and the outputs captured
 /// rather than sent to USB / DIN
@@ -368,14 +370,24 @@ TEST_GROUP(MidiWindowDueTests){};
 TEST(MidiWindowDueTests, WindowStartIsWhenPlayheadReachesBufferedAudioEnd) {
 	// 100 samples free in the buffer means 28 samples are still to play before the window's first sample
 	uint32_t start = 1000000;
-	uint32_t due = dueAtWindowOffset(start, 100, 0);
+	uint32_t due = dueAtWindowOffset(start, 100, 0, kTxBufferNumSamples);
 	CHECK_EQUAL(start + ((28 * kSystemTicksPerSampleQ8) >> 8), due);
+}
+
+TEST(MidiWindowDueTests, BiggerRingHasThatManyMoreSamplesToPlayFirst) {
+	// 100 samples free in a 256 sample ring means 156 are still to play before the window's first sample
+	uint32_t start = 1000000;
+	uint32_t due = dueAtWindowOffset(start, 100, 0, kBiggerTxRingNumSamples);
+	CHECK_EQUAL(start + ((156 * kSystemTicksPerSampleQ8) >> 8), due);
+	CHECK_EQUAL(kBiggerTxRingNumSamples - kTxBufferNumSamples,
+	            samplesTilWindowOffsetPlays(100, 0, kBiggerTxRingNumSamples)
+	                - samplesTilWindowOffsetPlays(100, 0, kTxBufferNumSamples));
 }
 
 TEST(MidiWindowDueTests, OffsetsWithinWindowAreLaterBySampleCount) {
 	uint32_t start = 1000000;
-	uint32_t at0 = dueAtWindowOffset(start, 100, 0);
-	uint32_t at40 = dueAtWindowOffset(start, 100, 40);
+	uint32_t at0 = dueAtWindowOffset(start, 100, 0, kTxBufferNumSamples);
+	uint32_t at40 = dueAtWindowOffset(start, 100, 40, kTxBufferNumSamples);
 	uint32_t delta = at40 - at0;
 	// Within rounding of 40 samples
 	uint32_t expected = (40 * kSystemTicksPerSampleQ8) >> 8;
@@ -385,18 +397,18 @@ TEST(MidiWindowDueTests, OffsetsWithinWindowAreLaterBySampleCount) {
 TEST(MidiWindowDueTests, EndOfWindowFillingWholeBufferIsAFullLap) {
 	// Window fills all the free space - its end is where the playhead is now, so a full buffer away
 	uint32_t start = 0;
-	uint32_t due = dueAtWindowOffset(start, 100, 100);
+	uint32_t due = dueAtWindowOffset(start, 100, 100, kTxBufferNumSamples);
 	CHECK_EQUAL((kTxBufferNumSamples * kSystemTicksPerSampleQ8) >> 8, due);
 }
 
 TEST(MidiWindowDueTests, EndOfWindowMatchesNextWindowStart) {
 	// A 60 sample window out of 100 free; next time round 40 are still free plus whatever the playhead's consumed
 	uint32_t start = 0;
-	uint32_t endOfThis = dueAtWindowOffset(start, 100, 60);
+	uint32_t endOfThis = dueAtWindowOffset(start, 100, 60, kTxBufferNumSamples);
 	// 1ms later the playhead's moved on ~44 samples, so 84 are free
 	uint32_t elapsedSamples = 44;
 	uint32_t nextStart = start + ((elapsedSamples * kSystemTicksPerSampleQ8) >> 8);
-	uint32_t startOfNext = dueAtWindowOffset(nextStart, 40 + elapsedSamples, 0);
+	uint32_t startOfNext = dueAtWindowOffset(nextStart, 40 + elapsedSamples, 0, kTxBufferNumSamples);
 	int32_t diff = (int32_t)(startOfNext - endOfThis);
 	CHECK(diff >= -2 && diff <= 2);
 }
@@ -404,17 +416,27 @@ TEST(MidiWindowDueTests, EndOfWindowMatchesNextWindowStart) {
 TEST(MidiWindowDueTests, OffsetsPastFreeSpacePlayOnTheFollowingLap) {
 	// A 40 sample window doubled to 74: offsets past 40 are only written once the playhead has passed them, so they
 	// play after it laps again rather than straight away
-	CHECK_EQUAL(kTxBufferNumSamples + 20, samplesTilWindowOffsetPlays(40, 60));
-	CHECK_EQUAL(kTxBufferNumSamples + 34, samplesTilWindowOffsetPlays(40, 74));
+	CHECK_EQUAL(kTxBufferNumSamples + 20, samplesTilWindowOffsetPlays(40, 60, kTxBufferNumSamples));
+	CHECK_EQUAL(kTxBufferNumSamples + 34, samplesTilWindowOffsetPlays(40, 74, kTxBufferNumSamples));
+	CHECK_EQUAL(kBiggerTxRingNumSamples + 20, samplesTilWindowOffsetPlays(40, 60, kBiggerTxRingNumSamples));
 }
 
 TEST(MidiWindowDueTests, DueTimesNeverGoBackwardsAcrossAWindow) {
 	// Every offset of a window doubled past its free space, including either side of where the free space ends. The
 	// routine masks the free space to the buffer size, so it's never a whole buffer
 	for (int32_t samplesBeforeLapping : {1, 7, 40, 64, kTxBufferNumSamples - 1}) {
-		uint32_t previous = dueAtWindowOffset(0, samplesBeforeLapping, 0);
+		uint32_t previous = dueAtWindowOffset(0, samplesBeforeLapping, 0, kTxBufferNumSamples);
 		for (int32_t offset = 1; offset <= kTxBufferNumSamples; offset++) {
-			uint32_t due = dueAtWindowOffset(0, samplesBeforeLapping, offset);
+			uint32_t due = dueAtWindowOffset(0, samplesBeforeLapping, offset, kTxBufferNumSamples);
+			CHECK((int32_t)(due - previous) >= 0);
+			previous = due;
+		}
+	}
+	// And with the bigger ring, where the free space can be more than a window
+	for (int32_t samplesBeforeLapping : {1, 40, kTxBufferNumSamples, 200, kBiggerTxRingNumSamples - 1}) {
+		uint32_t previous = dueAtWindowOffset(0, samplesBeforeLapping, 0, kBiggerTxRingNumSamples);
+		for (int32_t offset = 1; offset <= kTxBufferNumSamples; offset++) {
+			uint32_t due = dueAtWindowOffset(0, samplesBeforeLapping, offset, kBiggerTxRingNumSamples);
 			CHECK((int32_t)(due - previous) >= 0);
 			previous = due;
 		}
@@ -425,7 +447,14 @@ TEST(MidiWindowDueTests, DueTimesStayWithinMaxTicksAhead) {
 	// Otherwise the queue would treat them as stale and send them straight away
 	for (int32_t samplesBeforeLapping : {1, kTxBufferNumSamples - 1}) {
 		for (int32_t offset : {0, kTxBufferNumSamples}) {
-			uint32_t due = dueAtWindowOffset(0, samplesBeforeLapping, offset);
+			uint32_t due = dueAtWindowOffset(0, samplesBeforeLapping, offset, kTxBufferNumSamples);
+			CHECK((int32_t)due > 0 && (int32_t)due <= kMaxTicksAhead);
+		}
+	}
+	// The bigger ring's furthest: almost all of it still to play, then a whole window
+	for (int32_t samplesBeforeLapping : {1, kBiggerTxRingNumSamples - 1}) {
+		for (int32_t offset : {0, kTxBufferNumSamples}) {
+			uint32_t due = dueAtWindowOffset(0, samplesBeforeLapping, offset, kBiggerTxRingNumSamples);
 			CHECK((int32_t)due > 0 && (int32_t)due <= kMaxTicksAhead);
 		}
 	}
