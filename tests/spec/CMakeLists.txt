@@ -26,6 +26,14 @@ target_include_directories(deluge_spec PUBLIC ../../src/deluge ../../src ../32bi
 # Compiled out of the firmware; see dsp/reverb/fx_engine.hpp.
 target_compile_definitions(deluge_spec PUBLIC DELUGE_DSP_BOUNDS_CHECK=1)
 
+# Round float maths the way the Cortex-A9 does, so a NEON path can be held to its scalar original
+# bit for bit: in SSE registers rather than x87's 80-bit ones. And no MMX, which SIMDe uses for
+# 64-bit NEON vectors and which, lacking an EMMS, leaves the x87 stack that i386 still returns
+# floats on full of NaNs.
+if (UNIX AND NOT APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i.86")
+  target_compile_options(deluge_spec PUBLIC -msse2 -mfpmath=sse -mno-mmx -Wno-psabi)
+endif ()
+
 set_target_properties(deluge_spec PROPERTIES
   CXX_STANDARD 23
   CXX_STANDARD_REQUIRED YES
