@@ -23,6 +23,7 @@
 #include "dsp/oscillators/sine_osc.h"
 #include "dsp/timestretch/time_stretcher.h"
 #include "dsp/util.hpp"
+#include "dsp/voice_mix.h"
 #include "gui/waveform/waveform_renderer.h"
 #include "io/debug/log.h"
 #include "memory/general_memory_allocator.h"
@@ -1627,8 +1628,14 @@ skipUnisonPart: {}
 
 		filterSet.renderLong(oscBuffer, oscBufferEnd, numSamples);
 
+		// No clipping, mono, not FM: the common case, the amplitude ramp and a mix into the sound's buffer
+		if (!sound.clippingAmount && !soundRenderingInStereo && synthMode != SynthMode::FM) {
+			dsp::addMonoWithAmplitudeRamp(soundBuffer, oscBuffer, numSamples, overallOscAmplitudeLastTime,
+			                              overallOscillatorAmplitudeIncrement);
+		}
+
 		// No clipping
-		if (!sound.clippingAmount) {
+		else if (!sound.clippingAmount) {
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			int32_t* __restrict__ outputSample = soundBuffer;
 			int32_t overallOscAmplitudeNow = overallOscAmplitudeLastTime;
