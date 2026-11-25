@@ -18,6 +18,7 @@
 #pragma once
 
 #include "definitions_cxx.hpp"
+#include "dsp/saturation.hpp"
 #include "model/clip/deferred_note_ons.h"
 #include "model/mod_controllable/mod_controllable_audio.h"
 #include "model/sample/sample_recorder.h"
@@ -318,6 +319,13 @@ public:
 		// Clipping
 		//*data = getTanHUnknown(*data, 5 + clippingAmount) << (shiftAmount);
 		*data = getTanHAntialiased(*data, workingValue, 5 + clippingAmount) << (shiftAmount);
+	}
+	///	saturate() on every sample of a block, in place. The block holds kNumChannels interleaved channels, each
+	/// with its own working value. Clipping amount must be greater than 0! Check before calling
+	template <size_t kNumChannels>
+	void saturateBlock(int32_t* data, size_t count, uint32_t* workingValues) {
+		deluge::dsp::saturateTanHAntialiased<kNumChannels>(data, count, workingValues, 5 + clippingAmount,
+		                                                   getShiftAmountForSaturation());
 	}
 	uint32_t getSyncedLFOPhaseIncrement(const LFOConfig& config);
 

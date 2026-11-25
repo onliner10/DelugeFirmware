@@ -1571,26 +1571,27 @@ skipUnisonPart: {}
 			} while (oscBufferPos != oscBufferEnd);
 		}
 
-		// Yes clipping
+		// Yes clipping. Scale by the amplitude in place, saturate the whole block, then mix it in
 		else {
+			if (synthMode != SynthMode::FM) {
+				int32_t* __restrict__ oscBufferPos = oscBuffer;
+				int32_t overallOscAmplitudeNow = overallOscAmplitudeLastTime;
+				do {
+					overallOscAmplitudeNow += overallOscillatorAmplitudeIncrement;
+					oscBufferPos[0] = multiply_32x32_rshift32_rounded(oscBufferPos[0], overallOscAmplitudeNow) << 1;
+					oscBufferPos[1] = multiply_32x32_rshift32_rounded(oscBufferPos[1], overallOscAmplitudeNow) << 1;
+					oscBufferPos += 2;
+				} while (oscBufferPos != oscBufferEnd);
+			}
+
+			sound.saturateBlock<2>(oscBuffer, numSamples << 1, lastSaturationTanHWorkingValue.data());
 
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			StereoSample* __restrict__ outputSample = (StereoSample*)soundBuffer;
-			int32_t overallOscAmplitudeNow = overallOscAmplitudeLastTime;
-			int32_t shiftAmount = sound.getShiftAmountForSaturation();
 
 			do {
 				int32_t outputSampleL = *(oscBufferPos++);
 				int32_t outputSampleR = *(oscBufferPos++);
-
-				overallOscAmplitudeNow += overallOscillatorAmplitudeIncrement;
-				if (synthMode != SynthMode::FM) {
-					outputSampleL = multiply_32x32_rshift32_rounded(outputSampleL, overallOscAmplitudeNow) << 1;
-					outputSampleR = multiply_32x32_rshift32_rounded(outputSampleR, overallOscAmplitudeNow) << 1;
-				}
-
-				sound.saturate(&outputSampleL, &lastSaturationTanHWorkingValue[0], shiftAmount);
-				sound.saturate(&outputSampleR, &lastSaturationTanHWorkingValue[1], shiftAmount);
 
 				// Write to the output buffer, panning or not
 				if (doPanning) {
@@ -1656,22 +1657,24 @@ skipUnisonPart: {}
 			} while (++oscBufferPos != oscBufferEnd);
 		}
 
-		// Yes clipping
+		// Yes clipping. Scale by the amplitude in place, saturate the whole block, then mix it in
 		else {
+			if (synthMode != SynthMode::FM) {
+				int32_t* __restrict__ oscBufferPos = oscBuffer;
+				int32_t overallOscAmplitudeNow = overallOscAmplitudeLastTime;
+				do {
+					overallOscAmplitudeNow += overallOscillatorAmplitudeIncrement;
+					*oscBufferPos = multiply_32x32_rshift32_rounded(*oscBufferPos, overallOscAmplitudeNow) << 1;
+				} while (++oscBufferPos != oscBufferEnd);
+			}
+
+			sound.saturateBlock<1>(oscBuffer, numSamples, lastSaturationTanHWorkingValue.data());
+
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			int32_t* __restrict__ outputSample = soundBuffer;
-			int32_t overallOscAmplitudeNow = overallOscAmplitudeLastTime;
 
-			auto clippingAmount = sound.getShiftAmountForSaturation();
 			do {
 				int32_t output = *oscBufferPos;
-
-				if (synthMode != SynthMode::FM) {
-					overallOscAmplitudeNow += overallOscillatorAmplitudeIncrement;
-					output = multiply_32x32_rshift32_rounded(output, overallOscAmplitudeNow) << 1;
-				}
-
-				sound.saturate(&output, &lastSaturationTanHWorkingValue[0], clippingAmount);
 
 				if (soundRenderingInStereo) {
 					if (doPanning) {
