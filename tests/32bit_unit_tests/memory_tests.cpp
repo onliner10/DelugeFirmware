@@ -351,4 +351,36 @@ TEST(MemoryAllocation, stealableAllocations) {
 	CHECK(efficiency > 0.994);
 	mock().checkExpectations();
 };
+
+// With more empty spaces than the region can keep records of, freeing a big allocation must still leave it
+// allocatable: it's the smallest record that has to go, not the new one. Losing the new one leaked whole megabytes of
+// stolen-back Clusters when scrolling presets with a big song loaded.
+TEST(MemoryAllocation, bigFreedSpaceKeptWhenRecordsAreFull) {
+	constexpr uint32_t kBigSize = 1 << 20;
+	constexpr int32_t kNumGaps = 600; // More than the 512 records the test region has
+	void* big = memreg.alloc(kBigSize, false, NULL);
+	CHECK(big != NULL);
+
+	// Pairs of small allocations, so that freeing every second one leaves gaps that can't merge
+	static void* gaps[kNumGaps];
+	for (int32_t i = 0; i < kNumGaps; i++) {
+		CHECK(memreg.alloc(64, false, NULL) != NULL);
+		gaps[i] = memreg.alloc(64, false, NULL);
+		CHECK(gaps[i] != NULL);
+	}
+
+	// Use up all the rest, so that the only big space left will be the one we free
+	for (uint32_t size = 1 << 20; size >= 64; size >>= 1) {
+		while (memreg.alloc(size, false, NULL) != NULL) {}
+	}
+
+	for (int32_t i = 0; i < kNumGaps; i++) {
+		memreg.dealloc(gaps[i]);
+	}
+	memreg.dealloc(big);
+
+	void* again = memreg.alloc(kBigSize / 2, false, NULL);
+	CHECK(again != NULL);
+	CHECK((uint32_t)again >= (uint32_t)big && (uint32_t)again < (uint32_t)big + kBigSize);
+};
 } // namespace
