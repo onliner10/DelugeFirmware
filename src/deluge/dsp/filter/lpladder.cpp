@@ -208,6 +208,9 @@ q31_t LpLadderFilter::setConfig(q31_t lpfFrequency, q31_t lpfResonance, FilterMo
 	else if (processedResonance != 0 || divideByTotalMoveabilityAndProcessedResonance != (1 << 30)) {
 		doFilterT<false, true>(startSample, endSample, sampleIncrement);
 	}
+	else if (lpfMode == FilterMode::TRANSISTOR_24DB || lpfMode == FilterMode::TRANSISTOR_12DB) {
+		doFilterSkewed(startSample, endSample, sampleIncrement);
+	}
 	else {
 		doFilterT<false, false>(startSample, endSample, sampleIncrement);
 	}
@@ -434,4 +437,60 @@ template <bool kSaturate, bool kFeedback>
 	q31_t d = state.lpfLPF4.doFilter(cc, noisy_m) << 1;
 	return d;
 }
+// Without feedback, a sample's first stage needs nothing from the stages after it, so the later stages can run a sample
+// behind the earlier ones. Each stage's multiply then has another, independent one beside it, rather than every one
+// waiting on the one before: the four (or three) multiplies of a sample are a chain of dependent ~5-cycle latencies,
+// which an in-order look at one sample at a time can't hide. Every stage still does exactly the same operations on
+// the same values in the same order per sample, so the output is identical to doFilterT<false, false>().
+[[gnu::hot]] void LpLadderFilter::doFilterSkewed(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement) {
+	const Coeffs c = getCoeffs();
+	LpLadderState s = l;
+	uint32_t seed = jcong;
+	q31_t* currentSample = startSample;
+	q31_t* previousSample = currentSample;
+
+	// What the first two stages gave for the previous sample, and that sample's cutoff
+	q31_t pending;
+	q31_t previousMoveability;
+
+	if (lpfMode == FilterMode::TRANSISTOR_24DB) {
+		previousMoveability = noisyMoveability(c.moveability, s.noiseLastValue, seed);
+		q31_t x = scaleInput<false, false>(*currentSample, 0, c);
+		pending = s.lpfLPF2.doFilter(s.lpfLPF1.doFilter(x, previousMoveability), previousMoveability);
+		currentSample += sampleIncrement;
+		while (currentSample < endSample) {
+			q31_t moveability = noisyMoveability(c.moveability, s.noiseLastValue, seed);
+			x = scaleInput<false, false>(*currentSample, 0, c);
+			q31_t output = s.lpfLPF4.doFilter(s.lpfLPF3.doFilter(pending, previousMoveability), previousMoveability)
+			               << 1;
+			pending = s.lpfLPF2.doFilter(s.lpfLPF1.doFilter(x, moveability), moveability);
+			*previousSample = output;
+			previousMoveability = moveability;
+			previousSample = currentSample;
+			currentSample += sampleIncrement;
+		}
+		*previousSample = s.lpfLPF4.doFilter(s.lpfLPF3.doFilter(pending, previousMoveability), previousMoveability)
+		                  << 1;
+	}
+	else { // TRANSISTOR_12DB
+		previousMoveability = noisyMoveability(c.moveability, s.noiseLastValue, seed);
+		q31_t x = scaleInput<false, false>(*currentSample, 0, c);
+		pending = s.lpfLPF2.doFilter(s.lpfLPF1.doFilter(x, previousMoveability), previousMoveability);
+		currentSample += sampleIncrement;
+		while (currentSample < endSample) {
+			q31_t moveability = noisyMoveability(c.moveability, s.noiseLastValue, seed);
+			x = scaleInput<false, false>(*currentSample, 0, c);
+			q31_t output = s.lpfLPF3.doAPF(pending, previousMoveability) << 1;
+			pending = s.lpfLPF2.doFilter(s.lpfLPF1.doFilter(x, moveability), moveability);
+			*previousSample = output;
+			previousMoveability = moveability;
+			previousSample = currentSample;
+			currentSample += sampleIncrement;
+		}
+		*previousSample = s.lpfLPF3.doAPF(pending, previousMoveability) << 1;
+	}
+	l = s;
+	jcong = seed;
+}
+
 } // namespace deluge::dsp::filter
