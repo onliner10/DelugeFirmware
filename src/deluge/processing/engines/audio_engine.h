@@ -198,7 +198,10 @@ char* getEmptyLogEntry();
 void printLog();
 #endif
 int32_t getNumAudio();
+/// The number of Voices assigned to all Sounds. O(1): the Voice pool's count of Voices handed out
 int32_t getNumVoices();
+/// The same, by summing every Sound's voices (O(number of Sounds)). For checking getNumVoices()
+int32_t countVoicesInSounds();
 bool doSomeOutputting();
 void updateReverbParams();
 
