@@ -17,16 +17,17 @@
 
 #include "io/midi/midi_queue.h"
 
-int32_t samplesTilWindowOffsetPlays(int32_t samplesBeforeLappingPlayHead, int32_t offset) {
+int32_t samplesTilWindowOffsetPlays(int32_t samplesBeforeLappingPlayHead, int32_t offset, int32_t txRingNumSamples) {
 	// Offsets within the free space play once the playhead laps round to them. The window can be longer than that -
 	// later offsets are only written once the playhead has passed them, so they play on its following lap. Both come
 	// out the same
-	return offset - samplesBeforeLappingPlayHead + SSI_TX_BUFFER_NUM_SAMPLES;
+	return offset - samplesBeforeLappingPlayHead + txRingNumSamples;
 }
 
-uint32_t dueAtWindowOffset(uint32_t windowStartTicks, int32_t samplesBeforeLappingPlayHead, int32_t offset) {
-	uint32_t samplesTilDue = samplesTilWindowOffsetPlays(samplesBeforeLappingPlayHead, offset);
-	return windowStartTicks + ((samplesTilDue * kSystemTicksPerSampleQ8) >> 8);
+uint32_t dueAtWindowOffset(uint32_t windowStartTicks, int32_t samplesBeforeLappingPlayHead, int32_t offset,
+                           int32_t txRingNumSamples) {
+	uint32_t samples_til_due = samplesTilWindowOffsetPlays(samplesBeforeLappingPlayHead, offset, txRingNumSamples);
+	return windowStartTicks + ((samples_til_due * kSystemTicksPerSampleQ8) >> 8);
 }
 
 bool MIDIQueue::push(MIDIMessage message, int32_t filter, bool usb, bool din, uint32_t due, uint32_t now) {

@@ -167,8 +167,14 @@ gotError:
 	mode = newMode;
 	currentRecordClusterIndex = 0;
 
+	// What's heard is a TX ring behind the engine, and the input's read that far behind again, so an external source
+	// played in time with what's heard arrives two TX rings late (plus the converters). kAudioRecordLagCompensation
+	// is that for the normal ring, so with the bigger one it's more by twice the difference
+	int32_t const output_queue_num_samples = AudioEngine::getOutputQueueNumSamples();
 	numSamplesToRunBeforeBeginningCapturing = numSamplesExtraToCaptureAtEndSyncingWise =
-	    (mode < AUDIO_INPUT_CHANNEL_FIRST_INTERNAL_OPTION) ? kAudioRecordLagCompensation : 0;
+	    (mode < AUDIO_INPUT_CHANNEL_FIRST_INTERNAL_OPTION)
+	        ? kAudioRecordLagCompensation + (2 * (output_queue_num_samples - SSI_TX_BUFFER_NUM_SAMPLES))
+	        : 0;
 
 	// Apart from the MIX option, all other audio sources are fed to us during the "outputting" routine. Occasionally,
 	// there'll be some more of that going to happen for the previous render, so we have to compensate for that
@@ -190,10 +196,10 @@ gotError:
 			// Everything will be fine, so long as the button press latency we compensated for isn't, like, as big as
 			// the RX buffer
 			sample->fileLoopStartSamples =
-			    SSI_RX_BUFFER_NUM_SAMPLES - (SSI_TX_BUFFER_NUM_SAMPLES << 1) + numSamplesToRunBeforeBeginningCapturing;
+			    SSI_RX_BUFFER_NUM_SAMPLES - (output_queue_num_samples << 1) + numSamplesToRunBeforeBeginningCapturing;
 			numSamplesToRunBeforeBeginningCapturing = 0;
 
-			sourcePos += (SSI_TX_BUFFER_NUM_SAMPLES
+			sourcePos += (output_queue_num_samples
 			              << (NUM_MONO_INPUT_CHANNELS_MAGNITUDE + 1)); // I think the +1 was just because it needs to
 			                                                           // move two tx buffers' length for some reason...
 			if (sourcePos >= AudioEngine::getInputBufferEnd(mode)) {
