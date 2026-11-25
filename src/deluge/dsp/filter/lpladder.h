@@ -36,6 +36,7 @@ public:
 	}
 
 private:
+	friend struct LpLadderSpecAccess; // For comparing doFilterSkewed() with doFilterT() in tests/spec
 	struct LpLadderState {
 		q31_t noiseLastValue;
 		BasicFilterComponent lpfLPF1;
@@ -109,6 +110,9 @@ private:
 	void doFilterT(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement);
 	template <bool kSaturate, bool kFeedback>
 	void doFilterStereoT(q31_t* startSample, q31_t* endSample);
+	/// The 12 and 24dB ladders without feedback (resonance at minimum), with the later stages a sample behind the
+	/// earlier ones - see doFilter()
+	void doFilterSkewed(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement);
 	// all ladders are in this class to share the basic components
 	// this differentiates between them
 	FilterMode lpfMode;
