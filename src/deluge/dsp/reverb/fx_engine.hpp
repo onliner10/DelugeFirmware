@@ -94,11 +94,11 @@ public:
 		uint32_t write_ptr;
 		uint32_t mask;
 		/// Each frame's LFO values, the same ones LFO() would have returned after its Advance().
-		float32x4_t lfo[2];
+		std::array<float32x4_t, 2> lfo;
 	};
 
 	/// Four Advance()s in one go.
-	[[gnu::always_inline]] Quad Advance4() {
+	[[gnu::always_inline]] Quad advance4() {
 		const float32x2_t before = lfo_.values().vec();
 		float32x2_t after = before;
 
@@ -112,9 +112,12 @@ public:
 		write_ptr_ = static_cast<int32_t>(static_cast<uint32_t>(write_ptr_ - 4) & mask);
 
 		// Frames step..3 are lanes 0..3-step. Without a step both values are the same anyway.
-		constexpr uint32x4_t kLane = {0, 1, 2, 3};
-		const uint32x4_t stepped = vcleq_u32(kLane, vdupq_n_u32(3 - step));
-		Quad q{buffer_.data(), static_cast<uint32_t>(write_ptr_), static_cast<uint32_t>(mask), {}};
+		constexpr uint32x4_t lane_index = {0, 1, 2, 3};
+		const uint32x4_t stepped = vcleq_u32(lane_index, vdupq_n_u32(3 - step));
+		Quad q{.buffer = buffer_.data(),
+		       .write_ptr = static_cast<uint32_t>(write_ptr_),
+		       .mask = static_cast<uint32_t>(mask),
+		       .lfo = {}};
 		q.lfo[LFO_1] = vbslq_f32(stepped, vdupq_lane_f32(after, 0), vdupq_lane_f32(before, 0));
 		q.lfo[LFO_2] = vbslq_f32(stepped, vdupq_lane_f32(after, 1), vdupq_lane_f32(before, 1));
 		return q;
@@ -202,34 +205,38 @@ public: /******************** INNER CLASSES ****************/
 		// Four frames at a time, see Quad. Same slots and arithmetic as the scalar calls above.
 
 		/// Slot of `index` in the block's last frame; the other frames' follow it upwards.
-		[[gnu::always_inline]] uint32_t Slot(const Quad& q, int32_t index) const {
+		[[nodiscard]] [[gnu::always_inline]] uint32_t slot(const Quad& q, int32_t index) const {
+			return slotAt(q.write_ptr, q.mask, index);
+		}
+
+		[[nodiscard]] [[gnu::always_inline]] uint32_t slotAt(uint32_t write_ptr, uint32_t mask, int32_t index) const {
 #if DELUGE_DSP_BOUNDS_CHECK
 			if (index < 0 || static_cast<size_t>(index) > length) {
 				debug::out_of_bounds_access = true;
 			}
 #endif
-			return (q.write_ptr + base + index) & q.mask;
+			return (write_ptr + base + index) & mask;
 		}
 
-		[[gnu::always_inline]] float32x4_t Load(const Quad& q, int32_t index) const {
-			const uint32_t slot = Slot(q, index);
-			if (slot <= q.mask - 3) [[likely]] {
-				return vld1q_f32(q.buffer + slot);
+		[[nodiscard]] [[gnu::always_inline]] float32x4_t load(const Quad& q, int32_t index) const {
+			const uint32_t at = slot(q, index);
+			if (at <= q.mask - 3) [[likely]] {
+				return vld1q_f32(q.buffer + at);
 			}
-			return LoadWrapped(q.buffer, q.mask, slot);
+			return loadWrapped(q.buffer, q.mask, at);
 		}
 
-		[[gnu::always_inline]] void Store(const Quad& q, int32_t index, float32x4_t value) const {
-			const uint32_t slot = Slot(q, index);
-			if (slot <= q.mask - 3) [[likely]] {
-				vst1q_f32(q.buffer + slot, value);
+		[[gnu::always_inline]] void store(const Quad& q, int32_t index, float32x4_t value) const {
+			const uint32_t at = slot(q, index);
+			if (at <= q.mask - 3) [[likely]] {
+				vst1q_f32(q.buffer + at, value);
 				return;
 			}
-			StoreWrapped(q.buffer, q.mask, slot, value);
+			storeWrapped(q.buffer, q.mask, at, value);
 		}
 
 		/// Interpolated read at a per-frame offset.
-		[[gnu::always_inline]] float32x4_t Interpolate(const Quad& q, float32x4_t offset) const {
+		[[nodiscard]] [[gnu::always_inline]] float32x4_t interpolate(const Quad& q, float32x4_t offset) const {
 			const int32x4_t integral = vcvtq_s32_f32(offset);
 			const float32x4_t fractional = vsubq_f32(offset, vcvtq_f32_s32(integral));
 			const int32_t last = vgetq_lane_s32(integral, 0);
@@ -237,48 +244,48 @@ public: /******************** INNER CLASSES ****************/
 			// they take at most two values, each over a run of neighbouring frames. Equal ends mean
 			// they all agree, and both taps are plain vectors.
 			if (last == vgetq_lane_s32(integral, 3)) [[likely]] {
-				const float32x4_t a = Load(q, last);
-				const float32x4_t b = Load(q, last + 1);
+				const float32x4_t a = load(q, last);
+				const float32x4_t b = load(q, last + 1);
 				return vmlaq_f32(a, vsubq_f32(b, a), fractional);
 			}
-			return InterpolateLanes(q.buffer, q.write_ptr, q.mask, integral, fractional);
+			return interpolateLanes(q.buffer, q.write_ptr, q.mask, integral, fractional);
 		}
 
 	private:
 		// The rare paths, for four slots that straddle the end of the buffer or offsets that differ
 		// between frames. They take the Quad apart so that calling them doesn't force it to the stack.
 
-		[[gnu::noinline]] static float32x4_t LoadWrapped(const float* buffer, uint32_t mask, uint32_t slot) {
-			float lanes[4];
+		[[gnu::noinline]] static float32x4_t loadWrapped(const float* buffer, uint32_t mask, uint32_t at) {
+			std::array<float, 4> lanes{};
 			for (uint32_t j = 0; j < 4; ++j) {
-				lanes[j] = buffer[(slot + j) & mask];
+				lanes[j] = buffer[(at + j) & mask];
 			}
-			return vld1q_f32(lanes);
+			return vld1q_f32(lanes.data());
 		}
 
-		[[gnu::noinline]] static void StoreWrapped(float* buffer, uint32_t mask, uint32_t slot, float32x4_t value) {
-			float lanes[4];
-			vst1q_f32(lanes, value);
+		[[gnu::noinline]] static void storeWrapped(float* buffer, uint32_t mask, uint32_t at, float32x4_t value) {
+			std::array<float, 4> lanes{};
+			vst1q_f32(lanes.data(), value);
 			for (uint32_t j = 0; j < 4; ++j) {
-				buffer[(slot + j) & mask] = lanes[j];
+				buffer[(at + j) & mask] = lanes[j];
 			}
 		}
 
-		[[gnu::noinline]] float32x4_t InterpolateLanes(float* buffer, uint32_t write_ptr, uint32_t mask,
-		                                               int32x4_t integral, float32x4_t fractional) const {
-			const Quad q{buffer, write_ptr, mask, {}};
-			int32_t offsets[4];
-			float fractions[4];
-			float lanes[4];
-			vst1q_s32(offsets, integral);
-			vst1q_f32(fractions, fractional);
+		[[nodiscard]] [[gnu::noinline]] float32x4_t interpolateLanes(const float* buffer, uint32_t write_ptr,
+		                                                             uint32_t mask, int32x4_t integral,
+		                                                             float32x4_t fractional) const {
+			std::array<int32_t, 4> offsets{};
+			std::array<float, 4> fractions{};
+			std::array<float, 4> lanes{};
+			vst1q_s32(offsets.data(), integral);
+			vst1q_f32(fractions.data(), fractional);
 			for (uint32_t j = 0; j < 4; ++j) {
 				// Lane j is the frame j slots above the last one.
-				const float a = q.buffer[(Slot(q, offsets[j]) + j) & q.mask];
-				const float b = q.buffer[(Slot(q, offsets[j] + 1) + j) & q.mask];
+				const float a = buffer[(slotAt(write_ptr, mask, offsets[j]) + j) & mask];
+				const float b = buffer[(slotAt(write_ptr, mask, offsets[j] + 1) + j) & mask];
 				lanes[j] = dsp::Interpolate(a, b, fractions[j]);
 			}
-			return vld1q_f32(lanes);
+			return vld1q_f32(lanes.data());
 		}
 
 	public:
@@ -289,8 +296,6 @@ public: /******************** INNER CLASSES ****************/
 
 	struct AllPass : public DelayLine {
 		AllPass(size_t length) : DelayLine(length) {};
-
-		using DelayLine::Interpolate;
 
 		//[gnu::always_inline]
 		float Read(Context& c, int32_t offset, float scale) {
@@ -368,10 +373,11 @@ public: /******************** INNER CLASSES ****************/
 
 		/// Process() for four frames: takes the inputs, returns the outputs. `scale` is {scale, -scale},
 		/// kept in a register pair so the multiplies can take them as lanes.
-		[[gnu::always_inline]] float32x4_t Process(const Quad& q, float32x4_t head, float32x2_t scale) const {
-			const float32x4_t tail = this->Load(q, this->length - 1);
+		[[nodiscard]] [[gnu::always_inline]] float32x4_t process(const Quad& q, float32x4_t head,
+		                                                         float32x2_t scale) const {
+			const float32x4_t tail = this->load(q, static_cast<int32_t>(this->length) - 1);
 			const float32x4_t feedback = vmlaq_lane_f32(head, tail, scale, 0);
-			this->Store(q, 0, feedback);
+			this->store(q, 0, feedback);
 			return vmlaq_lane_f32(tail, feedback, scale, 1);
 		}
 	};

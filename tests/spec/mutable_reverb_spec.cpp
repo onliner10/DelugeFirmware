@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <limits>
 #include <memory>
 #include <random>
 #include <vector>
@@ -142,12 +143,12 @@ Comparison compare(const Settings& settings, double seconds, uint32_t seed) {
 	auto vectorised = makeModel<VectorMutable>(settings);
 
 	std::mt19937 rng(seed);
-	constexpr std::array<size_t, 12> kBlockSizes{1, 2, 3, 4, 5, 7, 8, 31, 64, 125, 127, 128};
-	std::uniform_int_distribution<size_t> pick_block(0, kBlockSizes.size() - 1);
+	constexpr std::array<size_t, 12> block_sizes{1, 2, 3, 4, 5, 7, 8, 31, 64, 125, 127, 128};
+	std::uniform_int_distribution<size_t> pick_block(0, block_sizes.size() - 1);
 	std::uniform_int_distribution<int32_t> noise(-settings.noise_level, settings.noise_level);
 	std::uniform_int_distribution<int32_t> bed(-(1 << 29), 1 << 29);
 
-	Comparison result{0, 0.f, 0};
+	Comparison result{.max_output_error = 0, .max_memory_error = 0.f, .peak = 0};
 	const auto total = static_cast<size_t>(seconds * kSampleRate);
 	std::vector<int32_t> input;
 	std::vector<StereoSample> bedding;
@@ -155,7 +156,7 @@ Comparison compare(const Settings& settings, double seconds, uint32_t seed) {
 	std::vector<StereoSample> out_vectorised;
 
 	for (size_t done = 0; done < total;) {
-		const size_t size = kBlockSizes[pick_block(rng)];
+		const size_t size = block_sizes[pick_block(rng)];
 		input.resize(size);
 		bedding.resize(size);
 		for (size_t i = 0; i < size; ++i) {

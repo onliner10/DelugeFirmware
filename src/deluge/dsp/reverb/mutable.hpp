@@ -81,37 +81,37 @@ public:
 			const float32x4_t lfo_centre_2 = vdupq_n_f32(4460.0f);
 
 			for (; frame + 4 <= in.size(); frame += 4) {
-				const FxEngine::Quad q = engine_.Advance4();
+				const FxEngine::Quad q = engine_.advance4();
 
 				float32x4_t c = vmulq_lane_f32(vcvtq_f32_s32(reverse(vld1q_s32(&in[frame]))), gain, 0);
 
 				// Diffuse through 4 allpasses.
-				c = ap1.Process(q, c, diffuse);
-				c = ap2.Process(q, c, diffuse);
-				c = ap3.Process(q, c, diffuse);
-				c = ap4.Process(q, c, diffuse);
+				c = ap1.process(q, c, diffuse);
+				c = ap2.process(q, c, diffuse);
+				c = ap3.process(q, c, diffuse);
+				c = ap4.process(q, c, diffuse);
 				const float32x4_t apout = c;
 
 				// Main reverb loop. Each branch reads the other's delay thousands of frames back, so
 				// within a block they don't touch and can be interleaved.
 				const float32x4_t lfo_offset_1 = vmlaq_lane_f32(lfo_centre_1, q.lfo[LFO_2], lfo_depth, 0);
 				const float32x4_t lfo_offset_2 = vmlaq_lane_f32(lfo_centre_2, q.lfo[LFO_1], lfo_depth, 1);
-				float32x4_t c1 = vmlaq_lane_f32(apout, del2.Interpolate(q, lfo_offset_1), loop, 0);
-				float32x4_t c2 = vmlaq_lane_f32(apout, del1.Interpolate(q, lfo_offset_2), loop, 0);
+				float32x4_t c1 = vmlaq_lane_f32(apout, del2.interpolate(q, lfo_offset_1), loop, 0);
+				float32x4_t c2 = vmlaq_lane_f32(apout, del1.interpolate(q, lfo_offset_2), loop, 0);
 
 				forEachFramePair(c1, c2, [&](float32x2_t x) {
 					loop_lp = vmla_lane_f32(loop_lp, vsub_f32(x, loop_lp), loop, 1);
 					return loop_lp;
 				});
 
-				c1 = dap1a.Process(q, c1, diffuse_negated);
-				c1 = dap1b.Process(q, c1, diffuse);
-				del1.Store(q, 0, c1);
+				c1 = dap1a.process(q, c1, diffuse_negated);
+				c1 = dap1b.process(q, c1, diffuse);
+				del1.store(q, 0, c1);
 				c1 = vaddq_f32(c1, c1); // c.Multiply(2.0f), exactly
 
-				c2 = dap2a.Process(q, c2, diffuse_negated);
-				c2 = dap2b.Process(q, c2, diffuse);
-				del2.Store(q, 0, c2);
+				c2 = dap2a.process(q, c2, diffuse_negated);
+				c2 = dap2b.process(q, c2, diffuse);
+				del2.store(q, 0, c2);
 				c2 = vaddq_f32(c2, c2);
 
 				forEachFramePair(c1, c2, [&](float32x2_t wet) {
@@ -124,7 +124,7 @@ public:
 				// Mix, as {l, r} pairs in frame order.
 				const int32x4x2_t wet = vzipq_s32(multiplyRounded<0>(reverse(toQ31Saturating(c2, gain)), pan),
 				                                  multiplyRounded<1>(reverse(toQ31Saturating(c1, gain)), pan));
-				int32_t* mix = reinterpret_cast<int32_t*>(&output[frame]);
+				int32_t* mix = &output[frame].l;
 				vst1q_s32(mix, vaddq_s32(vld1q_s32(mix), wet.val[0]));
 				vst1q_s32(mix + 4, vaddq_s32(vld1q_s32(mix + 4), wet.val[1]));
 			}
