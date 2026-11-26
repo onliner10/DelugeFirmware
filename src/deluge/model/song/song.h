@@ -284,6 +284,7 @@ public:
 	/// SoundInstrument::loadAudioFilesLazily()). Not for files from before V2.1, whose zone markers in milliseconds can
 	/// only be converted while loading the Song.
 	bool samplesMayLoadLazily = false;
+	bool songFolderChecked = false; ///< Whether loadAllSamples() has checked for the Song's own sample folder yet
 
 	int32_t unautomatedParamValues[deluge::modulation::params::kMaxNumUnpatchedParams];
 

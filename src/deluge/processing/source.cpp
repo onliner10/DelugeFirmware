@@ -452,7 +452,13 @@ bool Source::zonesReadyFor(std::span<const int16_t> notes, bool allZones) {
 			}
 			continue;
 		}
-		Cluster* first = holder->clustersForStart[0];
+		auto* sample = static_cast<Sample*>(holder->audioFile);
+		int32_t firstIndex = holder->startPlaybackAtByte >> Cluster::size_magnitude;
+		if (firstIndex < 0 || firstIndex >= sample->clusters.getNumElements()) {
+			continue; // Nothing to play there anyway
+		}
+		// Whether or not it's claimed: an idle instrument's starts are released, but usually still in RAM
+		Cluster* first = sample->clusters.getElement(firstIndex)->cluster;
 		if (first == nullptr || !first->loaded) {
 			return false;
 		}
@@ -485,32 +491,4 @@ void Source::loadZoneStartsNowFor(std::span<const int16_t> notes) {
 			}
 		}
 	}
-}
-
-bool Source::unloadZonesNotFor(std::span<const int16_t> notes) {
-	int32_t numRanges = ranges.getNumElements();
-	if (oscType != OscType::SAMPLE || numRanges < kMinRangesToLoadLazily || numRanges > kMaxLazyRanges) {
-		return false;
-	}
-	if (!lazyPending || lazyNumRanges != numRanges) {
-		// Start lazy bookkeeping afresh: what's loaded counts as tried, what isn't as still to try
-		lazyTried.reset();
-		lazyNumRanges = numRanges;
-		for (int32_t e = 0; e < numRanges; e++) {
-			lazyTried[e] = (ranges.getElement(e)->getAudioFileHolder()->audioFile != nullptr);
-		}
-	}
-	bool unloadedAny = false;
-	for (int32_t e = 0; e < numRanges; e++) {
-		AudioFileHolder* holder = ranges.getElement(e)->getAudioFileHolder();
-		if (holder->audioFile == nullptr || !holder->audioFile->loadedFromAlternatePath.isEmpty()
-		    || rangePlaysAnyOf(e, notes)) {
-			continue;
-		}
-		holder->setAudioFile(nullptr);
-		lazyTried[e] = false;
-		lazyPending = true;
-		unloadedAny = true;
-	}
-	return unloadedAny;
 }

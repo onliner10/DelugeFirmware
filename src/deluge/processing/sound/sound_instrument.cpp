@@ -438,24 +438,6 @@ Error SoundInstrument::loadAudioFilesLazily(Song* song, bool mayActuallyReadFile
 	return error;
 }
 
-void SoundInstrument::unloadUnusedZones(Song* song) {
-	if (unusedZonesUnloaded || !song->samplesMayLoadLazily || hasActiveVoices()) {
-		return;
-	}
-	PreviewNotes notes(transpose);
-	if (!addPlayedNotes(song, this, notes)) {
-		return;
-	}
-	bool unloadedAny = false;
-	for (Source& source : sources) {
-		unloadedAny = source.unloadZonesNotFor(notes.span()) || unloadedAny;
-	}
-	if (unloadedAny) {
-		lazyFromSong = true; // They were loaded from the Song's folders, or at least their normal paths
-	}
-	unusedZonesUnloaded = true;
-}
-
 void SoundInstrument::loadZonesForNoteNow(Song* song, int32_t note) {
 	PreviewNotes notes(transpose);
 	notes.add(note);
@@ -480,10 +462,10 @@ bool SoundInstrument::loadLazyAudioFile(Song* song, bool mayLoadTheRest) {
 	}
 	SampleNeed need = getSampleNeed(song, this);
 	if (need == SampleNeed::ALL) {
-		playedZonesLoaded = false;
+		playedZonesLoadedAt = 0;
 	}
-	else if (playedZonesLoaded) {
-		return false; // Checked already, and nothing has changed what it plays since
+	else if (playedZonesLoadedAt != 0 && AudioEngine::audioSampleTimer - playedZonesLoadedAt < kSampleRate) {
+		return false; // Checked lately
 	}
 
 	// The notes its Clips play, then the notes the audition pads play, if one of its Clips is on screen
@@ -501,7 +483,7 @@ bool SoundInstrument::loadLazyAudioFile(Song* song, bool mayLoadTheRest) {
 	bool anyOther = (!fits || (need == SampleNeed::ALL && (lazyFromSong || mayLoadTheRest)))
 	                && !audioFileManager.anyClusterLoadsPending();
 	if (!anyOther && !sources[0].hasLazySampleFor(notes.span()) && !sources[1].hasLazySampleFor(notes.span())) {
-		playedZonesLoaded = (need != SampleNeed::ALL && fits);
+		playedZonesLoadedAt = (need != SampleNeed::ALL && fits) ? (AudioEngine::audioSampleTimer | 1) : 0;
 		return false; // Nothing it needs is left: don't set up for loading again and again
 	}
 
@@ -575,14 +557,7 @@ void idleSampleStartsTask() {
 		}
 		bool wanted = getSampleNeed(song, output) != SampleNeed::NONE;
 		if (output->type == OutputType::SYNTH) {
-			auto* synth = static_cast<SoundInstrument*>(output);
-			setSynthIdle(song, synth, !wanted);
-			if (wanted) {
-				synth->unusedZonesUnloaded = false;
-			}
-			else {
-				synth->unloadUnusedZones(song);
-			}
+			setSynthIdle(song, static_cast<SoundInstrument*>(output), !wanted);
 			continue;
 		}
 		auto* kit = static_cast<Kit*>(output);

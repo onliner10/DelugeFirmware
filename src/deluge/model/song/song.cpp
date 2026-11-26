@@ -64,6 +64,7 @@
 #include "processing/engines/cv_engine.h"
 #include "processing/sound/sound_instrument.h"
 #include "processing/stem_export/stem_export.h"
+#include "storage/audio/audio_file_manager.h"
 #include "storage/flash_storage.h"
 #include "storage/storage_manager.h"
 #include "util/lookuptables/lookuptables.h"
@@ -2450,6 +2451,16 @@ readClip:
 // Needs to be in a separate function than the above because the main song XML file needs to be closed first before
 // this is called, because this will open other (sample) files
 void Song::loadAllSamples(bool mayActuallyReadFiles) {
+
+	// Not for a Song with samples collected into its own folder (from "collect media"): those are found by a search
+	// that's only set up while the Song itself loads
+	if (samplesMayLoadLazily && mayActuallyReadFiles && !songFolderChecked
+	    && audioFileManager.alternateLoadDirStatus != AlternateLoadDirStatus::NONE_SET) {
+		songFolderChecked = true;
+		if (StorageManager::fileExists(audioFileManager.alternateAudioFileLoadPath.get())) {
+			samplesMayLoadLazily = false;
+		}
+	}
 
 	for (Output* thisOutput = firstOutput; thisOutput; thisOutput = thisOutput->next) {
 		// A synth in the arrangement is left out: the arrangement can start its Clips with no time to load

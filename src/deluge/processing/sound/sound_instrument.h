@@ -62,14 +62,9 @@ public:
 	bool loadLazyAudioFile(Song* song, bool mayLoadTheRest);
 	/// Loads the zone note plays, if left out, and gets its start into RAM, so it can be played straight away
 	void loadZonesForNoteNow(Song* song, int32_t note);
-	/// While it's idle (see idleSampleStartsTask()) and silent, unloads the zones of big multisamples that none of its
-	/// Clips play, so they're the first memory to go. They're loaded again as soon as it needs them (see
-	/// loadLazyAudioFile()) - from RAM if they're still there.
-	void unloadUnusedZones(Song* song);
-	bool unusedZonesUnloaded = false;
-	/// Whether every zone its Clips play is loaded, so loadLazyAudioFile() has nothing to do unless it needs all of
-	/// them. Its Clips' notes can only change while it needs them all (on screen), which clears this.
-	bool playedZonesLoaded = false;
+	/// When loadLazyAudioFile() last found every zone its Clips play loaded, in AudioEngine::audioSampleTimer units,
+	/// so it doesn't check again for a while. 0 if not. Notes can change off screen too (undo, transposing the song).
+	uint32_t playedZonesLoadedAt = 0;
 	/// Whether the samples left out came from loading the Song (so live in its folders), rather than from previewing
 	bool lazyFromSong = false;
 	bool hasLazyAudioFiles() { return sources[0].hasLazySamples() || sources[1].hasLazySamples(); }

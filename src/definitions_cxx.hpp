@@ -932,8 +932,7 @@ enum class StealableQueue {
 	NO_SONG_AUDIO_FILE_OBJECTS, // TODO:having these in the Stealable region is a bad idea in general
 	// Start-of-sample Clusters of Instruments whose Clips aren't playing (see idleSampleStartsTask()), least recently
 	// idled first within each queue. First the zones (or kit rows) that none of the Instrument's Clips play, farthest
-	// from the notes they do play first: nothing is about to play them, so they go before the Song's own data. (Big
-	// multisamples get those zones unloaded altogether, see SoundInstrument::unloadUnusedZones().)
+	// from the notes they do play first: nothing is about to play them, so they go before the Song's own data.
 	CURRENT_SONG_IDLE_UNUSED_SAMPLE_STARTS,
 	CURRENT_SONG_SAMPLE_DATA,
 	CURRENT_SONG_SAMPLE_DATA_CONVERTED,
