@@ -85,7 +85,11 @@ public:
 
 	void* alloc(uint32_t requiredSize, bool mayUseOnChipRam, bool makeStealable, void* thingNotToStealFrom);
 	void dealloc(void* address);
+	/// Non-stealable memory in the external regions, or in the stealable region once those are full (like
+	/// allocLowSpeed()). Returns nullptr only if no memory can be found or stolen anywhere.
 	void* allocExternal(uint32_t requiredSize);
+	/// The external regions only, never the stealable region.
+	void* allocExternalRegions(uint32_t requiredSize);
 	void* allocInternal(uint32_t requiredSize);
 	void deallocExternal(void* address);
 	uint32_t shortenRight(void* address, uint32_t newSize);

@@ -132,7 +132,14 @@ extern "C" void delugeDealloc(void* address) {
 	GeneralMemoryAllocator::get().dealloc(address);
 #endif
 }
+// Strings, operator new and the STL containers allocate here. A big song can fill the external regions by itself (its
+// own clips, notes and params spill into the stealable region once they're full), so this must spill over the same
+// way - otherwise every String operation fails, and with it saving the song ("Insufficient RAM").
 void* GeneralMemoryAllocator::allocExternal(uint32_t requiredSize) {
+	return alloc(requiredSize, false, false, nullptr);
+}
+
+void* GeneralMemoryAllocator::allocExternalRegions(uint32_t requiredSize) {
 
 	if (lock) {
 		return nullptr; // Prevent any weird loops in freeSomeStealableMemory(), which mostly would only be bad cos they
@@ -209,7 +216,7 @@ void* GeneralMemoryAllocator::alloc(uint32_t requiredSize, bool mayUseOnChipRam,
 		}
 
 		// Second try external region
-		address = allocExternal(requiredSize);
+		address = allocExternalRegions(requiredSize);
 
 		if (address) {
 			return address;
