@@ -2,18 +2,23 @@
 #include "memory/object_pool.h"
 
 #include <cassert>
+#include <cstdint>
 #include <future>
 #include <thread>
+#include <vector>
 
 #include "cppspec.hpp"
 
 using namespace deluge::memory;
 
-using ObjectPoolType = ObjectPool<int, TrackingAllocator>;
+// Free objects hold the pool's free-list link, so the pooled type must be at least pointer-sized
+using ObjectPoolType = ObjectPool<std::uintptr_t, TrackingAllocator>;
+using Tracker = TrackingAllocator<std::uintptr_t>;
 
 namespace {
 struct Throwing {
-	explicit Throwing(bool shouldThrow) {
+	void* room; // pooled objects must be able to hold a free-list link
+	explicit Throwing(bool shouldThrow) : room(nullptr) {
 		if (shouldThrow) {
 			throw 1;
 		}
@@ -25,13 +30,13 @@ struct Throwing {
 describe object_pool("ObjectPool", $ {
 	before_each([] {
 		ObjectPoolType::get().resize(16);
-		TrackingAllocator<int>::reset();
+		Tracker::reset();
 		ObjectPoolType::get().repopulate();
 	});
 
 	after_each([] {
 		ObjectPoolType::get().clear();
-		assert(TrackingAllocator<int>::num_outstanding() == 0);
+		assert(Tracker::num_outstanding() == 0);
 	});
 
 	it("should create an object pool of 16 elements by default", _{
@@ -158,6 +163,47 @@ describe object_pool("ObjectPool", $ {
 			expect(op.numLive()).to_equal(1);
 		}
 		expect(op.numLive()).to_equal(0);
+	});
+
+	it("allocates a repopulate as one block", _{
+		auto& op = ObjectPoolType::get();
+		op.clear();
+		Tracker::reset();
+		op.repopulate();
+		expect(op.size()).to_equal(16);
+		expect(Tracker::num_allocated()).to_equal(1);
+	});
+
+	it("hands out contiguous objects from the block", _{
+		auto& op = ObjectPoolType::get();
+		auto a = op.acquire();
+		auto b = op.acquire();
+		expect(b.get() - a.get()).to_equal(1);
+	});
+
+	it("frees overflow objects rather than keeping more than the capacity", _{
+		auto& op = ObjectPoolType::get();
+		std::vector<ObjectPoolType::pointer_type> held;
+		for (int i = 0; i < 20; ++i) {
+			held.push_back(op.acquire());
+		}
+		expect(op.size()).to_equal(0);
+		expect(Tracker::num_outstanding()).to_equal(5); // the block plus 4 individual objects
+		held.clear();
+		expect(op.size()).to_equal(16);
+		expect(Tracker::num_outstanding()).to_equal(1); // only the block is kept
+	});
+
+	it("keeps the block while one of its objects is in use", _{
+		auto& op = ObjectPoolType::get();
+		auto obj = op.acquire();
+		op.clear();
+		expect(Tracker::num_outstanding()).to_equal(1);
+		expect(op.size()).to_equal(15); // the block's idle objects stay pooled
+		obj.reset();
+		expect(op.size()).to_equal(16);
+		op.clear();
+		expect(Tracker::num_outstanding()).to_equal(0);
 	});
 
 	it("empty() should return true when the pool is empty", _{
