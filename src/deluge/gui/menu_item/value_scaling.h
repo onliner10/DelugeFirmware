@@ -79,14 +79,6 @@ int32_t computeCurrentValueForStandardMenuItem(int32_t value);
  */
 int32_t computeFinalValueForStandardMenuItem(int32_t value);
 
-/** Scales INT32_MIN-INT32_MAX range to 0-127 for display, for the params shown with finer steps.
- */
-int32_t computeCurrentValueForFineMenuItem(int32_t value);
-
-/** Scales 0-127 range to INT32_MIN-INT32_MAX for storage and use.
- */
-int32_t computeFinalValueForFineMenuItem(int32_t value);
-
 /** Scales 0-INT32_MAX range to 0-50 for display.
  */
 int32_t computeCurrentValueForHalfPrecisionMenuItem(int32_t value);

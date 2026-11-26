@@ -182,7 +182,6 @@ bool Voice::noteOn(ModelStackWithSoundFlags* modelStack, int32_t newNoteCodeBefo
 		sourceAmplitudesLastTime.fill(0);
 		modulatorAmplitudeLastTime.fill(0);
 		overallOscAmplitudeLastTime = 0;
-		driveGainLastTime = 0;
 		doneFirstRender = false;
 		filterSet.reset();
 
@@ -1536,16 +1535,6 @@ carriersDone: {}
 skipUnisonPart: {}
 	}
 
-	// Drive (LOCAL_DRIVE): 0 is off. The gain ramps across the block from last block's, or starts at its target when
-	// drive has just come on.
-	const int32_t driveGain = (paramFinalValues[params::LOCAL_DRIVE] > 0)
-	                              ? dsp::character_fx::driveInputGain(paramFinalValues[params::LOCAL_DRIVE])
-	                              : 0;
-	int32_t driveGainNow = (driveGainLastTime != 0) ? driveGainLastTime : driveGain;
-	const int32_t driveGainIncrement =
-	    (driveGain != 0) ? deluge::divideBySmall(driveGain - driveGainNow, numSamples) : 0;
-	driveGainLastTime = driveGain;
-
 	if (didStereoTempBuffer) {
 		int32_t* const oscBufferEnd = oscBuffer + (numSamples << 1);
 		// fold
@@ -1555,8 +1544,8 @@ skipUnisonPart: {}
 		// Filters
 		filterSet.renderLongStereo(oscBuffer, oscBufferEnd);
 
-		// No drive, no clipping
-		if (driveGain == 0 && !sound.saturation) {
+		// No clipping
+		if (!sound.saturation) {
 
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			StereoSample* __restrict__ outputSample = (StereoSample*)soundBuffer;
@@ -1584,24 +1573,9 @@ skipUnisonPart: {}
 			} while (oscBufferPos != oscBufferEnd);
 		}
 
-		// Drive and/or clipping. Scale by the amplitude in place, drive, saturate the whole block, then mix it in
+		// Yes clipping. Scale by the amplitude in place, saturate the whole block, then mix it in
 		else {
-			if (driveGain != 0) {
-				int32_t* __restrict__ sample = oscBuffer;
-				int32_t amplitude_now = overallOscAmplitudeLastTime;
-				do {
-					if (synthMode != SynthMode::FM) {
-						amplitude_now += overallOscillatorAmplitudeIncrement;
-						sample[0] = multiply_32x32_rshift32_rounded(sample[0], amplitude_now) << 1;
-						sample[1] = multiply_32x32_rshift32_rounded(sample[1], amplitude_now) << 1;
-					}
-					driveGainNow += driveGainIncrement;
-					sample[0] = dsp::character_fx::drive(sample[0], driveGainNow);
-					sample[1] = dsp::character_fx::drive(sample[1], driveGainNow);
-					sample += 2;
-				} while (sample != oscBufferEnd);
-			}
-			else if (synthMode != SynthMode::FM) {
+			if (synthMode != SynthMode::FM) {
 				int32_t* __restrict__ sample = oscBuffer;
 				int32_t amplitude_now = overallOscAmplitudeLastTime;
 				do {
@@ -1612,9 +1586,7 @@ skipUnisonPart: {}
 				} while (sample != oscBufferEnd);
 			}
 
-			if (sound.saturation) {
-				sound.saturateBlock<2>(oscBuffer, numSamples << 1, lastSaturationTanHWorkingValue.data());
-			}
+			sound.saturateBlock<2>(oscBuffer, numSamples << 1, lastSaturationTanHWorkingValue.data());
 
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			StereoSample* __restrict__ outputSample = (StereoSample*)soundBuffer;
@@ -1657,14 +1629,14 @@ skipUnisonPart: {}
 
 		filterSet.renderLong(oscBuffer, oscBufferEnd, numSamples);
 
-		// No drive, no clipping, mono, not FM: the common case, the amplitude ramp and a mix into the sound's buffer
-		if (driveGain == 0 && !sound.saturation && !soundRenderingInStereo && synthMode != SynthMode::FM) {
+		// No clipping, mono, not FM: the common case, the amplitude ramp and a mix into the sound's buffer
+		if (!sound.saturation && !soundRenderingInStereo && synthMode != SynthMode::FM) {
 			dsp::addMonoWithAmplitudeRamp(soundBuffer, oscBuffer, numSamples, overallOscAmplitudeLastTime,
 			                              overallOscillatorAmplitudeIncrement);
 		}
 
-		// No drive, no clipping
-		else if (driveGain == 0 && !sound.saturation) {
+		// No clipping
+		else if (!sound.saturation) {
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			int32_t* __restrict__ outputSample = soundBuffer;
 			int32_t overallOscAmplitudeNow = overallOscAmplitudeLastTime;
@@ -1693,21 +1665,9 @@ skipUnisonPart: {}
 			} while (++oscBufferPos != oscBufferEnd);
 		}
 
-		// Drive and/or clipping. Scale by the amplitude in place, drive, saturate the whole block, then mix it in
+		// Yes clipping. Scale by the amplitude in place, saturate the whole block, then mix it in
 		else {
-			if (driveGain != 0) {
-				int32_t* __restrict__ sample = oscBuffer;
-				int32_t amplitude_now = overallOscAmplitudeLastTime;
-				do {
-					if (synthMode != SynthMode::FM) {
-						amplitude_now += overallOscillatorAmplitudeIncrement;
-						*sample = multiply_32x32_rshift32_rounded(*sample, amplitude_now) << 1;
-					}
-					driveGainNow += driveGainIncrement;
-					*sample = dsp::character_fx::drive(*sample, driveGainNow);
-				} while (++sample != oscBufferEnd);
-			}
-			else if (synthMode != SynthMode::FM) {
+			if (synthMode != SynthMode::FM) {
 				int32_t* __restrict__ sample = oscBuffer;
 				int32_t amplitude_now = overallOscAmplitudeLastTime;
 				do {
@@ -1716,9 +1676,7 @@ skipUnisonPart: {}
 				} while (++sample != oscBufferEnd);
 			}
 
-			if (sound.saturation) {
-				sound.saturateBlock<1>(oscBuffer, numSamples, lastSaturationTanHWorkingValue.data());
-			}
+			sound.saturateBlock<1>(oscBuffer, numSamples, lastSaturationTanHWorkingValue.data());
 
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			int32_t* __restrict__ outputSample = soundBuffer;

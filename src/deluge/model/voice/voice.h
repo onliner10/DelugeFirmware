@@ -77,8 +77,6 @@ public:
 	std::array<uint32_t, 2> lastSaturationTanHWorkingValue;
 
 	int32_t overallOscAmplitudeLastTime;
-	/// LOCAL_DRIVE input gain used last render, 0 if drive was off
-	int32_t driveGainLastTime{0};
 	std::array<int32_t, kNumSources> sourceAmplitudesLastTime;
 	std::array<int32_t, kNumModulators> modulatorAmplitudeLastTime;
 	std::array<uint32_t, kNumSources> sourceWaveIndexesLastTime;

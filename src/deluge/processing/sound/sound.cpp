@@ -3341,6 +3341,23 @@ Error Sound::readFromFile(Deserializer& reader, ModelStackWithModControllable* m
 		lpfMode = FilterMode::OFF;
 	}
 
+	// Presets saved while drive was a separate per-voice param (a polynomial soft clipper): it is now the saturation's
+	// CRUNCH type, at about the same drive. Its old range, about +2dB to +18dB into the curve, is saturation steps 2 to
+	// 5. Only where the preset doesn't also have saturation. Songs keep drive in each clip's params, which aren't
+	// joined up with their sound here, so there it is dropped.
+	if (paramManager.containsAnyMainParamCollections()) {
+		PatchedParamSet* patchedParams = paramManager.getPatchedParamSet();
+		q31_t legacyDrive = patchedParams->getValue(params::LOCAL_DRIVE);
+		if (legacyDrive != std::numeric_limits<q31_t>::min()) {
+			if (saturation == 0) {
+				float p = ((float)legacyDrive + 2147483648.f) / 4294967296.f;
+				saturation = static_cast<uint16_t>(std::lround((2.f + 3.f * p) * deluge::dsp::kSaturationStep));
+				saturationType = deluge::dsp::SaturationType::CRUNCH;
+			}
+			patchedParams->params[params::LOCAL_DRIVE].setCurrentValueBasicForSetup(std::numeric_limits<q31_t>::min());
+		}
+	}
+
 	// If we actually got a paramManager, we can do resonance compensation on it
 	if (paramManager.containsAnyMainParamCollections()) {
 		if (song_firmware_version < FirmwareVersion::official({1, 2, 0})) {
@@ -4215,9 +4232,6 @@ void Sound::writeParamsToFile(Serializer& writer, ParamManager* paramManager, bo
 
 	patchedParams->writeParamAsAttribute(writer, "waveFold", params::LOCAL_FOLD, writeAutomation);
 	// Only when it is used (above its "off" minimum, or automated), so other sounds save exactly as before
-	if (patchedParams->params[params::LOCAL_DRIVE].containsSomething(-2147483648)) {
-		patchedParams->writeParamAsAttribute(writer, "drive", params::LOCAL_DRIVE, writeAutomation);
-	}
 
 	writer.writeOpeningTagEnd();
 

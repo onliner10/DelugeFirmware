@@ -547,25 +547,15 @@ Here is a list of general improvements that have been made, ordered from newest 
   - As before, they process the whole sound after its voices are mixed (or the kit, audio clip or song, where they are set there).
   - This feature is `OFF` by default and can be set to `ON` or `OFF` via `SETTINGS > COMMUNITY FEATURES > CHARACTER FX`.
 
-### 3.41 - Drive
+### 3.41 - Saturation: Drive and Type
 
-- A new `DRIVE` parameter for synths and kit rows, in `DISTORTION` right after `SATURATION`, and on the unlabelled pad just below the `WAVEFOLD` pad. <Badge text="c1.4" variant="tip" />
-  - Each voice is driven into a hard clip followed by a polynomial soft-clip curve. The drive sets how hard: the small-signal gain goes from about 1.2x just above 0 to 8x (+18 dB) at the maximum. It is not level-compensated, so more drive is louder, and it is not antialiased.
-  - It runs before `SATURATION`; both can be used together.
-  - It shows 0 to 127, in the menu and when turning a gold knob, instead of the usual 0 to 50; the knob itself works as before.
-  - `0` is off. It can be assigned to a gold knob or a MIDI CC, patched, automated and note-locked like other synth parameters, and is saved in presets and songs (as `drive`, only when it is used).
-  - Old presets and songs load with drive off.
-
-### 3.42 - Smooth Saturation
-
-- `SATURATION` now goes from 0 to 127 in fine steps instead of 0 to 15. <Badge text="c1.4" variant="tip" />
-  - It is the same antialiased tanh saturation over the same range: 127 is the old 15, and every value in between moves the drive smoothly instead of in 6 dB jumps.
+- Saturation is set with two controls in `DISTORTION`, for synths, kit rows and audio clips: `TYPE`, the shape of the curve, and `DRIVE`, how hard it is driven. <Badge text="c1.4" variant="tip" />
+- `DRIVE` (the old `SATURATION` amount) goes from 0 to 127 in fine steps instead of 0 to 15.
+  - It is the same antialiased saturation over the same range: 127 is the old 15, and every value in between moves smoothly instead of in 6 dB jumps. `0` is off.
   - Old presets and songs load at exactly their old amount and sound the same, bit for bit. The menu shows the nearest value, for example the old 3 as 25.
   - It is saved as `saturation`, with `clippingAmount` alongside it rounded to the old 0 to 15 steps, so older firmware still loads something close.
-
-### 3.43 - Saturation Types
-
-- `SATURATION` has a shaping curve to choose, `TYPE`, next to its amount in `DISTORTION`, for synths, kit rows and audio clips. <Badge text="c1.4" variant="tip" />
+  - The `SATURATION` pad shortcut opens it.
+- `TYPE` picks the curve. The slot shows the curve itself, with no label; the screen title names it while the slot is selected. The unlabelled pad just below the `WAVEFOLD` pad opens it.
   - `CLASSIC` is the original tanh saturation and the default; old presets and songs load with it and sound the same, bit for bit.
   - `SOFT`: a sine up to its peak, rounding off early and gently.
   - `KNEE`: clean up to 70% of full scale, then a short rounded knee into a clip.
@@ -575,10 +565,10 @@ Here is a list of general improvements that have been made, ordered from newest 
   - `BASS`: reaches full scale very slowly, so even heavy drive stays smooth on low notes.
   - `FOLD`: a sine all the way, so a hot signal folds back down instead of flattening.
   - `CRUNCH`: a long, uneven knee with plenty of upper harmonics.
-  - Every type has the same gain for quiet signals and the same ceiling, so switching type changes the character, not the level. The `SATURATION` amount drives every type the same way.
+  - Every type has the same gain for quiet signals and the same ceiling, so switching type changes the character, not the level, and `DRIVE` drives every type the same way.
   - Every type is antialiased like the original, and costs the same CPU.
-  - The slot shows the selected curve itself; the screen title names it while the slot is selected.
   - It is saved as `saturationType`, only when it is not `CLASSIC`.
+- Presets saved by test builds that had a separate per-voice `DRIVE` param load with that drive as the `CRUNCH` type at a similar amount. Songs from those builds lose it.
 
 ## 4. New Features Added
 

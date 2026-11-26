@@ -253,7 +253,6 @@ const std::array<std::pair<params::Kind, ParamType>, kNumNonGlobalParamsForAutom
     // Mono Expression: Z - Channel Pressure
     {params::Kind::EXPRESSION, Expression::Z_PRESSURE},
     // Drive (last, so the positions of the params above, which songs save, don't move)
-    {params::Kind::PATCHED, params::LOCAL_DRIVE},
 }};
 
 // global FX - sorted in the order that Parameters are scrolled through on the display
