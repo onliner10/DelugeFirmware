@@ -1739,6 +1739,8 @@ int32_t ModControllableAudio::getSamplesUntilFXTailsEnd(ModFXType modFXType) con
 	case ModFXType::CHORUS:
 		[[fallthrough]];
 	case ModFXType::CHORUS_STEREO:
+		[[fallthrough]];
+	case ModFXType::TRI_CHORUS:
 		modFXSamples = 20 * 44;
 		break;
 	case ModFXType::GRAIN:

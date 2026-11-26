@@ -834,6 +834,16 @@ Here is a list of features that have been added to the firmware as a list, group
 - Changing the delay time glides the echoes smoothly to the new time over about 0.17 s.
 - With ping-pong on, the input is mixed to mono and the first repeat comes from the right.
 
+### 4.2.12 - Tri Chorus
+
+- New `TRI CHORUS` (`TRIC`) Mod FX type: a light single-tap chorus per channel with a triangle LFO and no feedback.
+  The delayed (wet) signal is added to the dry signal.
+  - **`MOD RATE`:** LFO rate, 0.28 Hz at 0 up to 3.1 Hz at 50 (linear in the knob).
+  - **`MOD DEPTH`:** Sweep depth. The delay sits at 5.4 ms at 0 and sweeps up to 7.65 ms at 50.
+  - **`MOD FEEDBACK - HPF`:** High-pass on the wet signal only, 40 Hz at 0 up to 1 kHz at 50 (quadratic in the knob).
+  - **`MOD OFFSET - WIDTH (WDTH)`:** Phase offset between the left and right LFOs, 0 (mono sweep) up to 180 degrees.
+  - The wet signal also passes a fixed gentle low-pass (one pole at about 5.8 kHz).
+
 ## 4.3 - Instrument Clip View - General Features
 
 These features were added to the Instrument Clip View and affect Synth, Kit and MIDI instrument clip types.

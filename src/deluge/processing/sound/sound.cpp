@@ -336,7 +336,7 @@ ModFXType Sound::getModFXType() {
 bool Sound::setModFXType(ModFXType newType) {
 
 	if (util::one_of(newType, {ModFXType::FLANGER, ModFXType::CHORUS, ModFXType::CHORUS_STEREO, ModFXType::WARBLE,
-	                           ModFXType::DIMENSION})) {
+	                           ModFXType::DIMENSION, ModFXType::TRI_CHORUS})) {
 		modfx.setupBuffer();
 		disableGrain();
 	}

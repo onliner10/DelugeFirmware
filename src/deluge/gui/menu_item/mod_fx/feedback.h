@@ -26,8 +26,8 @@ public:
 	using UnpatchedParam::UnpatchedParam;
 
 	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const {
-		return (util::one_of(modControllable->getModFXType(),
-		                     {ModFXType::FLANGER, ModFXType::PHASER, ModFXType::GRAIN, ModFXType::WARBLE}));
+		return (util::one_of(modControllable->getModFXType(), {ModFXType::FLANGER, ModFXType::PHASER, ModFXType::GRAIN,
+		                                                       ModFXType::WARBLE, ModFXType::TRI_CHORUS}));
 	}
 	[[nodiscard]] std::string_view getName() const override {
 		return modfx::getParamName(soundEditor.currentModControllable->getModFXType(), ModFXParam::FEEDBACK);
