@@ -306,9 +306,16 @@ void InstrumentClipMinder::setLedStates() {
 	InstrumentClip* clip = getCurrentInstrumentClip();
 
 	bool inAutomationView = ((getCurrentUI() == &automationView) && !automationView.inNoteEditor());
-	if (!inAutomationView) {
+	if (clip->hasPlayWindow()) {
+		// Loop view (Shift + cross screen) is on
+		indicator_leds::blinkLed(IndicatorLED::CROSS_SCREEN_EDIT);
+	}
+	else if (!inAutomationView) {
 		// only light cross screen led up if you're in the automation view note editor or outside automation view
 		indicator_leds::setLedState(IndicatorLED::CROSS_SCREEN_EDIT, clip->wrapEditing);
+	}
+	else {
+		indicator_leds::setLedState(IndicatorLED::CROSS_SCREEN_EDIT, false);
 	}
 
 	indicator_leds::setLedState(IndicatorLED::SCALE_MODE, clip->isScaleModeClip());

@@ -62,6 +62,14 @@ public:
 	virtual void resumePlayback(ModelStackWithTimelineCounter* modelStack, bool mayMakeSound = true) = 0;
 	virtual void reGetParameterAutomation(ModelStackWithTimelineCounter* modelStack);
 	virtual void processCurrentPos(ModelStackWithTimelineCounter* modelStack, uint32_t ticksSinceLast);
+
+	// Temporary loop over part of the Clip ("loop view"). Playback only: not saved, no undo, loopLength untouched.
+	[[nodiscard]] bool hasPlayWindow() const { return playWindowEnd > 0; }
+	void setPlayWindow(ModelStackWithTimelineCounter* modelStack, int32_t start, int32_t end);
+	void clearPlayWindow(ModelStackWithTimelineCounter* modelStack);
+	// If a play window is looping right now, gets its bounds (end clamped to the Clip length). For note recording.
+	bool getLoopingPlayWindow(int32_t* start, int32_t* end);
+
 	void prepareForDestruction(ModelStackWithTimelineCounter* modelStack,
 	                           InstrumentRemoval instrumentRemovalInstruction);
 	uint32_t getActualCurrentPosAsIfPlayingInForwardDirection();
@@ -199,6 +207,13 @@ public:
 	int64_t fillEventAtTickCount;
 	bool overdubsShouldCloneOutput;
 
+	// Play window ("loop view"): while playWindowEnd > 0, session playback loops [playWindowStart, playWindowEnd).
+	int32_t playWindowStart = 0;
+	int32_t playWindowEnd = 0;
+	// Where the Clip would be without the window, so it can rejoin the song in sync and launches stay quantized.
+	int32_t unloopedPos = 0;
+	int32_t unloopedRepeatCount = 0;
+
 	// START ~ new Automation Clip View Variables
 	bool onAutomationClipView; // new to save the view that you are currently in
 	                           //(e.g. if you leave clip and want to come back where you left off)
@@ -228,4 +243,12 @@ protected:
 	Error solicitParamManager(Song* song, ParamManager* newParamManager = nullptr,
 	                          Clip* favourClipForCloningParamManager = nullptr);
 	virtual void pingpongOccurred(ModelStackWithTimelineCounter* modelStack) {}
+	// Silences whatever is sounding before the play position jumps (window wrap, entering or leaving the window).
+	virtual void stopNotesForPlayWindowJump(ModelStackWithTimelineCounter* modelStack) {}
+
+private:
+	[[nodiscard]] bool playWindowAppliesNow();
+	void jumpPlayPos(ModelStackWithTimelineCounter* modelStack, int32_t newPos, int32_t newRepeatCount,
+	                 bool resumeNotes);
+	bool jumpingInsidePlayWindow = false;
 };

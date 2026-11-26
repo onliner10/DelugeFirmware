@@ -4370,6 +4370,7 @@ void InstrumentClip::recordNoteOn(ModelStackWithNoteRow* modelStack, int32_t vel
 
 	// Rounded position in sequencer ticks of the note-on event.
 	int32_t quantizedPos = 0;
+	bool quantizedToLoopStart = false; // Loop view: quantized past the loop end, so it begins on the next pass
 
 	bool reversed = modelStack->isCurrentlyPlayingReversed();
 	int32_t effectiveLength = modelStack->getLoopLength();
@@ -4404,12 +4405,21 @@ void InstrumentClip::recordNoteOn(ModelStackWithNoteRow* modelStack, int32_t vel
 			}
 			quantizedLater = (amountLaterThanMiddle >= 0);
 
+			int32_t windowStart, windowEnd;
+
 			// If quantizing to the right...
 			if (quantizedLater != reversed) {
 				quantizedPos += static_cast<int32_t>(quantizeInterval);
 
+				// Loop view: quantized onto the end of the loop means the loop's start, like at the Clip's end
+				if (!noteRow->hasIndependentPlayPos() && getLoopingPlayWindow(&windowStart, &windowEnd)
+				    && quantizedPos >= windowEnd) {
+					quantizedPos = windowStart;
+					quantizedToLoopStart = true;
+				}
+
 				// If that's quantized it right to the end of the loop-length or maybe beyond...
-				if (quantizedPos >= effectiveLength) {
+				else if (quantizedPos >= effectiveLength) {
 
 					// If recording to arrangement, go and extend the Clip/NoteRow early, to create the place where
 					// we'll put the Note.
@@ -4518,6 +4528,8 @@ doNormal: // Wrap it back to the start.
 		// Don't supply Action, cos we've done our own thing, above
 		distanceToNextNote =
 		    noteRow->attemptNoteAdd(quantizedPos, 1, velocity, probability, iterance, fill, modelStack, nullptr);
+		noteRow->loopRecordNotePos_ = quantizedPos;
+		noteRow->loopRecordNoteStartRepeat_ = repeatCount + (quantizedToLoopStart ? 1 : 0);
 	}
 
 	// If that didn't work, get out - but not in the special case for linear recording, discussed below.

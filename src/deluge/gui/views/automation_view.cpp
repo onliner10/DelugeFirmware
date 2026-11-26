@@ -1223,8 +1223,17 @@ ActionResult AutomationView::buttonAction(hid::Button b, bool on, bool inCardRou
 	// Or Cross Screen Note Editing in Note Editor
 	// Does not currently work for Automation
 	else if (b == CROSS_SCREEN_EDIT) {
+		// Shift + cross screen: loop view, same as in the instrument clip view
+		if (!onArrangerView && Buttons::crossScreenPressedWithShift && getCurrentClip()->type == ClipType::INSTRUMENT) {
+			if (!on && currentUIMode == UI_MODE_NONE && Buttons::considerCrossScreenReleaseForCrossScreenMode) {
+				if (inCardRoutine) {
+					return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+				}
+				instrumentClipView.togglePlayWindow();
+			}
+		}
 		// toggle auto scroll or cross screen editing
-		if (onArrangerView || inNoteEditor()) {
+		else if (onArrangerView || inNoteEditor()) {
 			handleCrossScreenButtonAction(on);
 		}
 		// don't toggle for automation editing

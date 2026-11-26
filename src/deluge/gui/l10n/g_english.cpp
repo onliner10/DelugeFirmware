@@ -1055,6 +1055,10 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_ENV_FOLLOW_Z_SHORT, "Z"},
         {STRING_FOR_ENV_FOLLOW_Y, "Mod wheel (Y)"},
         {STRING_FOR_ENV_FOLLOW_Y_SHORT, "Y"},
+        {STRING_FOR_LOOP_VIEW_ON, "Loop view"},
+        {STRING_FOR_LOOP_VIEW_OFF, "Loop view off"},
+        {STRING_FOR_LOOP_VIEW_FORWARD_ONLY, "Loop view needs forward play"},
+        {STRING_FOR_LOOP_VIEW_SESSION_ONLY, "Loop view: session only"},
     },
 };
 } // namespace deluge::l10n::built_in

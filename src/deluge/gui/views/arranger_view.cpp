@@ -542,6 +542,7 @@ void ArrangerView::setLedStates() {
 }
 
 void ArrangerView::focusRegained() {
+	currentSong->clearPlayWindows(); // Loop view only lives inside a Clip
 	view.focusRegained();
 
 	repopulateOutputsOnScreen(false);

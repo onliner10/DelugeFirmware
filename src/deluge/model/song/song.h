@@ -346,6 +346,7 @@ public:
 	void sortOutWhichClipsAreActiveWithoutSendingPGMs(ModelStack* modelStack, int32_t playbackWillStartInArrangerAtPos);
 	void deactivateAnyArrangementOnlyClips();
 	Clip* getLongestClip(bool includePlayDisabled, bool includeArrangementOnly);
+	void clearPlayWindows(); // Ends every Clip's loop view, putting them back in sync with the song
 	Clip* getLongestActiveClipWithMultipleOrFactorLength(int32_t targetLength, bool revertToAnyActiveClipIfNone = true,
 	                                                     Clip* excludeClip = nullptr);
 	int32_t getOutputIndex(Output* output);

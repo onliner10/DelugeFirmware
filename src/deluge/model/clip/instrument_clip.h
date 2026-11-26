@@ -260,6 +260,9 @@ protected:
 	bool wantsToBeginLinearRecording(Song* song) override;
 	bool cloneOutput(ModelStackWithTimelineCounter* modelStack) override;
 	void pingpongOccurred(ModelStackWithTimelineCounter* modelStack) override;
+	void stopNotesForPlayWindowJump(ModelStackWithTimelineCounter* modelStack) override {
+		stopAllNotesPlaying(modelStack);
+	}
 
 private:
 	InstrumentClip* instrumentWasLoadedByReferenceFromClip{};

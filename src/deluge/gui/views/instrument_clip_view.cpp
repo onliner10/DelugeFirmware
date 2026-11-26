@@ -179,6 +179,53 @@ void InstrumentClipView::setLedStates() {
 	InstrumentClipMinder::setLedStates();
 }
 
+// The part of the Clip on screen, as a play window
+static void getOnScreenWindow(InstrumentClipView const& view, int32_t* start, int32_t* end) {
+	*start = view.getPosFromSquare(0);
+	*end = view.getPosFromSquare(kDisplayWidth);
+}
+
+void InstrumentClipView::togglePlayWindow() {
+	char modelStackMemory[MODEL_STACK_MAX_SIZE];
+	ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+	Clip* clip = getCurrentClip();
+
+	if (clip->hasPlayWindow()) {
+		clip->clearPlayWindow(modelStack);
+		display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_LOOP_VIEW_OFF));
+	}
+	else if (clip->isArrangementOnlyClip()
+	         || (playbackHandler.isEitherClockActive() && currentPlaybackMode == &arrangement)) {
+		display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_LOOP_VIEW_SESSION_ONLY));
+	}
+	else if (clip->sequenceDirectionMode != SequenceDirection::FORWARD) {
+		display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_LOOP_VIEW_FORWARD_ONLY));
+	}
+	else {
+		int32_t start, end;
+		getOnScreenWindow(*this, &start, &end);
+		clip->setPlayWindow(modelStack, start, end);
+		display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_LOOP_VIEW_ON));
+	}
+
+	InstrumentClipMinder::setLedStates();
+}
+
+// Called every frame: a looping Clip follows scroll and zoom, so the loop is always what's on screen
+void InstrumentClipView::syncPlayWindowToView(ModelStackWithTimelineCounter* modelStack) {
+	Clip* clip = (Clip*)modelStack->getTimelineCounter();
+	if (sdRoutineLock || !clip || !clip->hasPlayWindow() || isUIModeActive(UI_MODE_HORIZONTAL_SCROLL)
+	    || isUIModeActive(UI_MODE_HORIZONTAL_ZOOM)) {
+		return; // Wait for scroll / zoom animations to land
+	}
+	int32_t start, end;
+	getOnScreenWindow(*this, &start, &end);
+	if (start >= clip->loopLength) {
+		return; // Scrolled past the end: keep looping what was there
+	}
+	clip->setPlayWindow(modelStack, start, end);
+}
+
 ActionResult InstrumentClipView::commandLearnUserScale() {
 	InstrumentClip* clip = getCurrentInstrumentClip();
 	if (!clip->inScaleMode) {
@@ -338,7 +385,10 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 					return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 				}
 
-				if (getCurrentInstrumentClip()->wrapEditing) {
+				if (Buttons::crossScreenPressedWithShift) {
+					togglePlayWindow();
+				}
+				else if (getCurrentInstrumentClip()->wrapEditing) {
 					getCurrentInstrumentClip()->wrapEditing = false;
 				}
 				else {
@@ -7666,6 +7716,8 @@ void InstrumentClipView::graphicsRoutine() {
 	if (isUIModeActive(UI_MODE_INSTRUMENT_CLIP_COLLAPSING) || isUIModeActive(UI_MODE_IMPLODE_ANIMATION)) {
 		return;
 	}
+
+	syncPlayWindowToView(modelStack);
 
 	if (PadLEDs::flashCursor == FLASH_CURSOR_OFF) {
 		return;
