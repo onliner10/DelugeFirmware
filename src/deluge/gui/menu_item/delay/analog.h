@@ -27,10 +27,12 @@ namespace deluge::gui::menu_item::delay {
 class Analog final : public Selection {
 public:
 	using Selection::Selection;
-	void readCurrentValue() override { this->setValue(soundEditor.currentModControllable->delay.analog); }
+	void readCurrentValue() override {
+		this->setValue(static_cast<int32_t>(soundEditor.currentModControllable->delay.type));
+	}
 	bool usesAffectEntire() override { return true; }
 	void writeCurrentValue() override {
-		int32_t current_value = this->getValue();
+		auto current_value = static_cast<Delay::Type>(this->getValue());
 
 		// If affect-entire button held, do whole kit
 		if (currentUIMode == UI_MODE_HOLDING_AFFECT_ENTIRE_IN_SOUND_EDITOR && soundEditor.editingKitRow()) {
@@ -40,19 +42,21 @@ public:
 			for (Drum* thisDrum = kit->firstDrum; thisDrum != nullptr; thisDrum = thisDrum->next) {
 				if (thisDrum->type == DrumType::SOUND) {
 					auto* soundDrum = static_cast<SoundDrum*>(thisDrum);
-					soundDrum->delay.analog = current_value;
+					soundDrum->delay.type = current_value;
 				}
 			}
 		}
 		// Or, the normal case of just one sound
 		else {
-			soundEditor.currentModControllable->delay.analog = current_value;
+			soundEditor.currentModControllable->delay.type = current_value;
 		}
 	}
 	deluge::vector<std::string_view> getOptions(OptType optType) override {
 		using enum l10n::String;
+		// Same order as Delay::Type
 		return {l10n::getView(STRING_FOR_DIGITAL),
-		        l10n::getView(optType == OptType::SHORT ? STRING_FOR_ANALOG_SHORT : STRING_FOR_ANALOG)};
+		        l10n::getView(optType == OptType::SHORT ? STRING_FOR_ANALOG_SHORT : STRING_FOR_ANALOG),
+		        l10n::getView(STRING_FOR_WARM)};
 	}
 };
 

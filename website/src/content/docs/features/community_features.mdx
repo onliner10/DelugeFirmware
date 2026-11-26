@@ -824,6 +824,16 @@ Here is a list of features that have been added to the firmware as a list, group
 
 - (#3213) <Badge text="c1.3" variant="tip" /> A new option, 'Launch Exclusively', isolates a clip section from all other launch activity. This option is found to the left of option 'Launch non-exclusively' when selecting the section's number of repetitions. As a complement to non-exclusive sections that arm and turn off when another section is launched, exclusive sections remain independant and continue playing.
 
+### 4.2.11 - Warm Delay Type
+
+- A third delay type, `WARM`, is available in `FX > DELAY > TYPE` after Digital and Analog (pressing the delay
+  encoder cycles through all three). Each repeat passes a soft saturator and a gentle filter (a low-pass at 10 kHz
+  and a high-pass at 15 Hz), so the repeats darken a little each time and loud ones compress.
+- Rate, sync, ping-pong and amount work as for the other types. Amount 25 sustains the repeats; above that they grow
+  until the saturator holds them at a steady level instead of running away.
+- Changing the delay time glides the echoes smoothly to the new time over about 0.17 s.
+- With ping-pong on, the input is mixed to mono and the first repeat comes from the right.
+
 ## 4.3 - Instrument Clip View - General Features
 
 These features were added to the Instrument Clip View and affect Synth, Kit and MIDI instrument clip types.

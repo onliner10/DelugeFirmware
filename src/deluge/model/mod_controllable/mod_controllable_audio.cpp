@@ -611,7 +611,7 @@ void ModControllableAudio::writeTagsToFile(Serializer& writer) {
 	// Delay
 	writer.writeOpeningTagBeginning("delay");
 	writer.writeAttribute("pingPong", delay.pingPong);
-	writer.writeAttribute("analog", delay.analog);
+	writer.writeAttribute("analog", static_cast<int32_t>(delay.type));
 	writer.writeAbsoluteSyncLevelToFile(currentSong, "syncLevel", delay.syncLevel, true);
 	// Community Firmware parameters (always write them after the official ones, just before closing the parent tag)
 	writer.writeSyncTypeToFile(currentSong, "syncType", delay.syncType, true);
@@ -1014,7 +1014,7 @@ doReadPatchedParam:
 			}
 			else if (!strcmp(tagName, "analog")) {
 				int32_t contents = reader.readTagOrAttributeValueInt();
-				delay.analog = static_cast<bool>(std::clamp(contents, 0_i32, 1_i32));
+				delay.type = static_cast<Delay::Type>(std::clamp(contents, 0_i32, Delay::kNumTypes - 1));
 				reader.exitTag("analog");
 			}
 			else if (!strcmp(tagName, "syncType")) {
@@ -1566,16 +1566,18 @@ void ModControllableAudio::switchDelayPingPong() {
 }
 
 void ModControllableAudio::switchDelayAnalog() {
-	delay.analog = !delay.analog;
+	delay.type = static_cast<Delay::Type>((static_cast<int32_t>(delay.type) + 1) % Delay::kNumTypes);
 }
 
 char const* ModControllableAudio::getDelayTypeDisplayName() {
-	switch (delay.analog) {
+	switch (delay.type) {
 		using enum deluge::l10n::String;
-	case 0:
-		return l10n::get(STRING_FOR_DIGITAL_DELAY);
-	default:
+	case Delay::Type::ANALOG:
 		return l10n::get(STRING_FOR_ANALOG_DELAY);
+	case Delay::Type::WARM:
+		return l10n::get(STRING_FOR_WARM_DELAY);
+	default:
+		return l10n::get(STRING_FOR_DIGITAL_DELAY);
 	}
 }
 

@@ -21,6 +21,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <stdint.h>
 
 template <typename T, size_t size, size_t alignment = 16>
 class AlignedBuf {
