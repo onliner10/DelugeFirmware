@@ -615,6 +615,10 @@ PLACE_SDRAM_DATA Language seven_segment{
         {STRING_FOR_ENV_FOLLOW_Z, "Z"},
         {STRING_FOR_ENV_FOLLOW_Y, "Y"},
         {STRING_FOR_LOOP_CROSSFADE, "XFAD"},
+        {STRING_FOR_LOOP_VIEW_ON, "LOOP"},
+        {STRING_FOR_LOOP_VIEW_OFF, "OFF"},
+        {STRING_FOR_LOOP_VIEW_FORWARD_ONLY, "FWD"},
+        {STRING_FOR_LOOP_VIEW_SESSION_ONLY, "SESS"},
     },
     &built_in::english,
 };

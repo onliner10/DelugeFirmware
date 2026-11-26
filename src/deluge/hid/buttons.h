@@ -46,5 +46,6 @@ bool shiftHasChanged();
 
 extern bool recordButtonPressUsedUp;
 extern bool considerCrossScreenReleaseForCrossScreenMode;
+extern bool crossScreenPressedWithShift;
 extern bool selectButtonPressUsedUp;
 } // namespace Buttons

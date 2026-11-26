@@ -31,6 +31,7 @@
 #include "model/output.h"
 #include "model/song/song.h"
 #include "playback/mode/playback_mode.h"
+#include "playback/mode/session.h"
 #include "playback/playback_handler.h"
 #include "processing/sound/sound_instrument.h"
 #include "storage/storage_manager.h"
@@ -39,6 +40,16 @@
 namespace params = deluge::modulation::params;
 
 uint32_t loopRecordingCandidateRecentnessNextValue = 1;
+
+// Moves pos into [start, end), keeping its offset within the window length (so the beat stays the same)
+static int32_t foldIntoWindow(int32_t pos, int32_t start, int32_t end) {
+	int32_t length = end - start;
+	int32_t offset = (pos - start) % length;
+	if (offset < 0) {
+		offset += length;
+	}
+	return start + offset;
+}
 
 Clip::Clip(ClipType newType) : type(newType) {
 	soloingInSessionMode = false;
@@ -165,6 +176,11 @@ uint32_t Clip::getLivePos() const {
 }
 
 uint32_t Clip::getActualCurrentPosAsIfPlayingInForwardDirection() {
+	// Others sync and quantize launches to this: report where we'd be without the play window
+	if (playWindowAppliesNow()) {
+		return unloopedPos + playbackHandler.getNumSwungTicksInSinceLastActionedSwungTick();
+	}
+
 	int32_t actualPos = lastProcessedPos;
 
 	int32_t numSwungTicksInSinceLastActioned = playbackHandler.getNumSwungTicksInSinceLastActionedSwungTick();
@@ -179,6 +195,10 @@ uint32_t Clip::getActualCurrentPosAsIfPlayingInForwardDirection() {
 }
 
 int32_t Clip::getCurrentPosAsIfPlayingInForwardDirection() {
+	if (playWindowAppliesNow()) {
+		return unloopedPos;
+	}
+
 	int32_t posToReturn = lastProcessedPos;
 
 	if (currentlyPlayingReversed) {
@@ -212,6 +232,19 @@ bool Clip::isActiveOnOutput() {
 // Note: it's now the caller's job to increment currentPos before calling this! But we check here whether it's looped
 // and needs setting back to "0". We may change the TimelineCounter in the modelStack if new Clip got created.
 void Clip::processCurrentPos(ModelStackWithTimelineCounter* modelStack, uint32_t ticksSinceLast) {
+
+	// Play window ("loop view"): wrap back to the window start at its end, or move in if we're outside it (e.g.
+	// playback just started at 0). Done before anything else so posReachedEnd() never sees the real end.
+	bool windowActive = playWindowAppliesNow();
+	if (windowActive) {
+		int32_t windowEnd = std::min(playWindowEnd, loopLength);
+		if (playWindowStart < windowEnd && (lastProcessedPos < playWindowStart || lastProcessedPos >= windowEnd)) {
+			bool wrapped = lastProcessedPos >= windowEnd;
+			jumpPlayPos(modelStack, foldIntoWindow(lastProcessedPos, playWindowStart, windowEnd),
+			            repeatCount + (wrapped ? 1 : 0), false);
+			ticksSinceLast = 0; // Param automation has just been repositioned
+		}
+	}
 
 	// Firstly, a bit of stuff that has to be dealt with ideally before calling posReachedEnd(), and definitely before
 	// we think about pingponging while in reverse. The consequence of not doing this is only apparent in one special
@@ -316,6 +349,14 @@ playingForwardNow:
 		}
 	}
 
+	// ...or at the end of the play window
+	if (windowActive && !currentlyPlayingReversed) {
+		int32_t ticksTilWindowEnd = std::min(playWindowEnd, loopLength) - lastProcessedPos;
+		if (ticksTilWindowEnd > 0 && ticksTilWindowEnd < ticksTilEnd) {
+			ticksTilEnd = ticksTilWindowEnd;
+		}
+	}
+
 	// At least make sure we come back at the end of this Clip
 	if (ticksTilEnd < playbackHandler.swungTicksTilNextEvent) {
 		playbackHandler.swungTicksTilNextEvent = ticksTilEnd;
@@ -383,6 +424,13 @@ void Clip::setPos(ModelStackWithTimelineCounter* modelStack, int32_t newPos, boo
 	}
 
 	lastProcessedPos = newPos;
+
+	// Repositioned from outside (playback start, resync...): that's now where the Clip "really" is. The window wraps
+	// it back inside on the next processCurrentPos().
+	if (hasPlayWindow() && !jumpingInsidePlayWindow) {
+		unloopedPos = currentlyPlayingReversed ? (newPos ? loopLength - newPos : 0) : newPos;
+		unloopedRepeatCount = repeatCount;
+	}
 
 	expectEvent(); // Remember, this is a virtual function call - extended in InstrumentClip
 }
@@ -1171,11 +1219,93 @@ bool Clip::possiblyCloneForArrangementRecording(ModelStackWithTimelineCounter* m
 }
 
 void Clip::incrementPos(ModelStackWithTimelineCounter* modelStack, int32_t numTicks) {
+	// Keep counting where the Clip would be without its play window (windows only apply when playing forward)
+	if (hasPlayWindow() && !currentlyPlayingReversed && loopLength > 0) {
+		unloopedPos += numTicks;
+		while (unloopedPos >= loopLength) {
+			unloopedPos -= loopLength;
+			unloopedRepeatCount++;
+		}
+	}
+
 	if (currentlyPlayingReversed) {
 		numTicks = -numTicks;
 	}
 	lastProcessedPos += numTicks;
 }
+
+bool Clip::playWindowAppliesNow() {
+	return hasPlayWindow() && currentPlaybackMode == &session && sequenceDirectionMode == SequenceDirection::FORWARD
+	       && !currentlyPlayingReversed && playbackHandler.recording != RecordingMode::ARRANGEMENT
+	       && !isArrangementOnlyClip() && !getCurrentlyRecordingLinearly();
+}
+
+// Moves the play position without the window-shadow bookkeeping in setPos() seeing it as an outside reposition.
+void Clip::jumpPlayPos(ModelStackWithTimelineCounter* modelStack, int32_t newPos, int32_t newRepeatCount,
+                       bool resumeNotes) {
+	stopNotesForPlayWindowJump(modelStack);
+	jumpingInsidePlayWindow = true;
+	setPos(modelStack, newPos, resumeNotes);
+	jumpingInsidePlayWindow = false;
+	repeatCount = newRepeatCount;
+	if (resumeNotes) {
+		resumePlayback(modelStack);
+	}
+}
+
+bool Clip::getLoopingPlayWindow(int32_t* start, int32_t* end) {
+	if (!playWindowAppliesNow()) {
+		return false;
+	}
+	*start = playWindowStart;
+	*end = std::min(playWindowEnd, loopLength);
+	return *start < *end;
+}
+
+void Clip::setPlayWindow(ModelStackWithTimelineCounter* modelStack, int32_t start, int32_t end) {
+	start = std::max<int32_t>(start, 0);
+	end = std::min(end, loopLength);
+	if (end <= start) {
+		clearPlayWindow(modelStack);
+		return;
+	}
+	if (start == playWindowStart && end == playWindowEnd) {
+		return;
+	}
+
+	if (!hasPlayWindow()) {
+		unloopedPos = getCurrentPosAsIfPlayingInForwardDirection();
+		unloopedRepeatCount = repeatCount;
+	}
+	playWindowStart = start;
+	playWindowEnd = end;
+
+	if (playbackHandler.isEitherClockActive() && modelStack->song->isClipActive(this) && playWindowAppliesNow()) {
+		if (lastProcessedPos < start || lastProcessedPos >= end) {
+			// Keep the position within the bar/beat, just move it into the window
+			jumpPlayPos(modelStack, foldIntoWindow(lastProcessedPos, start, end), repeatCount, true);
+		}
+		else {
+			expectEvent(); // So we get called back at the new window end
+		}
+	}
+}
+
+void Clip::clearPlayWindow(ModelStackWithTimelineCounter* modelStack) {
+	if (!hasPlayWindow()) {
+		return;
+	}
+	bool wasApplying = playWindowAppliesNow();
+	playWindowStart = 0;
+	playWindowEnd = 0;
+
+	// Rejoin the song where the Clip would have been had it never looped
+	if (wasApplying && playbackHandler.isEitherClockActive() && modelStack->song->isClipActive(this)) {
+		int32_t pos = (loopLength > 0) ? (unloopedPos % loopLength) : 0;
+		jumpPlayPos(modelStack, pos, unloopedRepeatCount, true);
+	}
+}
+
 void Clip::setupOverdubInPlace(OverDubType type) {
 	originalLength = loopLength;
 	armState = ArmState::ON_TO_RECORD;

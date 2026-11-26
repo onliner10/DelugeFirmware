@@ -178,6 +178,9 @@ public:
 	/// This is always stored in "forward time", so even when playback is reversed this can only be meaningfully be
 	/// compared with the time since this NoteRow started (i.e., time from the end during reversed playback).
 	uint32_t ignoreNoteOnsBefore_;
+	// Loop view: pos of the note being recorded, so its note-off finds it even after the loop wrapped. -1 if none.
+	int32_t loopRecordNotePos_ = -1;
+	int32_t loopRecordNoteStartRepeat_ = 0; // Clip repeatCount when that note begins (later if quantized past the wrap)
 
 	int32_t getDefaultProbability();
 	Iterance getDefaultIterance();

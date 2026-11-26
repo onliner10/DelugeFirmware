@@ -163,6 +163,7 @@ bool SessionView::opened() {
 }
 
 void SessionView::focusRegained() {
+	currentSong->clearPlayWindows(); // Loop view only lives inside a Clip
 	viewingRecordArmingActive = false;
 	horizontalEncoderPressed = false;
 	selectLayout(0); // Make sure we get a valid layout from the loaded file

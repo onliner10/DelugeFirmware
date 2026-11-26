@@ -1088,6 +1088,10 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_LOOP_CROSSFADE, "Loop xfade"},
         {STRING_FOR_LOOP_CROSSFADE_SHORT, "XFADE"},
         {STRING_FOR_SAMP_LOOP_XFADE_MENU_TITLE, "Samp* loop xfade"},
+        {STRING_FOR_LOOP_VIEW_ON, "Loop view"},
+        {STRING_FOR_LOOP_VIEW_OFF, "Loop view off"},
+        {STRING_FOR_LOOP_VIEW_FORWARD_ONLY, "Loop view needs forward play"},
+        {STRING_FOR_LOOP_VIEW_SESSION_ONLY, "Loop view: session only"},
     },
 };
 } // namespace deluge::l10n::built_in

@@ -1081,6 +1081,50 @@ void NoteRow::recordNoteOff(uint32_t noteOffPos, ModelStackWithNoteRow* modelSta
 	}
 	newNoteLeftPos = reversed ? noteOffPos : note->pos;
 
+	// Loop view: the note began inside the loop, maybe before the loop last wrapped - then the search above would have
+	// found some other, earlier note. Find it within the loop, and end it at the loop's end at the latest.
+	{
+		int32_t windowStart, windowEnd;
+		if (!reversed && !hasIndependentPlayPos()
+		    && ((Clip*)modelStack->getTimelineCounter())->getLoopingPlayWindow(&windowStart, &windowEnd)) {
+			int32_t offPos = std::clamp<int32_t>(noteOffPos, windowStart, windowEnd);
+			int32_t windowLength = windowEnd - windowStart;
+
+			// Ideally, the note recordNoteOn() made. Searching back from the note-off would instead find any note an
+			// earlier pass through the loop recorded in between.
+			i = -1;
+			if (loopRecordNotePos_ >= windowStart && loopRecordNotePos_ < windowEnd) {
+				int32_t found = notes.search(loopRecordNotePos_, GREATER_OR_EQUAL);
+				if (found < notes.getNumElements() && notes.getElement(found)->pos == loopRecordNotePos_) {
+					i = found;
+				}
+			}
+			if (i < 0) {
+				i = notes.search(offPos, LESS);
+				if (i < 0 || notes.getElement(i)->pos < windowStart) {
+					i = notes.search(windowEnd, LESS); // Wrapped: the last note in the loop
+				}
+				if (i < 0 || notes.getElement(i)->pos < windowStart) {
+					return;
+				}
+			}
+			note = notes.getElement(i);
+			int32_t notePos = note->pos;
+			if (notePos > offPos) {
+				notePos -= windowLength; // Began before the loop last wrapped
+			}
+			newNoteLeftPos = note->pos;
+			if (note->pos == loopRecordNotePos_
+			    && ((Clip*)modelStack->getTimelineCounter())->repeatCount < loopRecordNoteStartRepeat_) {
+				newLength = 1; // Released before the loop came round to where it was quantized: keep it short
+			}
+			else {
+				newLength = std::min(offPos - notePos, windowEnd - note->pos);
+			}
+			wrapping = false;
+		}
+	}
+
 modifyNote:
 	// Don't allow a note to be created that's the length of the whole Clip. Because there's a scenario that can lead to
 	// this happening erroneously
@@ -1119,6 +1163,7 @@ modifyNote:
 	}
 
 	ignoreNoteOnsBefore_ = 0;
+	loopRecordNotePos_ = -1;
 
 	((InstrumentClip*)modelStack->getTimelineCounter())->expectEvent();
 }

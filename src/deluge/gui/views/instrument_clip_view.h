@@ -237,6 +237,9 @@ public:
 
 	// made these public so they can be accessed by the automation clip view
 	void setLedStates();
+	// Loop view: Shift + cross-screen loops playback over the part of the Clip on screen, following scroll and zoom
+	void togglePlayWindow();
+	void syncPlayWindowToView(ModelStackWithTimelineCounter* modelStack);
 	uint32_t getSquareWidth(int32_t square, int32_t effectiveLength);
 	void drawNoteCode(uint8_t yDisplay);
 	bool createNewInstrument(OutputType instrumentType, bool is_fm = false);

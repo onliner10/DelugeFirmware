@@ -70,6 +70,12 @@ bool considerShiftReleaseForSticky;
  */
 bool considerCrossScreenReleaseForCrossScreenMode;
 
+/**
+ * Whether shift was held when cross screen went down. Shift + cross screen acts on the release, and shift often comes
+ * up first, so the views read this instead of the live shift state.
+ */
+bool crossScreenPressedWithShift;
+
 bool buttonStates[NUM_BUTTON_COLS + 1][NUM_BUTTON_ROWS]; // The extra col is for "fake" buttons
 
 ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
@@ -130,6 +136,7 @@ ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
 		if (on) {
 			// The next release has a chance of toggling cross screen mode
 			considerCrossScreenReleaseForCrossScreenMode = true;
+			crossScreenPressedWithShift = isShiftButtonPressed();
 		}
 	}
 	else if (b == SELECT_ENC) {

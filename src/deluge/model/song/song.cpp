@@ -4509,6 +4509,17 @@ void Song::deactivateAnyArrangementOnlyClips() {
 	}
 }
 
+void Song::clearPlayWindows() {
+	for (Clip* clip : AllClips::everywhere(this)) {
+		if (clip->hasPlayWindow()) {
+			char modelStackMemory[MODEL_STACK_MAX_SIZE];
+			ModelStackWithTimelineCounter* modelStack =
+			    setupModelStackWithTimelineCounter(modelStackMemory, this, clip);
+			clip->clearPlayWindow(modelStack);
+		}
+	}
+}
+
 Clip* Song::getLongestClip(bool includeInactive, bool includeArrangementOnly) {
 	Clip* longestClip = nullptr;
 
