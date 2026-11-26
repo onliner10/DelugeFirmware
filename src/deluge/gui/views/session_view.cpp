@@ -1108,7 +1108,8 @@ void SessionView::clipPressEnded() {
 	selectedClipYDisplay = 255;
 	clipWasSelectedWithShift = false;
 	// Cancel copying clip
-	if (gridFirstPressedX != -1 && gridFirstPressedY != -1 && gridSecondPressedX != -1 && gridSecondPressedY != -1) {
+	if (gridFirstPressedX != -1 && gridFirstPressedY != -1 && gridSecondPressedX != -1 && gridSecondPressedY != -1
+	    && !gridMoveUsed) {
 		display->popupTextTemporary("COPY CANCELED");
 	}
 	gridResetPresses();
@@ -1885,7 +1886,7 @@ void SessionView::removeClip(Clip* clip) {
 Clip* SessionView::getClipOnScreen(int32_t yDisplay) {
 	if (currentSong->sessionLayout == SessionLayoutType::SessionLayoutTypeGrid) {
 		if (gridFirstPadActive()) {
-			return gridClipFromCoords(gridFirstPressedX, gridFirstPressedY);
+			return gridHeldClip();
 		}
 
 		return nullptr;
@@ -3163,7 +3164,7 @@ void SessionView::modEncoderAction(int32_t whichModEncoder, int32_t offset) {
 Clip* SessionView::getClipForLayout() {
 	switch (currentSong->sessionLayout) {
 	case SessionLayoutType::SessionLayoutTypeGrid: {
-		return gridClipFromCoords(gridFirstPressedX, gridFirstPressedY);
+		return gridHeldClip();
 		break;
 	}
 	case SessionLayoutType::SessionLayoutTypeRows:
@@ -3176,6 +3177,9 @@ Clip* SessionView::getClipForLayout() {
 int32_t SessionView::getClipIndexForLayout() {
 	switch (currentSong->sessionLayout) {
 	case SessionLayoutType::SessionLayoutTypeGrid: {
+		if (gridMoveClip != nullptr) {
+			return currentSong->sessionClips.getIndexForClip(gridMoveClip);
+		}
 		return gridClipIndexFromCoords(gridFirstPressedX, gridFirstPressedY);
 		break;
 	}
@@ -3402,6 +3406,8 @@ bool SessionView::gridRenderMainPads(uint32_t whichRows, RGB image[][kDisplayWid
 			image[y][x] = gridRenderClipColor(clip, x, y);
 		}
 	}
+
+	gridRenderMoveHighlight(image, trackCount);
 
 	PadLEDs::renderingLock = false;
 
@@ -4005,6 +4011,19 @@ ActionResult SessionView::gridHandlePads(int32_t x, int32_t y, int32_t on) {
 	else {
 		gridActiveModeUsed = true;
 
+		// After a move the pads under the fingers no longer show what they picked up, so the mode handlers can't
+		// tell what is released. Lifting the first finger ends the hold; lifting the second never copies.
+		if (!on && gridMoveUsed) {
+			if (x == gridFirstPressedX && y == gridFirstPressedY) {
+				clipPressEnded();
+			}
+			else if (x == gridSecondPressedX && y == gridSecondPressedY) {
+				gridResetPresses(false, true);
+			}
+			requestRendering(this, 0xFFFFFFFF, 0xFFFFFFFF);
+			return ActionResult::DEALT_WITH;
+		}
+
 		Clip* clip = gridClipFromCoords(x, y);
 		ActionResult modeHandleResult = ActionResult::NOT_DEALT_WITH;
 		switch (gridModeActive) {
@@ -4537,21 +4556,18 @@ char const* SessionView::getMacroKindString(SessionMacroKind kind) {
 }
 
 ActionResult SessionView::gridHandleScroll(int32_t offsetX, int32_t offsetY) {
-	if (currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW && offsetY != 0) {
-		auto track = gridTrackFromX(gridFirstPressedX, gridTrackCount());
-		if (track != nullptr) {
+	// Holding a clip: the scroll encoders move what is held, pushing the vertical one changes the track colour
+	if (currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW && gridFirstPadActive()) {
+		if (offsetY != 0) {
 			if (Buttons::isButtonPressed(hid::button::Y_ENC)) {
-				track->colour += offsetY;
-				if (track->colour == 0) {
-					track->colour += offsetY;
-				}
+				gridColourHeldTrack(offsetY);
+				return ActionResult::DEALT_WITH;
 			}
-			else {
-				track->colour = static_cast<int16_t>(track->colour + (colourStep * offsetY) + 192) % 192;
-			}
-			requestRendering(this);
+			return gridMoveHeldSections(offsetY);
 		}
-
+		if (offsetX != 0) {
+			return gridMoveHeldTrack(offsetX);
+		}
 		return ActionResult::DEALT_WITH;
 	}
 
@@ -4571,11 +4587,258 @@ ActionResult SessionView::gridHandleScroll(int32_t offsetX, int32_t offsetY) {
 	currentSong->songGridScrollX = std::clamp<int32_t>(currentSong->songGridScrollX + offsetX, 0,
 	                                                   std::max<int32_t>(0, (gridTrackCount() - kDisplayWidth) + 1));
 
-	// This is the right place to add new features like moving clips or tracks :)
-
 	// use root UI in case this is called from performance view
 	requestRendering(getRootUI(), 0xFFFFFFFF, 0xFFFFFFFF);
 	view.flashPlayEnable();
+	return ActionResult::DEALT_WITH;
+}
+
+// While something is being moved, dim everything else so the moved column or cells stand out. Empty cells inside
+// a moved range get a faint light so the whole range stays visible.
+void SessionView::gridRenderMoveHighlight(RGB image[][kDisplayWidth + kSideBarWidth], size_t trackCount) {
+	if (!gridMoveUsed || gridMoveClip == nullptr) {
+		return;
+	}
+	int32_t trackIndex = gridTrackIndexFromTrack(gridMoveClip->output, trackCount);
+	int32_t movedX = (trackIndex >= 0) ? gridXFromTrack(trackIndex) : -1;
+	bool wholeColumn = gridMoveSectionFirst < 0;
+
+	for (int32_t y = 0; y < kGridHeight; y++) {
+		int32_t section = gridSectionFromY(y);
+		bool sectionMoved = wholeColumn || (section >= gridMoveSectionFirst && section <= gridMoveSectionLast);
+		for (int32_t x = 0; x < kDisplayWidth; x++) {
+			if (x == movedX && sectionMoved) {
+				if (!wholeColumn && image[y][x] == RGB(0, 0, 0)) {
+					image[y][x] = RGB(24, 24, 24);
+				}
+			}
+			else {
+				image[y][x] = image[y][x].dim(2);
+			}
+		}
+	}
+}
+
+// The clip under the first finger, or, once something was moved, the clip that finger picked up
+Clip* SessionView::gridHeldClip() {
+	if (gridMoveClip != nullptr) {
+		return gridMoveClip;
+	}
+	return gridClipFromCoords(gridFirstPressedX, gridFirstPressedY);
+}
+
+// Called before the first move of a hold, while the fingers are still on what they picked up
+void SessionView::gridRememberHeld() {
+	if (gridMoveClip == nullptr) {
+		gridMoveClip = gridClipFromCoords(gridFirstPressedX, gridFirstPressedY);
+	}
+	gridMoveUsed = true;
+	performActionOnPadRelease = false;
+}
+
+// Taken from the held clip rather than remembered, since changing the preset can replace the clip's output
+Output* SessionView::gridHeldTrack() {
+	if (gridMoveClip != nullptr) {
+		return gridMoveClip->output;
+	}
+	return gridTrackFromX(gridFirstPressedX, gridTrackCount());
+}
+
+void SessionView::gridColourHeldTrack(int32_t offset) {
+	Output* track = gridHeldTrack();
+	if (track == nullptr) {
+		return;
+	}
+	track->colour = static_cast<int16_t>(track->colour + (colourStep * offset) + 192) % 192;
+	// 0 means "no colour yet" and would be replaced by a random one
+	if (track->colour == 0) {
+		track->colour = 1;
+	}
+	requestRendering(this);
+}
+
+// Grid columns show the outputs that have an active clip, in reverse list order (the head of the list is the
+// rightmost column). Moves the track past its next visible neighbour, towards the head of the list or the tail.
+bool SessionView::gridShiftTrack(Output* track, bool towardsHead) {
+	Output** link = &currentSong->firstOutput;
+	while (*link != nullptr && *link != track) {
+		link = &(*link)->next;
+	}
+	if (*link == nullptr) {
+		return false;
+	}
+
+	if (towardsHead) {
+		Output** neighbourLink = nullptr;
+		for (Output** l = &currentSong->firstOutput; *l != track; l = &(*l)->next) {
+			if ((*l)->getActiveClip() != nullptr) {
+				neighbourLink = l;
+			}
+		}
+		if (neighbourLink == nullptr) {
+			return false;
+		}
+		*link = track->next;
+		track->next = *neighbourLink;
+		*neighbourLink = track;
+	}
+	else {
+		Output* neighbour = track->next;
+		while (neighbour != nullptr && neighbour->getActiveClip() == nullptr) {
+			neighbour = neighbour->next;
+		}
+		if (neighbour == nullptr) {
+			return false;
+		}
+		*link = track->next;
+		track->next = neighbour->next;
+		neighbour->next = track;
+	}
+	return true;
+}
+
+// Holding a clip and turning the horizontal encoder moves its whole track (column) left or right
+ActionResult SessionView::gridMoveHeldTrack(int32_t offset) {
+	// Holding a second pad means a clip copy is pending; leave that alone
+	if (!gridSecondPadInactive()) {
+		return ActionResult::DEALT_WITH;
+	}
+	if (sdRoutineLock) {
+		return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+	}
+	if (playbackHandler.recording == RecordingMode::ARRANGEMENT) {
+		display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_RECORDING_TO_ARRANGEMENT));
+		return ActionResult::DEALT_WITH;
+	}
+
+	Output* track = gridHeldTrack();
+	if (track == nullptr) {
+		return ActionResult::DEALT_WITH;
+	}
+	gridRememberHeld();
+
+	// Turning right moves the column right, which is towards the head of the output list
+	bool towardsHead = offset > 0;
+	int32_t steps = std::abs(offset);
+	bool moved = false;
+	while (steps-- > 0) {
+		if (!gridShiftTrack(track, towardsHead)) {
+			break;
+		}
+		moved = true;
+	}
+	if (!moved) {
+		return ActionResult::DEALT_WITH;
+	}
+	// Undo records refer to outputs by their position in the list
+	actionLogger.deleteAllLogs();
+
+	// Keep the moved column on screen
+	int32_t trackCount = gridTrackCount();
+	int32_t trackIndex = gridTrackIndexFromTrack(track, trackCount);
+	if (trackIndex < currentSong->songGridScrollX) {
+		currentSong->songGridScrollX = trackIndex;
+	}
+	else if (trackIndex >= currentSong->songGridScrollX + kDisplayWidth) {
+		currentSong->songGridScrollX = trackIndex - kDisplayWidth + 1;
+	}
+
+	requestRendering(getRootUI(), 0xFFFFFFFF, 0xFFFFFFFF);
+	return ActionResult::DEALT_WITH;
+}
+
+// Holding a clip (or two pads in one column, for a range) and turning the vertical encoder moves those cells up or
+// down within the track. The cell they move onto goes to the other end of the range, so nothing is overwritten.
+ActionResult SessionView::gridMoveHeldSections(int32_t offset) {
+	if (sdRoutineLock) {
+		return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+	}
+
+	Output* track = gridHeldTrack();
+	if (track == nullptr) {
+		return ActionResult::DEALT_WITH;
+	}
+
+	if (gridMoveSectionFirst < 0) {
+		// A track move may already have taken the held clip away from under the finger
+		int32_t first = (gridMoveClip != nullptr) ? gridMoveClip->section : gridSectionFromY(gridFirstPressedY);
+		int32_t last = first;
+		if (!gridSecondPadInactive()) {
+			// A second pad in another track is a pending clip copy; leave that alone
+			if (gridTrackFromX(gridSecondPressedX, gridTrackCount()) != track) {
+				return ActionResult::DEALT_WITH;
+			}
+			int32_t second = gridSectionFromY(gridSecondPressedY);
+			if (second < 0) {
+				return ActionResult::DEALT_WITH;
+			}
+			first = std::min(first, second);
+			last = std::max(last, second);
+			// The pads now pick a range instead of a copy target
+			display->cancelPopup();
+		}
+		if (first < 0) {
+			return ActionResult::DEALT_WITH;
+		}
+		gridMoveSectionFirst = first;
+		gridMoveSectionLast = last;
+	}
+
+	if (playbackHandler.recording == RecordingMode::ARRANGEMENT) {
+		display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_RECORDING_TO_ARRANGEMENT));
+		return ActionResult::DEALT_WITH;
+	}
+
+	gridRememberHeld();
+
+	// Turning up moves the cells up, and sections are numbered from the top
+	int32_t step = (offset > 0) ? -1 : 1;
+	int32_t steps = std::abs(offset);
+	bool moved = false;
+	while (steps-- > 0) {
+		int32_t newFirst = gridMoveSectionFirst + step;
+		int32_t newLast = gridMoveSectionLast + step;
+		if (newFirst < 0 || newLast >= kMaxNumSections) {
+			break;
+		}
+		int32_t displaced = (step < 0) ? newFirst : newLast;
+		int32_t displacedTo = (step < 0) ? gridMoveSectionLast : gridMoveSectionFirst;
+		for (int32_t idxClip = 0; idxClip < currentSong->sessionClips.getNumElements(); ++idxClip) {
+			Clip* clip = currentSong->sessionClips.getClipAtIndex(idxClip);
+			if (clip->output != track) {
+				continue;
+			}
+			if (clip->section >= gridMoveSectionFirst && clip->section <= gridMoveSectionLast) {
+				clip->section += step;
+			}
+			else if (clip->section == displaced) {
+				clip->section = displacedTo;
+			}
+		}
+		gridMoveSectionFirst = newFirst;
+		gridMoveSectionLast = newLast;
+		moved = true;
+	}
+	if (!moved) {
+		return ActionResult::DEALT_WITH;
+	}
+	actionLogger.deleteAllLogs();
+
+	// The display shows the held clip's section
+	if (gridMoveClip != nullptr) {
+		view.displayOutputName(gridMoveClip->output, true, gridMoveClip);
+	}
+
+	// Keep the leading edge of the moved cells on screen
+	int32_t edge = (step < 0) ? gridMoveSectionFirst : gridMoveSectionLast;
+	if (edge < currentSong->songGridScrollY) {
+		currentSong->songGridScrollY = edge;
+	}
+	else if (edge >= currentSong->songGridScrollY + kGridHeight) {
+		currentSong->songGridScrollY = edge - kGridHeight + 1;
+	}
+
+	requestRendering(getRootUI(), 0xFFFFFFFF, 0xFFFFFFFF);
 	return ActionResult::DEALT_WITH;
 }
 

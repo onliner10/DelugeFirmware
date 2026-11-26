@@ -237,10 +237,31 @@ private:
 	int32_t gridSecondPressedY = -1;
 	inline bool gridSecondPadInactive() { return (gridSecondPressedX == -1 && gridSecondPressedY == -1); }
 
+	// Moving tracks (columns) and clips (cells) with the scroll encoders while pads are held. The fingers stay on
+	// the pads they pressed while what they hold moves away, so the held track and sections are remembered here
+	// from the first move on, and the pressed coordinates keep meaning "where the fingers are".
+	bool gridMoveUsed = false;         // something moved during this hold, so releasing must not open or copy a clip
+	Clip* gridMoveClip = nullptr;      // the clip the first finger picked up, once something moved
+	int32_t gridMoveSectionFirst = -1; // the held sections (lowest and highest section number), once known
+	int32_t gridMoveSectionLast = -1;
+
+	Output* gridHeldTrack();
+	Clip* gridHeldClip();
+	void gridRenderMoveHighlight(RGB image[][kDisplayWidth + kSideBarWidth], size_t trackCount);
+	void gridRememberHeld();
+	ActionResult gridMoveHeldTrack(int32_t offset);
+	ActionResult gridMoveHeldSections(int32_t offset);
+	void gridColourHeldTrack(int32_t offset);
+	bool gridShiftTrack(Output* track, bool towardsHead);
+
 	inline void gridResetPresses(bool first = true, bool second = true) {
 		if (first) {
 			gridFirstPressedX = -1;
 			gridFirstPressedY = -1;
+			gridMoveUsed = false;
+			gridMoveClip = nullptr;
+			gridMoveSectionFirst = -1;
+			gridMoveSectionLast = -1;
 		}
 		if (second) {
 			gridSecondPressedX = -1;
