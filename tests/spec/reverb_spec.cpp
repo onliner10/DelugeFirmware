@@ -1,4 +1,5 @@
 #include "dsp/reverb/digital.hpp"
+#include "dsp/reverb/fdn.hpp"
 #include "dsp/reverb/mutable.hpp"
 #include "dsp/reverb/reverb.hpp"
 
@@ -315,6 +316,93 @@ describe reverb("Reverb", $ {
 		});
 	});
 
+	context("the FDN reverb", _ {
+		it("lengthens the tail as the room grows", _ {
+			auto small = makeModel<rv::Fdn>(0.2f, 0.0f);
+			auto large = makeModel<rv::Fdn>(0.8f, 0.0f);
+			expect(rt60(*large, 20.0)).to_be_greater_than(rt60(*small, 20.0));
+		});
+
+		it("decays in about the time its decay law gives", _ {
+			// Room 0.8 is decay position 101.6: RT60 = 0.459 s * e^(0.025586 * 101.6) = 6.2 s with the shelf flat
+			auto model = makeModel<rv::Fdn>(0.8f, 0.0f);
+			expect(rt60(*model, 20.0)).to_be_between(4.5, 8.0);
+		});
+
+		it("darkens the tail as damping rises", _ {
+			auto open = makeModel<rv::Fdn>(0.6f, 0.0f);
+			auto damped = makeModel<rv::Fdn>(0.6f, 1.0f);
+			expect(tailBrightness(*damped, 4.0)).to_be_less_than(tailBrightness(*open, 4.0));
+		});
+
+		it("renders the same whatever the render sizes", _ {
+			// The core always runs in whole grains a little ahead of the input, so how the engine slices the
+			// audio must not change the output. On the target it is bit-exact; a 32-bit x86 host build keeps
+			// float temporaries at extended precision until they're stored, so allow for rounding there
+			auto whole = makeModel<rv::Fdn>(0.5f, 0.5f);
+			auto sliced = makeModel<rv::Fdn>(0.5f, 0.5f);
+			constexpr size_t kFrames = 44100;
+			std::vector<int32_t> input(kFrames);
+			for (size_t i = 0; i < kFrames; ++i) {
+				input[i] = static_cast<int32_t>((i * 2654435761u) >> 4) - (1 << 27); // noise
+			}
+			std::vector<StereoSample> out_whole(kFrames, StereoSample{.l = 0, .r = 0});
+			std::vector<StereoSample> out_sliced(kFrames, StereoSample{.l = 0, .r = 0});
+			std::vector<int32_t> scratch;
+			for (size_t start = 0; start < kFrames; start += 128) {
+				size_t n = std::min<size_t>(128, kFrames - start);
+				scratch.assign(input.begin() + start, input.begin() + start + n);
+				whole->process(scratch, {out_whole.data() + start, n});
+			}
+			size_t sizes[] = {1, 29, 3, 128, 7, 64, 31, 2, 100};
+			for (size_t start = 0, k = 0; start < kFrames; ++k) {
+				size_t n = std::min(sizes[k % std::size(sizes)], kFrames - start);
+				scratch.assign(input.begin() + start, input.begin() + start + n);
+				sliced->process(scratch, {out_sliced.data() + start, n});
+				start += n;
+			}
+			double peak = 0.0;
+			double worst = 0.0;
+			for (size_t i = 0; i < kFrames; ++i) {
+				peak = std::max({peak, std::abs(static_cast<double>(out_whole[i].l)),
+				                 std::abs(static_cast<double>(out_whole[i].r))});
+				worst = std::max({worst, std::abs(static_cast<double>(out_whole[i].l) - out_sliced[i].l),
+				                  std::abs(static_cast<double>(out_whole[i].r) - out_sliced[i].r)});
+			}
+			expect(peak).to_be_greater_than(0.0);
+			expect(worst / peak).to_be_less_than(1e-4);
+		});
+
+		it("holds its tail when frozen, and stops taking input", _ {
+			auto model = makeModel<rv::Fdn>(0.5f, 0.0f);
+			std::vector<int32_t> input(kBlock);
+			std::vector<StereoSample> output(kBlock);
+			auto level = [&](double seconds, bool feed) {
+				double sum = 0.0;
+				const auto blocks = static_cast<size_t>(seconds * kSampleRate / kBlock);
+				for (size_t block = 0; block < blocks; ++block) {
+					for (size_t i = 0; i < kBlock; ++i) {
+						input[i] = feed ? static_cast<int32_t>(((block * kBlock + i) * 2654435761u) >> 6) - (1 << 25) : 0;
+					}
+					std::fill(output.begin(), output.end(), StereoSample{.l = 0, .r = 0});
+					model->process(input, output);
+					for (const StereoSample& s : output) {
+						sum += static_cast<double>(s.l) * s.l + static_cast<double>(s.r) * s.r;
+					}
+				}
+				return sum / static_cast<double>(blocks);
+			};
+			level(1.0, true);
+			model->setRoomSize(1.0f);
+			level(0.5, false); // let the input stage and diffusers empty into the loop
+			const double held = level(1.0, false);
+			level(8.0, true); // input while frozen must not pile up
+			const double later = level(1.0, false);
+			expect(held).to_be_greater_than(0.0);
+			expect(later / held).to_be_between(0.7, 1.3);
+		});
+	});
+
 	context("driven past full scale", _ {
 		// Both models normalise to float, run the loop, then scale back to q31. An out-of-range
 		// narrowing cast is UB, and the targets disagree about which way it goes: ARM saturates
@@ -326,6 +414,10 @@ describe reverb("Reverb", $ {
 
 		it("clips the Digital tail instead of inverting it", _ {
 			expect(overdriveSignDisagreement<rv::Digital>()).to_be_less_than(0.5);
+		});
+
+		it("clips the FDN tail instead of inverting it", _ {
+			expect(overdriveSignDisagreement<rv::Fdn>()).to_be_less_than(0.5);
 		});
 	});
 
@@ -359,7 +451,7 @@ describe reverb("Reverb", $ {
 			reverb->setRoomSize(0.7f);
 
 			for (Reverb::Model model : {Reverb::Model::FREEVERB, Reverb::Model::MUTABLE,
-			                            Reverb::Model::DIGITAL}) {
+			                            Reverb::Model::DIGITAL, Reverb::Model::FDN}) {
 				reverb->setModel(model);
 				expect(rt60(*reverb, 5.0)).to_be_greater_than(0.05);
 			}
