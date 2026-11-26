@@ -39,9 +39,10 @@ inline uint32_t const* tablePairAt(int16_t const* address) {
 /// The buffer holds kNumChannels interleaved channels, each carrying its own working value in lastWorkingValues.
 template <size_t kNumChannels>
 inline void saturateTanHAntialiasedScalar(int32_t* buffer, size_t count, uint32_t* lastWorkingValues,
-                                          uint32_t saturationAmount, int32_t shiftAmount) {
+                                          uint32_t saturationAmount, int32_t shiftAmount,
+                                          int16_t const* tableStart = &tanH2d[0][0]) {
 	for (size_t i = 0; i < count; i++) {
-		buffer[i] = getTanHAntialiased(buffer[i], &lastWorkingValues[i % kNumChannels], saturationAmount)
+		buffer[i] = getTanHAntialiased(buffer[i], &lastWorkingValues[i % kNumChannels], saturationAmount, tableStart)
 		            << shiftAmount;
 	}
 }
@@ -60,12 +61,15 @@ inline void saturateTanHAntialiasedScalar(int32_t* buffer, size_t count, uint32_
 /// Only valid while signed_saturate_operand_unknown() saturates to exactly 32 - saturationAmount bits, i.e.
 /// saturationAmount 1..20 (Sound uses 6..20). Anything else runs the scalar code.
 template <size_t kNumChannels>
+/// tableStart: any 65 x 129 table laid out like tanH2d (see dsp/saturation_curves.h); tanH2d by default.
 inline void saturateTanHAntialiased(int32_t* buffer, size_t count, uint32_t* lastWorkingValues,
-                                    uint32_t saturationAmount, int32_t shiftAmount) {
+                                    uint32_t saturationAmount, int32_t shiftAmount,
+                                    int16_t const* tableStart = &tanH2d[0][0]) {
 	static_assert(kNumChannels == 1 || kNumChannels == 2);
 
 	if (saturationAmount < 1 || saturationAmount > 20) [[unlikely]] {
-		saturateTanHAntialiasedScalar<kNumChannels>(buffer, count, lastWorkingValues, saturationAmount, shiftAmount);
+		saturateTanHAntialiasedScalar<kNumChannels>(buffer, count, lastWorkingValues, saturationAmount, shiftAmount,
+		                                            tableStart);
 		return;
 	}
 
@@ -86,7 +90,7 @@ inline void saturateTanHAntialiased(int32_t* buffer, size_t count, uint32_t* las
 	// tanH2d, 7, 6) >> (saturationAmount + 1), then << shiftAmount
 	{
 		constexpr size_t row_length = sizeof(tanH2d[0]) / sizeof(tanH2d[0][0]);
-		int16_t const* const table = &tanH2d[0][0];
+		int16_t const* const table = tableStart;
 		int32x4_t const final_right_shift = vdupq_n_s32(-static_cast<int32_t>(saturationAmount + 1));
 		int32x4_t const final_left_shift = vdupq_n_s32(shiftAmount);
 		int32x4_t const max_strength = vdupq_n_s32(2147483647);
@@ -172,7 +176,7 @@ inline void saturateTanHAntialiased(int32_t* buffer, size_t count, uint32_t* las
 
 	// The last 1-3 samples
 	saturateTanHAntialiasedScalar<kNumChannels>(&buffer[vector_count], count - vector_count, lastWorkingValues,
-	                                            saturationAmount, shiftAmount);
+	                                            saturationAmount, shiftAmount, tableStart);
 }
 
 } // namespace deluge::dsp

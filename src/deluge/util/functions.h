@@ -293,13 +293,15 @@ template <unsigned saturationAmount>
 	return interpolateTableSigned(workingValue, 32, tanHSmall, 8) >> (saturationAmount + 2);
 }
 
+/// table: a 65 x 129 antialiased table laid out like tanH2d (see dsp/saturation_curves.h); tanH2d by default
 [[gnu::always_inline]] inline int32_t getTanHAntialiased(int32_t input, uint32_t* lastWorkingValue,
-                                                         uint32_t saturationAmount) {
+                                                         uint32_t saturationAmount,
+                                                         int16_t const* table = &tanH2d[0][0]) {
 
 	uint32_t workingValue = (uint32_t)lshiftAndSaturateUnknown(input, saturationAmount) + 2147483648u;
 
-	int32_t toReturn = interpolateTableSigned2d(workingValue, *lastWorkingValue, 32, 32, &tanH2d[0][0], 7, 6)
-	                   >> (saturationAmount + 1);
+	int32_t toReturn =
+	    interpolateTableSigned2d(workingValue, *lastWorkingValue, 32, 32, table, 7, 6) >> (saturationAmount + 1);
 	*lastWorkingValue = workingValue;
 	return toReturn;
 }

@@ -563,6 +563,23 @@ Here is a list of general improvements that have been made, ordered from newest 
   - Old presets and songs load at exactly their old amount and sound the same, bit for bit. The menu shows the nearest value, for example the old 3 as 25.
   - It is saved as `saturation`, with `clippingAmount` alongside it rounded to the old 0 to 15 steps, so older firmware still loads something close.
 
+### 3.43 - Saturation Types
+
+- `SATURATION` has a shaping curve to choose, `TYPE`, next to its amount in `DISTORTION`, for synths, kit rows and audio clips. <Badge text="c1.4" variant="tip" />
+  - `CLASSIC` is the original tanh saturation and the default; old presets and songs load with it and sound the same, bit for bit.
+  - `SOFT`: a sine up to its peak, rounding off early and gently.
+  - `KNEE`: clean up to 70% of full scale, then a short rounded knee into a clip.
+  - `ROUND`: a softer knee than `HARD`, between it and `CLASSIC`.
+  - `HARD`: a much sharper knee, still smooth.
+  - `CLIP`: a straight clip at full scale.
+  - `BASS`: reaches full scale very slowly, so even heavy drive stays smooth on low notes.
+  - `FOLD`: a sine all the way, so a hot signal folds back down instead of flattening.
+  - `CRUNCH`: a long, uneven knee with plenty of upper harmonics.
+  - Every type has the same gain for quiet signals and the same ceiling, so switching type changes the character, not the level. The `SATURATION` amount drives every type the same way.
+  - Every type is antialiased like the original, and costs the same CPU.
+  - The slot shows the selected curve itself; the screen title names it while the slot is selected.
+  - It is saved as `saturationType`, only when it is not `CLASSIC`.
+
 ## 4. New Features Added
 
 Here is a list of features that have been added to the firmware as a list, grouped by category:

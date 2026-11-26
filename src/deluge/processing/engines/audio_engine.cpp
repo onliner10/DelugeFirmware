@@ -16,6 +16,7 @@
  */
 
 #include "processing/engines/audio_engine.h"
+#include "dsp/saturation_curves.h"
 
 #include "chrono"
 #include "definitions.h"
@@ -335,6 +336,9 @@ TaskID routine_task_id = -1;
 
 // You must set up dynamic memory allocation before calling this, because of its call to setupWithPatching()
 void init() {
+	// The saturation curves' tables, built once here so loading a sound never has to
+	deluge::dsp::generateSaturationTables();
+
 	paramManagerForSamplePreview = new ((void*)paramManagerForSamplePreviewMemory) ParamManagerForTimeline();
 	paramManagerForSamplePreview->setupWithPatching(); // Shouldn't be an error at init time...
 	Sound::initParams(paramManagerForSamplePreview);

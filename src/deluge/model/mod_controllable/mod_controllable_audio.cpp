@@ -72,6 +72,7 @@ ModControllableAudio::ModControllableAudio() {
 
 	// Saturation
 	saturation = 0;
+	saturationType = deluge::dsp::SaturationType::CLASSIC;
 
 	SyncLevel syncLevel;
 	Song* song = preLoadedSong;
@@ -96,6 +97,7 @@ void ModControllableAudio::cloneFrom(ModControllableAudio* other) {
 	lpfMode = other->lpfMode;
 	hpfMode = other->hpfMode;
 	saturation = other->saturation;
+	saturationType = other->saturationType;
 	modFXType_ = other->modFXType_;
 	bassFreq = other->bassFreq; // Eventually, these shouldn't be variables like this
 	trebleFreq = other->trebleFreq;
@@ -609,6 +611,9 @@ void ModControllableAudio::writeAttributesToFile(Serializer& writer) {
 		                                                                 / deluge::dsp::kSaturationStep));
 		writer.writeAttribute("saturation", saturation);
 	}
+	if (saturationType != deluge::dsp::SaturationType::CLASSIC) {
+		writer.writeAttribute("saturationType", (char*)deluge::dsp::saturationTypeToString(saturationType));
+	}
 }
 
 void ModControllableAudio::writeTagsToFile(Serializer& writer) {
@@ -935,6 +940,10 @@ Error ModControllableAudio::readTagFromFile(Deserializer& reader, char const* ta
 		int32_t steps = std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, deluge::dsp::kSaturationMaxSteps);
 		saturation = steps * deluge::dsp::kSaturationStep;
 		reader.exitTag("clippingAmount");
+	}
+	else if (!strcmp(tagName, "saturationType")) {
+		saturationType = deluge::dsp::stringToSaturationType(reader.readTagOrAttributeValue());
+		reader.exitTag("saturationType");
 	}
 	else if (!strcmp(tagName, "saturation")) {
 		saturation = std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, deluge::dsp::kSaturationMax);
