@@ -596,6 +596,8 @@ void registerTasks() {
 	// while the card routine is part-way through using it.
 	addRepeatingTask([]() { audioRecorder.slowRoutine(); }, p++, 0.01, 0.09, 0.1, "audio recorder slow",
 	                 RESOURCE_SD | RESOURCE_SD_ROUTINE);
+	// Lets the sample starts of Instruments that aren't playing be stolen, or takes them back
+	addRepeatingTask(&idleSampleStartsTask, p++, 0.1, 0.1, 0.2, "idle sample starts", RESOURCE_NONE);
 	// Samples of multisamples left out while previewing presets, one at a time
 	addRepeatingTask(&loadLazyAudioFilesTask, p++, 0.005, 0.01, 0.05, "lazy sample load",
 	                 RESOURCE_SD | RESOURCE_SD_ROUTINE);

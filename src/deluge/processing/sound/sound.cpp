@@ -54,6 +54,7 @@
 #include "processing/engines/audio_engine.h"
 #include "processing/sound/sound_instrument.h"
 #include "storage/audio/audio_file_manager.h"
+#include "storage/cluster/cluster.h"
 #include "storage/flash_storage.h"
 #include "storage/multi_range/multi_wave_table_range.h"
 #include "storage/multi_range/multisample_range.h"
@@ -5201,3 +5202,68 @@ void Sound::checkVoiceExists(const ActiveVoice& voice, const char* error) const 
 }
 
 #pragma GCC diagnostic pop
+void Sound::setSampleStartsIdle(bool idle, std::span<const int16_t> usedNotes, bool allZonesUsed) {
+	if (idle == sampleStartsIdle) {
+		return;
+	}
+	sampleStartsIdle = idle;
+	for (Source& source : sources) {
+		if (source.oscType != OscType::SAMPLE) {
+			continue;
+		}
+		int32_t numRanges = source.ranges.getNumElements();
+		if (!idle) {
+			bool reversed = source.sampleControls.isCurrentlyReversed();
+			for (int32_t e = 0; e < numRanges; e++) {
+				SampleHolder* holder = static_cast<SampleHolder*>(source.ranges.getElement(e)->getAudioFileHolder());
+				if (holder->audioFile != nullptr) {
+					holder->claimClusterReasons(reversed, CLUSTER_ENQUEUE);
+				}
+			}
+			continue;
+		}
+
+		// How far, in semitones, each zone is from the nearest used note: 0 if one plays it
+		constexpr int32_t kMaxZonesSorted = 128;
+		std::array<uint8_t, kMaxZonesSorted> distance{};
+		bool allUsed = allZonesUsed || numRanges > kMaxZonesSorted;
+		if (!allUsed) {
+			for (int32_t e = 0; e < numRanges; e++) {
+				int32_t bottom = (e == 0) ? -32768 : source.ranges.getElement(e - 1)->topNote + 1;
+				int32_t top = (e == numRanges - 1) ? 32767 : source.ranges.getElement(e)->topNote;
+				int32_t nearest = 255; // No used notes at all: as far as can be
+				for (int16_t note : usedNotes) {
+					int32_t d = (note < bottom) ? bottom - note : (note > top) ? note - top : 0;
+					nearest = std::min(nearest, d);
+				}
+				distance[e] = std::min<int32_t>(nearest, 255);
+			}
+		}
+
+		// Release the farthest first, so they're the first stolen within their queue
+		for (int32_t pass = allUsed ? 0 : 255; pass >= 0; pass--) {
+			for (int32_t e = 0; e < numRanges; e++) {
+				int32_t d = allUsed ? 0 : distance[e];
+				if (d != pass) {
+					continue;
+				}
+				auto* holder = static_cast<SampleHolderForVoice*>(source.ranges.getElement(e)->getAudioFileHolder());
+				if (holder->audioFile == nullptr) {
+					continue;
+				}
+				Cluster::IdleStart mark = d ? Cluster::IdleStart::UNUSED_ZONE : Cluster::IdleStart::USED_ZONE;
+				for (Cluster* cluster : holder->clustersForStart) {
+					if (cluster != nullptr) {
+						cluster->idleSampleStart = mark;
+					}
+				}
+				for (Cluster* cluster : holder->clustersForLoopStart) {
+					if (cluster != nullptr) {
+						cluster->idleSampleStart = mark;
+					}
+				}
+				holder->unassignAllClusterReasons();
+			}
+		}
+	}
+}

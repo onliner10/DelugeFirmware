@@ -932,12 +932,18 @@ enum class StealableQueue {
 	NO_SONG_AUDIO_FILE_OBJECTS, // TODO:having these in the Stealable region is a bad idea in general
 	CURRENT_SONG_SAMPLE_DATA,
 	CURRENT_SONG_SAMPLE_DATA_CONVERTED,
+	// Start-of-sample Clusters of Instruments whose Clips aren't playing (see idleSampleStartsTask()). Kept over plain
+	// song data, so streamed data that has already played goes first; least recently idled first within each queue.
+	// First the zones (or kit rows) that none of the Instrument's Clips play, farthest from the notes they do play
+	// first, then the ones they play.
+	CURRENT_SONG_IDLE_UNUSED_SAMPLE_STARTS,
+	CURRENT_SONG_IDLE_SAMPLE_STARTS,
 	CURRENT_SONG_SAMPLE_DATA_REPITCHED_CACHE,
 	CURRENT_SONG_SAMPLE_DATA_PERC_CACHE, // This one is super valuable and compacted data - lots of work
 	                                     // to load it all again
 };
 
-constexpr int32_t kNumStealableQueue = 10;
+constexpr int32_t kNumStealableQueue = 12;
 
 enum class SequenceDirection {
 	FORWARD,
