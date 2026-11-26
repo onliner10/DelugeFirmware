@@ -639,6 +639,8 @@ PLACE_SDRAM_BSS UnpatchedParam srrMenu{STRING_FOR_DECIMATION, params::UNPATCHED_
 PLACE_SDRAM_BSS UnpatchedParam bitcrushMenu{STRING_FOR_BITCRUSH, params::UNPATCHED_BITCRUSHING, RenderingStyle::BAR};
 PLACE_SDRAM_BSS patched_param::Integer foldMenu{STRING_FOR_WAVEFOLD, STRING_FOR_WAVEFOLD, params::LOCAL_FOLD,
                                                 RenderingStyle::BAR};
+PLACE_SDRAM_BSS patched_param::Integer driveMenu{STRING_FOR_DRIVE, STRING_FOR_DRIVE, params::LOCAL_DRIVE,
+                                                 RenderingStyle::BAR};
 
 PLACE_SDRAM_BSS HorizontalMenu soundDistortionMenu{
     STRING_FOR_DISTORTION,
@@ -647,6 +649,7 @@ PLACE_SDRAM_BSS HorizontalMenu soundDistortionMenu{
         &bitcrushMenu,
         &srrMenu,
         &foldMenu,
+        &driveMenu,
     },
 };
 
@@ -1945,7 +1948,7 @@ PLACE_SDRAM_DATA MenuItem* paramShortcutsForSounds[][kDisplayHeight] = {
     {&modulator0Volume,		&modulator0TransposeMenu,	comingSoonMenu,                 comingSoonMenu,                 &modulator0PhaseMenu,	&modulator0FeedbackMenu,	comingSoonMenu,					&sequenceDirectionMenu             },
     {&modulator1Volume,		&modulator1TransposeMenu,	comingSoonMenu,                 comingSoonMenu,                 &modulator1PhaseMenu,	&modulator1FeedbackMenu,	&modulatorDestMenu,				&stutterRateMenu                   },
     {&volumeMenu,			&masterTransposeMenu,		&vibratoMenu,                   &panMenu,                       &synthModeMenu,			&srrMenu,					&bitcrushMenu,					&clippingMenu                      },
-    {&portaMenu,				&polyphonyMenu,				&priorityMenu,                  &unisonDetuneMenu,              &numUnisonMenu,			&threshold,					nullptr,						&foldMenu                          },
+    {&portaMenu,				&polyphonyMenu,				&priorityMenu,                  &unisonDetuneMenu,              &numUnisonMenu,			&threshold,					&driveMenu,						&foldMenu                          },
     {&env1ReleaseMenu,		&env1SustainMenu,			&env1DecayMenu,                 &env1AttackMenu,                &lpfMorphMenu,			&lpfModeMenu,				&lpfResMenu,					&lpfFreqMenu                       },
     {&env2ReleaseMenu,		&env2SustainMenu,			&env2DecayMenu,                 &env2AttackMenu,                &hpfMorphMenu,			&hpfModeMenu,				&hpfResMenu,					&hpfFreqMenu                       },
     {&sidechainReleaseMenu,	&sidechainSyncMenu,			&sidechainVolumeShortcutMenu,   &sidechainAttackMenu,           &sidechainShapeMenu,	&sidechainSendMenu,			&bassMenu,						&bassFreqMenu                      },

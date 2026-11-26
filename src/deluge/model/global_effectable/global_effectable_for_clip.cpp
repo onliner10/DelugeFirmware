@@ -155,7 +155,7 @@ GlobalEffectableForClip::GlobalEffectableForClip() {
 		processFilters(global_effectable_audio);
 
 		// Render FX
-		processSRRAndBitcrushing(global_effectable_audio, &volumePostFX, paramManagerForClip);
+		processSRRAndBitcrushing(global_effectable_audio, &volumePostFX, paramManagerForClip, true);
 	}
 
 	processFXForGlobalEffectable(global_effectable_audio, &volumePostFX, paramManagerForClip, delayWorkingState,

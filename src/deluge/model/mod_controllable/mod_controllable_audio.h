@@ -58,7 +58,9 @@ public:
 	void writeTagsToFile(Serializer& writer);
 	virtual Error readTagFromFile(Deserializer& reader, char const* tagName, ParamManagerForTimeline* paramManager,
 	                              int32_t readAutomationUpToPos, ArpeggiatorSettings* arpSettings, Song* song);
-	void processSRRAndBitcrushing(std::span<StereoSample> buffer, int32_t* postFXVolume, ParamManager* paramManager);
+	/// isBus: the buffer is a kit / audio clip / song bus rather than a Sound's (sets the Character FX level reference)
+	void processSRRAndBitcrushing(std::span<StereoSample> buffer, int32_t* postFXVolume, ParamManager* paramManager,
+	                              bool isBus = false);
 	static void writeParamAttributesToFile(Serializer& writer, ParamManager* paramManager, bool writeAutomation,
 	                                       int32_t* valuesForOverride = nullptr);
 	static void writeParamTagsToFile(Serializer& writer, ParamManager* paramManager, bool writeAutomation,
@@ -167,6 +169,8 @@ protected:
 	void disableGrain();
 
 private:
+	template <int32_t fullScaleLog2>
+	void processCharacterSRRAndBitcrushing(std::span<StereoSample> buffer, ParamManager* paramManager);
 	void doEQ(bool doBass, bool doTreble, int32_t* inputL, int32_t* inputR, int32_t bassAmount, int32_t trebleAmount);
 	ModelStackWithThreeMainThings* addNoteRowIndexAndStuff(ModelStackWithTimelineCounter* modelStack,
 	                                                       int32_t noteRowIndex);

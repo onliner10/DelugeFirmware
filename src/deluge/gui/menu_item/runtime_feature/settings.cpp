@@ -75,6 +75,7 @@ SettingToggle menuShowBatteryLevel(RuntimeFeatureSettingType::ShowBatteryLevel);
 RoundedCornersSettingToggle menuRoundedCorners(RuntimeFeatureSettingType::RoundedCorners);
 Setting menuShortcutOverlay(RuntimeFeatureSettingType::ShortcutOverlay);
 SettingToggle menuFastPresetScrolling(RuntimeFeatureSettingType::FastPresetScrolling);
+SettingToggle menuCharacterFx(RuntimeFeatureSettingType::CharacterFx);
 
 std::array<MenuItem*, RuntimeFeatureSettingType::MaxElement - kNonTopLevelSettings> subMenuEntries{
     &menuDrumRandomizer,
@@ -102,7 +103,8 @@ std::array<MenuItem*, RuntimeFeatureSettingType::MaxElement - kNonTopLevelSettin
     &menuTrimFromStartOfAudioClip,
     &menuShowBatteryLevel,
     &menuShortcutOverlay,
-    &menuFastPresetScrolling};
+    &menuFastPresetScrolling,
+    &menuCharacterFx};
 
 Settings::Settings(l10n::String name, l10n::String title) : menu_item::Submenu(name, title, subMenuEntries) {
 }

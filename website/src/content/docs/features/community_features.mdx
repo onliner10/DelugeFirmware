@@ -528,6 +528,23 @@ Here is a list of general improvements that have been made, ordered from newest 
   - Saving a song first loads any samples not loaded yet, so "Collect media" still copies them all.
   - This feature is `ON` by default and can be set to `ON` or `OFF` via `SETTINGS > COMMUNITY FEATURES > FAST PRESET SCROLLING`. When `OFF`, every sample of a preset is loaded before it can be heard, as before.
 
+### 3.39 - Character FX
+
+- Gives the bitcrush and sample-rate reduction (decimation) effects alternative, grittier curves. <Badge text="c1.4" variant="tip" />
+  - Bitcrush: the bit depth sweeps continuously from about 16 bits down to about 2 bits, crossfading between two rounding quantizers of neighbouring bit depths instead of 8 fixed steps. There is no volume compensation. A slow DC blocker follows it.
+  - Decimation: two raw sample-and-holds whose periods are one sample apart, crossfaded, with no smoothing, from full rate down to about 475 Hz.
+  - The parameters, their ranges and what gets saved in songs and presets are unchanged; only the sound differs. Turning a parameter fully off still bypasses the effect.
+  - As before, they process the whole sound after its voices are mixed (or the kit, audio clip or song, where they are set there).
+  - This feature is `OFF` by default and can be set to `ON` or `OFF` via `SETTINGS > COMMUNITY FEATURES > CHARACTER FX`.
+
+### 3.40 - Drive
+
+- A new `DRIVE` parameter for synths and kit rows, in `DISTORTION` next to `WAVEFOLD`, and on the unlabelled pad just below the `WAVEFOLD` pad. <Badge text="c1.4" variant="tip" />
+  - Each voice is driven into a hard clip followed by a polynomial soft-clip curve. The drive sets how hard: the small-signal gain goes from about 1.2x just above 0 to 8x (+18 dB) at the maximum. It is not level-compensated, so more drive is louder, and it is not antialiased.
+  - It runs before `SATURATION`, which is unchanged; both can be used together.
+  - `0` is off. It can be assigned to a gold knob or a MIDI CC, patched, automated and note-locked like other synth parameters, and is saved in presets and songs (as `drive`, only when it is used).
+  - Old presets and songs load with drive off.
+
 ## 4. New Features Added
 
 Here is a list of features that have been added to the firmware as a list, grouped by category:
@@ -1454,6 +1471,8 @@ Note: these settings are saved to `SETTINGS/CommunityFeatures.XML` on your SD ca
   - `On - Menu + Clip (FULL)` also shows it while holding Shift in instrument and audio clip views.
 - `Fast Preset Scrolling (FAST)` <Badge text="c1.4" variant="tip" />
   - When On (default), scrolling to a big multisample synth preset loads only the samples needed to hear it straight away, and the rest in the background. See [Fast Preset Scrolling for Big Multisamples](#338---fast-preset-scrolling-for-big-multisamples).
+- `Character FX (CHFX)` <Badge text="c1.4" variant="tip" />
+  - When On, bitcrush and decimation use alternative curves. Off (default) keeps the original sound. See [Character FX](#339---character-fx).
 
 ## 6. Sysex Handling
 

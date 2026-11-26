@@ -20,6 +20,7 @@
 #include "definitions_cxx.hpp"
 #include "deluge/dsp/granular/GranularProcessor.h"
 #include "deluge/model/settings/runtime_feature_settings.h"
+#include "dsp/character_fx.h"
 #include "dsp/stereo_sample.h"
 #include "gui/l10n/l10n.h"
 #include "gui/ui/ui.h"
@@ -331,7 +332,17 @@ bool ModControllableAudio::isSRREnabled(ParamManager* paramManager) {
 }
 
 void ModControllableAudio::processSRRAndBitcrushing(std::span<StereoSample> buffer, int32_t* postFXVolume,
-                                                    ParamManager* paramManager) {
+                                                    ParamManager* paramManager, bool isBus) {
+	if (runtimeFeatureSettings.isOn(RuntimeFeatureSettingType::CharacterFx)) {
+		if (isBus) {
+			processCharacterSRRAndBitcrushing<deluge::dsp::character_fx::kBusFullScaleLog2>(buffer, paramManager);
+		}
+		else {
+			processCharacterSRRAndBitcrushing<deluge::dsp::character_fx::kSoundFullScaleLog2>(buffer, paramManager);
+		}
+		return;
+	}
+
 	uint32_t bitCrushMaskForSRR = 0xFFFFFFFF;
 
 	bool srrEnabled = isSRREnabled(paramManager);
@@ -430,6 +441,122 @@ void ModControllableAudio::processSRRAndBitcrushing(std::span<StereoSample> buff
 		lastSample = last;
 		grabbedSample = grabbed;
 		lastGrabbedSample = lastGrabbed;
+	}
+	else {
+		sampleRateReductionOnLastTime = false;
+	}
+}
+
+namespace {
+namespace character_fx = deluge::dsp::character_fx;
+
+// Fractional bit-depth quantizer then DC blocker, NEON: the quantizer runs on two stereo samples (four lanes) at a
+// time, the DC blocker one stereo sample (two lanes) at a time since it is recursive. Same results as the scalar
+// references BitReducer::process() and blockDC().
+template <int32_t fullScaleLog2>
+void quantizeAndBlockDC(std::span<StereoSample> buffer, const character_fx::BitReducer<fullScaleLog2>& reducer,
+                        StereoSample& dcState) {
+	constexpr int32_t kClampShift = 31 - fullScaleLog2;
+	const int32x4_t fullScale = vdupq_n_s32(1 << fullScaleLog2);
+	const int32x4_t loMultiplier = vdupq_n_s32(reducer.loMultiplier);
+	const int32x4_t hiMultiplier = vdupq_n_s32(reducer.hiMultiplier);
+	const int32x4_t loShift = vdupq_n_s32(reducer.loShift);
+	const int32x4_t hiShift = vdupq_n_s32(reducer.hiShift);
+	const int32x4_t fraction = vdupq_n_s32(reducer.fraction);
+
+	auto quantize = [&](int32x4_t x) {
+		// u * 2^(fullScaleLog2 + 1), clamped to [0, 1)
+		int32x4_t u = vaddq_s32(vshrq_n_s32(vqshlq_n_s32(x, kClampShift), kClampShift), fullScale);
+		int32x4_t lo = vshlq_s32(vqrdmulhq_s32(u, loMultiplier), loShift);
+		int32x4_t hi = vshlq_s32(vqrdmulhq_s32(u, hiMultiplier), hiShift);
+		return vsubq_s32(vaddq_s32(lo, vqdmulhq_s32(vsubq_s32(hi, lo), fraction)), fullScale);
+	};
+
+	int32x2_t state = vld1_s32(&dcState.l);
+	auto blockDC = [&](int32x2_t y) {
+		int32x2_t distance = vsub_s32(y, state);
+		// state += floor(distance / 2^11), + 1 where distance > 0 (the compare gives -1 there)
+		state = vsub_s32(vsra_n_s32(state, distance, character_fx::kDCBlockerShift),
+		                 vreinterpret_s32_u32(vcgt_s32(distance, vdup_n_s32(0))));
+		return distance;
+	};
+
+	StereoSample* sample = buffer.data();
+	StereoSample* const pairsEnd = sample + (buffer.size() & ~(size_t)1);
+	for (; sample != pairsEnd; sample += 2) {
+		int32x4_t y = quantize(vld1q_s32(&sample->l));
+		int32x2_t first = blockDC(vget_low_s32(y));
+		int32x2_t second = blockDC(vget_high_s32(y));
+		vst1q_s32(&sample->l, vcombine_s32(first, second));
+	}
+	if (buffer.size() & 1) {
+		int32x2_t x = vld1_s32(&sample->l);
+		vst1_s32(&sample->l, blockDC(vget_low_s32(quantize(vcombine_s32(x, x)))));
+	}
+	vst1_s32(&dcState.l, state);
+}
+} // namespace
+
+// Character FX bitcrush then sample-rate reduction (see dsp/character_fx.h). Same params and "off" values as the
+// original versions above, but no volume compensation.
+template <int32_t fullScaleLog2>
+void ModControllableAudio::processCharacterSRRAndBitcrushing(std::span<StereoSample> buffer,
+                                                             ParamManager* paramManager) {
+	UnpatchedParamSet* unpatchedParams = paramManager->getUnpatchedParamSet();
+
+	// The DC blocker after the quantizer keeps its state in lastSample, which only the original SRR uses otherwise
+	if (isBitcrushingEnabled(paramManager)) {
+		const character_fx::BitReducer<fullScaleLog2> reducer(unpatchedParams->getValue(params::UNPATCHED_BITCRUSHING));
+		quantizeAndBlockDC(buffer, reducer, lastSample);
+	}
+	else {
+		// Start from no DC next time the bitcrush comes on
+		lastSample.l = lastSample.r = 0;
+	}
+
+	if (isSRREnabled(paramManager)) {
+		// Holds A and B and their counters reuse the original SRR's state
+		if (!sampleRateReductionOnLastTime) {
+			sampleRateReductionOnLastTime = true;
+			grabbedSample.l = grabbedSample.r = 0;
+			lastGrabbedSample.l = lastGrabbedSample.r = 0;
+			lowSampleRatePos = highSampleRatePos = 0;
+		}
+
+		const character_fx::SampleRateReducer srr(unpatchedParams->getValue(params::UNPATCHED_SAMPLE_RATE_REDUCTION));
+		const uint32_t periodA = srr.periodA;
+		const uint32_t periodB = srr.periodB;
+		const int32x2_t fraction = vdup_n_s32(srr.fraction);
+		uint32_t countA = lowSampleRatePos;
+		uint32_t countB = highSampleRatePos;
+		// The holds stay in NEON registers (L and R lanes), so samples never move between NEON and core registers
+		int32x2_t holdA = vld1_s32(&grabbedSample.l);
+		int32x2_t holdB = vld1_s32(&lastGrabbedSample.l);
+
+		for (StereoSample& sample : buffer) {
+			int32x2_t x = vld1_s32(&sample.l);
+			if (countA == 0) {
+				holdA = x;
+			}
+			if (countB == 0) {
+				holdB = x;
+			}
+			// >= rather than ==, so a counter left past a shorter new period still wraps straight away
+			if (++countA >= periodA) {
+				countA = 0;
+			}
+			if (++countB >= periodB) {
+				countB = 0;
+			}
+			// (1 - fr) * A + fr * B = A + fr * (B - A); the halving subtract keeps B - A from overflowing
+			int32x2_t crossfade = vshl_n_s32(vqdmulh_s32(vhsub_s32(holdB, holdA), fraction), 1);
+			vst1_s32(&sample.l, vadd_s32(holdA, crossfade));
+		}
+
+		lowSampleRatePos = countA;
+		highSampleRatePos = countB;
+		vst1_s32(&grabbedSample.l, holdA);
+		vst1_s32(&lastGrabbedSample.l, holdB);
 	}
 	else {
 		sampleRateReductionOnLastTime = false;

@@ -134,6 +134,7 @@ char const* getPatchedParamShortName(ParamType type) {
 	    [LOCAL_ENV_3_SUSTAIN]            = "Env4 sus",
 	    [LOCAL_LPF_MORPH]                = "LPF Morph",
 	    [LOCAL_HPF_MORPH]                = "HPF Morph",
+	    [LOCAL_DRIVE]                    = "Drive",
 	    [LOCAL_OSC_A_PHASE_WIDTH]        = "Osc1 PW",
 	    [LOCAL_OSC_B_PHASE_WIDTH]        = "Osc2 PW",
 	    [LOCAL_OSC_A_WAVE_INDEX]         = "Osc1 wave",
@@ -283,6 +284,7 @@ char const* getPatchedParamDisplayName(int32_t p) {
 	    [LOCAL_ENV_3_SUSTAIN] = STRING_FOR_PARAM_LOCAL_ENV_3_SUSTAIN,
 	    [LOCAL_LPF_MORPH] = STRING_FOR_PARAM_LOCAL_LPF_MORPH,
 	    [LOCAL_HPF_MORPH] = STRING_FOR_PARAM_LOCAL_HPF_MORPH,
+	    [LOCAL_DRIVE] = STRING_FOR_DRIVE,
 	    [LOCAL_OSC_A_PHASE_WIDTH] = STRING_FOR_PARAM_LOCAL_OSC_A_PHASE_WIDTH,
 	    [LOCAL_OSC_B_PHASE_WIDTH] = STRING_FOR_PARAM_LOCAL_OSC_B_PHASE_WIDTH,
 	    [LOCAL_OSC_A_WAVE_INDEX] = STRING_FOR_PARAM_LOCAL_OSC_A_WAVE_INDEX,
@@ -804,6 +806,9 @@ constexpr char const* paramNameForFileConst(Kind const kind, ParamType const par
 
 		case LOCAL_FOLD:
 			return "waveFold";
+
+		case LOCAL_DRIVE:
+			return "drive";
 
 		case LOCAL_LAST:
 		    // Intentionally not handled

@@ -210,6 +210,10 @@ void RuntimeFeatureSettings::init() {
 	                  STRING_FOR_COMMUNITY_FEATURE_FAST_PRESET_SCROLLING, "fastPresetScrolling",
 	                  RuntimeFeatureStateToggle::On);
 
+	// Character FX: alternative bitcrush and sample-rate reduction curves (dsp/character_fx.h)
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::CharacterFx], STRING_FOR_COMMUNITY_FEATURE_CHARACTER_FX,
+	                  "characterFx", RuntimeFeatureStateToggle::Off);
+
 	// Shortcut Overlay
 	auto& overlay = settings[RuntimeFeatureSettingType::ShortcutOverlay];
 	overlay.displayName = STRING_FOR_COMMUNITY_FEATURE_SHORTCUT_OVERLAY;

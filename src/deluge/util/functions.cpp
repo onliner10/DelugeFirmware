@@ -117,6 +117,10 @@ int32_t getParamNeutralValue(int32_t p) {
 	case params::LOCAL_FOLD:
 		return 25 * 10737418; // Room to be quadrupled
 
+	case params::LOCAL_DRIVE:
+		// Knob minimum gives 0 (off), middle 2^30, maximum saturates at 2^31 - 1: the final value is p in q31
+		return 1073741824;
+
 	case params::LOCAL_PAN:
 	case params::LOCAL_OSC_A_PHASE_WIDTH:
 	case params::LOCAL_OSC_B_PHASE_WIDTH:
