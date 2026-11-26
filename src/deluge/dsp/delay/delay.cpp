@@ -30,6 +30,25 @@ extern int32_t spareRenderingBuffer[][SSI_TX_BUFFER_NUM_SAMPLES];
 
 void Delay::informWhetherActive(bool newActive, int32_t userDelayRate) {
 
+	// The WARM type has its own ring. Whichever storage the current type doesn't use goes, so a type change while
+	// sounding starts the new type from silence.
+	if (type == Type::WARM) {
+		if (primaryBuffer.isActive() || secondaryBuffer.isActive()) {
+			primaryBuffer.discard();
+			secondaryBuffer.discard();
+		}
+		if (newActive && !saturatingTapDelay.isActive()) {
+			saturatingTapDelay.activate(userDelayRate);
+		}
+		else if (!newActive && saturatingTapDelay.isActive()) {
+			discardBuffers();
+		}
+		return;
+	}
+	if (saturatingTapDelay.isActive()) {
+		saturatingTapDelay.discard();
+	}
+
 	bool previouslyActive = isActive();
 
 	if (previouslyActive != newActive) {
@@ -198,6 +217,7 @@ void Delay::hasWrapped() {
 void Delay::discardBuffers() {
 	primaryBuffer.discard();
 	secondaryBuffer.discard();
+	saturatingTapDelay.discard();
 	prevFeedback = 0;
 	repeatsUntilAbandon = 0;
 }
@@ -224,6 +244,16 @@ void Delay::initializeSecondaryBuffer(int32_t newNativeRate, bool makeNativeRate
 
 void Delay::process(std::span<StereoSample> buffer, const State& delayWorkingState) {
 	if (!delayWorkingState.doDelay) {
+		return;
+	}
+
+	if (type == Type::WARM) {
+		// Loop gain is delayFeedbackAmount / 2^30, as for the other types, so F is the amount as a q31
+		if (saturatingTapDelay.process(buffer, delayWorkingState.userDelayRate, delayWorkingState.delayFeedbackAmount,
+		                               delayWorkingState.saturation_reference_log2,
+		                               pingPong && AudioEngine::renderInStereo)) {
+			hasWrapped();
+		}
 		return;
 	}
 
@@ -395,7 +425,7 @@ void Delay::process(std::span<StereoSample> buffer, const State& delayWorkingSta
 	};
 
 	int32_t feedbackAmount = delayWorkingState.delayFeedbackAmount;
-	if (analog) {
+	if (type == Type::ANALOG) {
 
 		ir_processor.process(working_buffer);
 

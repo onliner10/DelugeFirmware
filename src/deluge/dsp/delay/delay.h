@@ -20,6 +20,7 @@
 #include "definitions_cxx.hpp"
 #include "dsp/convolution/impulse_response_processor.h"
 #include "dsp/delay/delay_buffer.h"
+#include "dsp/delay/saturating_tap_delay.h"
 #include "model/sync.h"
 
 #include <cstdint>
@@ -27,11 +28,23 @@
 
 class Delay {
 public:
+	/// Stored in files as the "analog" attribute, so append new types at the end. Older firmware clamps unknown
+	/// values to ANALOG.
+	enum class Type : uint8_t {
+		DIGITAL = 0,
+		ANALOG = 1,
+		WARM = 2, ///< whole-sample taps, saturating and filtered feedback loop (SaturatingTapDelay)
+	};
+	static constexpr int32_t kNumTypes = 3;
+
 	struct State {
 		bool doDelay;
 		int32_t userDelayRate;
 		int32_t delayFeedbackAmount;
 		int32_t analog_saturation = 8;
+		/// WARM: level of the saturator's rail is 2^this. A full-level sample peaks around 2^24.7 in a Sound's
+		/// buffer and the bus buffers (kit, audio clip, song) run 2 bits hotter.
+		int32_t saturation_reference_log2 = 27;
 	};
 
 	Delay() = default;
@@ -40,13 +53,15 @@ public:
 	// was originally cloneFrom
 	Delay& operator=(const Delay& rhs) {
 		pingPong = rhs.pingPong;
-		analog = rhs.analog;
+		type = rhs.type;
 		syncLevel = rhs.syncLevel;
 		syncType = rhs.syncType;
 		return *this;
 	}
 
-	[[nodiscard]] constexpr bool isActive() const { return (primaryBuffer.isActive() || secondaryBuffer.isActive()); }
+	[[nodiscard]] constexpr bool isActive() const {
+		return (primaryBuffer.isActive() || secondaryBuffer.isActive() || saturatingTapDelay.isActive());
+	}
 
 	void informWhetherActive(bool newActive, int32_t userDelayRate = 0);
 	void copySecondaryToPrimary();
@@ -60,11 +75,12 @@ public:
 	DelayBuffer primaryBuffer;
 	DelayBuffer secondaryBuffer;
 	ImpulseResponseProcessor ir_processor;
+	SaturatingTapDelay saturatingTapDelay;
 
 	uint32_t countCyclesWithoutChange;
 	int32_t userRateLastTime;
 	bool pingPong = true;
-	bool analog = false;
+	Type type = Type::DIGITAL;
 
 	SyncType syncType = SYNC_TYPE_EVEN;
 

@@ -1130,6 +1130,8 @@ Delay::State GlobalEffectable::createDelayWorkingState(ParamManager& paramManage
                                                        bool soundComingIn) {
 
 	Delay::State delayWorkingState;
+	// Kit, audio clip and song buffers come after the sounds' post-FX volume, 2 bits hotter than inside a Sound
+	delayWorkingState.saturation_reference_log2 = 29;
 	UnpatchedParamSet* unpatchedParams = paramManager.getUnpatchedParamSet();
 
 	delayWorkingState.delayFeedbackAmount =
