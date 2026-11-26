@@ -153,6 +153,7 @@
 #include "gui/menu_item/patch_cable_strength/fixed.h"
 #include "gui/menu_item/patch_cables.h"
 #include "gui/menu_item/patched_param/integer.h"
+#include "gui/menu_item/patched_param/integer_fine.h"
 #include "gui/menu_item/patched_param/integer_non_fm.h"
 #include "gui/menu_item/patched_param/pan.h"
 #include "gui/menu_item/performance_session_view/editing_mode.h"
@@ -639,17 +640,17 @@ PLACE_SDRAM_BSS UnpatchedParam srrMenu{STRING_FOR_DECIMATION, params::UNPATCHED_
 PLACE_SDRAM_BSS UnpatchedParam bitcrushMenu{STRING_FOR_BITCRUSH, params::UNPATCHED_BITCRUSHING, RenderingStyle::BAR};
 PLACE_SDRAM_BSS patched_param::Integer foldMenu{STRING_FOR_WAVEFOLD, STRING_FOR_WAVEFOLD, params::LOCAL_FOLD,
                                                 RenderingStyle::BAR};
-PLACE_SDRAM_BSS patched_param::Integer driveMenu{STRING_FOR_DRIVE, STRING_FOR_DRIVE, params::LOCAL_DRIVE,
-                                                 RenderingStyle::BAR};
+PLACE_SDRAM_BSS patched_param::IntegerFine driveMenu{STRING_FOR_DRIVE, STRING_FOR_DRIVE, params::LOCAL_DRIVE,
+                                                     RenderingStyle::BAR};
 
 PLACE_SDRAM_BSS HorizontalMenu soundDistortionMenu{
     STRING_FOR_DISTORTION,
     {
         &clippingMenu,
+        &driveMenu,
         &bitcrushMenu,
         &srrMenu,
         &foldMenu,
-        &driveMenu,
     },
 };
 

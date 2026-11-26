@@ -39,6 +39,10 @@ bool isParamPan(Kind kind, int32_t paramID) {
 	       || (kind == Kind::UNPATCHED_GLOBAL && paramID == UNPATCHED_PAN);
 }
 
+bool isParamFineDisplay(Kind kind, int32_t paramID) {
+	return kind == Kind::PATCHED && paramID == LOCAL_DRIVE;
+}
+
 bool isParamArpRhythm(Kind kind, int32_t paramID) {
 	return (kind == Kind::UNPATCHED_SOUND && paramID == UNPATCHED_ARP_RHYTHM);
 }

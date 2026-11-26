@@ -549,9 +549,10 @@ Here is a list of general improvements that have been made, ordered from newest 
 
 ### 3.41 - Drive
 
-- A new `DRIVE` parameter for synths and kit rows, in `DISTORTION` next to `WAVEFOLD`, and on the unlabelled pad just below the `WAVEFOLD` pad. <Badge text="c1.4" variant="tip" />
+- A new `DRIVE` parameter for synths and kit rows, in `DISTORTION` right after `SATURATION`, and on the unlabelled pad just below the `WAVEFOLD` pad. <Badge text="c1.4" variant="tip" />
   - Each voice is driven into a hard clip followed by a polynomial soft-clip curve. The drive sets how hard: the small-signal gain goes from about 1.2x just above 0 to 8x (+18 dB) at the maximum. It is not level-compensated, so more drive is louder, and it is not antialiased.
   - It runs before `SATURATION`; both can be used together.
+  - It shows 0 to 127, in the menu and when turning a gold knob, instead of the usual 0 to 50; the knob itself works as before.
   - `0` is off. It can be assigned to a gold knob or a MIDI CC, patched, automated and note-locked like other synth parameters, and is saved in presets and songs (as `drive`, only when it is used).
   - Old presets and songs load with drive off.
 

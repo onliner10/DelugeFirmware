@@ -1402,6 +1402,11 @@ int32_t View::calculateKnobPosForDisplay(params::Kind kind, int32_t paramID, int
 	float maxMenuRelativeValueFloat = static_cast<float>(kMaxMenuRelativeValue);
 	float valueForDisplayFloat;
 
+	// Params shown with finer steps: 0 - 128 to 0 - 127
+	if (isParamFineDisplay(kind, paramID)) {
+		return static_cast<int32_t>(std::round((knobPosFloat / maxKnobPosFloat) * kMaxFineMenuValue));
+	}
+
 	// calculate parameter value for display by converting 0 - 128 range to same range as menu (0 - 50)
 	valueForDisplayFloat = (knobPosFloat / maxKnobPosFloat) * maxMenuValueFloat;
 

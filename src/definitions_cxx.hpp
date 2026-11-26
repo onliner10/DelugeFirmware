@@ -328,6 +328,8 @@ constexpr PatchSource kFirstLocalSource = PatchSource::ENVELOPE_0;
 
 // regular menu range e.g. 0 - 50
 constexpr int32_t kMaxMenuValue = 50;
+/// Params shown with finer steps (see params::isParamFineDisplay()) go 0 to this instead of 0 to kMaxMenuValue
+constexpr int32_t kMaxFineMenuValue = 127;
 constexpr int32_t kMinMenuValue = 0;
 constexpr int32_t kMidMenuValue = kMinMenuValue + ((kMaxMenuValue - kMinMenuValue) / 2);
 
