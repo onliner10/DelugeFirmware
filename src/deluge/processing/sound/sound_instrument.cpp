@@ -377,8 +377,7 @@ bool drumIsPlayed(Song* song, Kit* kit, Drum* drum) {
 }
 
 void setSynthIdle(Song* song, SoundInstrument* synth, bool idle) {
-	if (!idle || synth->sampleStartsIdle) {
-		synth->setSampleStartsIdle(idle);
+	if (idle == synth->sampleStartsIdle) {
 		return;
 	}
 	// The notes its Clips play, including any octaves the arpeggiator adds, as in loadAudioFilesForPreview()
@@ -401,7 +400,7 @@ void setSynthIdle(Song* song, SoundInstrument* synth, bool idle) {
 			}
 		}
 	}
-	synth->setSampleStartsIdle(true, notes.span(), !fits);
+	synth->setSampleStartsIdle(idle, notes.span(), !fits);
 }
 
 } // namespace

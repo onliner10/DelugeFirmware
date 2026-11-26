@@ -5212,16 +5212,6 @@ void Sound::setSampleStartsIdle(bool idle, std::span<const int16_t> usedNotes, b
 			continue;
 		}
 		int32_t numRanges = source.ranges.getNumElements();
-		if (!idle) {
-			bool reversed = source.sampleControls.isCurrentlyReversed();
-			for (int32_t e = 0; e < numRanges; e++) {
-				SampleHolder* holder = static_cast<SampleHolder*>(source.ranges.getElement(e)->getAudioFileHolder());
-				if (holder->audioFile != nullptr) {
-					holder->claimClusterReasons(reversed, CLUSTER_ENQUEUE);
-				}
-			}
-			continue;
-		}
 
 		// How far, in semitones, each zone is from the nearest used note: 0 if one plays it
 		constexpr int32_t kMaxZonesSorted = 128;
@@ -5240,8 +5230,13 @@ void Sound::setSampleStartsIdle(bool idle, std::span<const int16_t> usedNotes, b
 			}
 		}
 
-		// Release the farthest first, so they're the first stolen within their queue
-		for (int32_t pass = allUsed ? 0 : 255; pass >= 0; pass--) {
+		// Releasing: the farthest first, so they're the first stolen within their queue. Claiming back: the nearest
+		// first, so the zones the Clips play are first in the loading queue.
+		bool reversed = source.sampleControls.isCurrentlyReversed();
+		int32_t firstPass = allUsed ? 0 : (idle ? 255 : 0);
+		int32_t lastPass = allUsed ? 0 : (idle ? 0 : 255);
+		int32_t step = idle ? -1 : 1;
+		for (int32_t pass = firstPass; pass != lastPass + step; pass += step) {
 			for (int32_t e = 0; e < numRanges; e++) {
 				int32_t d = allUsed ? 0 : distance[e];
 				if (d != pass) {
@@ -5249,6 +5244,10 @@ void Sound::setSampleStartsIdle(bool idle, std::span<const int16_t> usedNotes, b
 				}
 				auto* holder = static_cast<SampleHolderForVoice*>(source.ranges.getElement(e)->getAudioFileHolder());
 				if (holder->audioFile == nullptr) {
+					continue;
+				}
+				if (!idle) {
+					holder->claimClusterReasons(reversed, CLUSTER_ENQUEUE);
 					continue;
 				}
 				Cluster::IdleStart mark = d ? Cluster::IdleStart::UNUSED_ZONE : Cluster::IdleStart::USED_ZONE;
