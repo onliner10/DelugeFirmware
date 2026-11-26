@@ -186,6 +186,11 @@ StealableQueue Cluster::getAppropriateQueue() {
 
 	// Or, if it has a Sample...
 	else if (sample) {
+		if (idleSampleStart != IdleStart::NO && sample->numReasonsToBeLoaded) {
+			return idleSampleStart == IdleStart::UNUSED_ZONE ? StealableQueue::CURRENT_SONG_IDLE_UNUSED_SAMPLE_STARTS
+			                                                 : StealableQueue::CURRENT_SONG_IDLE_SAMPLE_STARTS;
+		}
+
 		q = sample->numReasonsToBeLoaded ? StealableQueue::CURRENT_SONG_SAMPLE_DATA
 		                                 : StealableQueue::NO_SONG_SAMPLE_DATA;
 
@@ -271,6 +276,7 @@ void Cluster::addReason() {
 	if (this->numReasonsToBeLoaded == 0) {
 		this->remove();
 	}
+	idleSampleStart = IdleStart::NO;
 
 	this->numReasonsToBeLoaded++;
 }

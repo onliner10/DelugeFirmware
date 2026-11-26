@@ -337,6 +337,12 @@ public:
 
 	/// @brief Immediately ends all active voices
 	void killAllVoices() override;
+	/// Whether this Sound's Clips can't be heard soon (see idleSampleStartsTask()). If so, the start-of-sample Clusters
+	/// of its sample zones are released into the CURRENT_SONG_IDLE_..._SAMPLE_STARTS queues, to be stolen only once
+	/// plain song data has gone: zones none of usedNotes (already transposed) fall in first, farthest from them first.
+	/// allZonesUsed means don't tell zones apart. Otherwise the Clusters are claimed (and reloaded if stolen) again.
+	void setSampleStartsIdle(bool idle, std::span<const int16_t> usedNotes = {}, bool allZonesUsed = true);
+	bool sampleStartsIdle = false;
 
 	/// @brief Get the voice with the lowest priority
 	/// @return The voice with the lowest priority

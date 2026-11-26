@@ -72,6 +72,10 @@ public:
 	bool unloadable = false;
 	bool extraBytesAtStartConverted = false;
 	bool extraBytesAtEndConverted = false;
+	/// Released by an idle Sound (Sound::setSampleStartsIdle()): goes in one of the CURRENT_SONG_IDLE_..._SAMPLE_STARTS
+	/// queues. Cleared by the next addReason().
+	enum class IdleStart : uint8_t { NO, UNUSED_ZONE, USED_ZONE };
+	IdleStart idleSampleStart = IdleStart::NO;
 
 	Sample* sample = nullptr;
 	SampleCache* sampleCache = nullptr;

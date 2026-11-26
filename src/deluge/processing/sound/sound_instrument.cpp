@@ -18,8 +18,11 @@
 #include "processing/sound/sound_instrument.h"
 #include "definitions_cxx.hpp"
 #include "dsp/stereo_sample.h"
+#include "gui/views/arranger_view.h"
 #include "gui/views/view.h"
 #include "model/clip/instrument_clip.h"
+#include "model/drum/drum.h"
+#include "model/instrument/kit.h"
 #include "model/model_stack.h"
 #include "model/note/note_row.h"
 #include "model/song/clip_iterators.h"
@@ -29,8 +32,10 @@
 #include "modulation/params/param_manager.h"
 #include "modulation/params/param_set.h"
 #include "modulation/patch/patch_cable_set.h"
+#include "playback/mode/arrangement.h"
 #include "playback/playback_handler.h"
 #include "processing/engines/audio_engine.h"
+#include "processing/sound/sound_drum.h"
 #include "storage/audio/audio_file_manager.h"
 #include "storage/storage_manager.h"
 #include "util/misc.h"
@@ -348,6 +353,101 @@ void loadLazyAudioFilesTask() {
 		if (output->type == OutputType::SYNTH
 		    && static_cast<SoundInstrument*>(output)->loadLazyAudioFile(loadTheRest)) {
 			return; // One file at a time
+		}
+	}
+}
+
+namespace {
+
+// Whether drum has notes in any of kit's Clips
+bool drumIsPlayed(Song* song, Kit* kit, Drum* drum) {
+	for (Clip* clip : AllClips::everywhere(song)) {
+		if (clip->output != kit || clip->type != ClipType::INSTRUMENT) {
+			continue;
+		}
+		auto* instrumentClip = static_cast<InstrumentClip*>(clip);
+		for (int32_t i = 0; i < instrumentClip->noteRows.getNumElements(); i++) {
+			NoteRow* noteRow = instrumentClip->noteRows.getElement(i);
+			if (noteRow->drum == drum && !noteRow->hasNoNotes()) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+void setSynthIdle(Song* song, SoundInstrument* synth, bool idle) {
+	if (!idle || synth->sampleStartsIdle) {
+		synth->setSampleStartsIdle(idle);
+		return;
+	}
+	// The notes its Clips play, including any octaves the arpeggiator adds, as in loadAudioFilesForPreview()
+	PreviewNotes notes(synth->transpose);
+	bool fits = true;
+	for (Clip* clip : AllClips::everywhere(song)) {
+		if (clip->output != synth || clip->type != ClipType::INSTRUMENT) {
+			continue;
+		}
+		auto* instrumentClip = static_cast<InstrumentClip*>(clip);
+		int32_t numOctaves =
+		    (instrumentClip->arpSettings.mode == ArpMode::OFF) ? 1 : instrumentClip->arpSettings.numOctaves;
+		for (int32_t i = 0; fits && i < instrumentClip->noteRows.getNumElements(); i++) {
+			NoteRow* noteRow = instrumentClip->noteRows.getElement(i);
+			if (noteRow->hasNoNotes()) {
+				continue;
+			}
+			for (int32_t o = 0; o < numOctaves; o++) {
+				fits = fits && notes.add(noteRow->y + o * 12);
+			}
+		}
+	}
+	synth->setSampleStartsIdle(true, notes.span(), !fits);
+}
+
+} // namespace
+
+void idleSampleStartsTask() {
+	Song* song = currentSong;
+	if (song == nullptr || audioFileManager.thingTypeBeingLoaded != ThingType::NONE) {
+		return;
+	}
+	// The arrangement can start any Clip, with no arming beforehand to give us time to reload
+	bool everythingWanted =
+	    getRootUI() == &arrangerView || (playbackHandler.isEitherClockActive() && currentPlaybackMode == &arrangement);
+	bool anySoloing = song->getAnyClipsSoloing();
+	Clip* currentClip = song->getCurrentClip(); // The one shown or last shown: its audition pads may be played
+	Output* onScreen = currentClip != nullptr ? currentClip->output : nullptr;
+
+	for (Output* output = song->firstOutput; output; output = output->next) {
+		if (output->type != OutputType::SYNTH && output->type != OutputType::KIT) {
+			continue;
+		}
+		// Also anything that MIDI is learned to, as notes may come in any time
+		bool wanted =
+		    everythingWanted || output == onScreen || static_cast<Instrument*>(output)->midiInput.containsSomething();
+		for (int32_t c = 0; !wanted && c < song->sessionClips.getNumElements(); c++) {
+			Clip* clip = song->sessionClips.getClipAtIndex(c);
+			wanted = clip->output == output
+			         && (clip->soloingInSessionMode || (clip->activeIfNoSolo && !anySoloing)
+			             || clip->armState != ArmState::OFF);
+		}
+		if (output->type == OutputType::SYNTH) {
+			setSynthIdle(song, static_cast<SoundInstrument*>(output), !wanted);
+			continue;
+		}
+		auto* kit = static_cast<Kit*>(output);
+		for (Drum* drum = kit->firstDrum; drum; drum = drum->next) {
+			if (drum->type != DrumType::SOUND) {
+				continue;
+			}
+			auto* soundDrum = static_cast<SoundDrum*>(drum);
+			bool idle = !wanted && !drum->midiInput.containsSomething();
+			if (idle && !soundDrum->sampleStartsIdle) {
+				soundDrum->setSampleStartsIdle(true, {}, drumIsPlayed(song, kit, drum));
+			}
+			else {
+				soundDrum->setSampleStartsIdle(idle);
+			}
 		}
 	}
 }

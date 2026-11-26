@@ -97,3 +97,6 @@ public:
 /// Scheduler task: loads, one at a time, the samples that loadAudioFilesForPreview() left out. First those the
 /// visible audition pads play, then, once the user has stopped changing presets for a moment, the rest.
 void loadLazyAudioFilesTask();
+/// Lets the start-of-sample Clusters of Instruments that can't be heard soon be stolen (Sound::setSampleStartsIdle()):
+/// in session mode, those with no active or armed Clip that aren't the one on screen and have no MIDI learned to them.
+void idleSampleStartsTask();
