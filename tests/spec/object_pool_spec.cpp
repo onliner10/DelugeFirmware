@@ -11,6 +11,16 @@ using namespace deluge::memory;
 
 using ObjectPoolType = ObjectPool<int, TrackingAllocator>;
 
+namespace {
+struct Throwing {
+	explicit Throwing(bool shouldThrow) {
+		if (shouldThrow) {
+			throw 1;
+		}
+	}
+};
+} // namespace
+
 // clang-format off
 describe object_pool("ObjectPool", $ {
 	before_each([] {
@@ -87,6 +97,67 @@ describe object_pool("ObjectPool", $ {
 			expect(op.size()).to_equal(16);
 		}
 		expect(op.size()).to_equal(16);
+	});
+
+	it("counts the objects handed out and not yet recycled", _{
+		auto& op = ObjectPoolType::get();
+		expect(op.numLive()).to_equal(0);
+		{
+			auto a = op.acquire();
+			auto b = op.acquire();
+			expect(op.numLive()).to_equal(2);
+			a.reset();
+			expect(op.numLive()).to_equal(1);
+		}
+		expect(op.numLive()).to_equal(0);
+	});
+
+	it("counts objects whether they come from the pool or are freshly allocated", _{
+		auto& op = ObjectPoolType::get();
+		op.resize(2);
+		{
+			std::vector<ObjectPoolType::pointer_type> held;
+			for (int i = 0; i < 5; i++) {
+				held.push_back(op.acquire());
+			}
+			expect(op.numLive()).to_equal(5);
+			held.erase(held.begin() + 1);
+			expect(op.numLive()).to_equal(4);
+			held.clear();
+		}
+		// Recycling past capacity deallocates, and that counts the same
+		expect(op.numLive()).to_equal(0);
+		expect(op.size()).to_equal(2);
+	});
+
+	it("keeps the count across resize, repopulate and clear", _{
+		auto& op = ObjectPoolType::get();
+		auto obj = op.acquire();
+		op.resize(4);
+		op.repopulate();
+		op.clear();
+		op.repopulate();
+		expect(op.numLive()).to_equal(1);
+		obj.reset();
+		expect(op.numLive()).to_equal(0);
+	});
+
+	it("doesn't count an object whose constructor throws", _{
+		using ThrowingPool = ObjectPool<Throwing, TrackingAllocator>;
+		auto& op = ThrowingPool::get();
+		bool threw = false;
+		try {
+			auto obj = op.acquire(true);
+		} catch (int) {
+			threw = true;
+		}
+		expect(threw).to_be_true();
+		expect(op.numLive()).to_equal(0);
+		{
+			auto obj = op.acquire(false);
+			expect(op.numLive()).to_equal(1);
+		}
+		expect(op.numLive()).to_equal(0);
 	});
 
 	it("empty() should return true when the pool is empty", _{

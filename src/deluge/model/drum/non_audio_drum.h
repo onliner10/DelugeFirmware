@@ -27,7 +27,14 @@ class NonAudioDrum : public Drum, public ModControllable {
 	bool state_ = false;
 
 public:
-	NonAudioDrum(DrumType newType) : Drum(newType) {}
+	NonAudioDrum(DrumType newType) : Drum(newType), lastVelocity(0), channel(0) { num_existing++; }
+	~NonAudioDrum() override { num_existing--; }
+	// Not copyable, so the count above can't miss one
+	NonAudioDrum(const NonAudioDrum&) = delete;
+	NonAudioDrum& operator=(const NonAudioDrum&) = delete;
+
+	/// How many MIDI and gate drums exist, in any Kit. While there are none, no NoteRow can have one
+	static inline int32_t num_existing = 0;
 
 	// Voiced overrides
 	bool anyNoteIsOn() final { return state_; };

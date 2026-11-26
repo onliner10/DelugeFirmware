@@ -144,7 +144,7 @@ constexpr uint32_t kToHostRingFrames = 1024;
 std::array<StereoSample, kToHostRingFrames> toHostRing;
 std::atomic<uint32_t> toHostWritten{0};
 std::atomic<uint32_t> toHostRead{0};
-// Maps frame counts in toHostRing to positions in the SSI TX buffer: (count + this) % SSI_TX_BUFFER_NUM_SAMPLES. -1
+// Maps frame counts in toHostRing to positions in the SSI TX buffer: (count + this) % ssiTxRingNumSamples. -1
 // until sendToHost() has given us something to go by
 std::atomic<int32_t> toHostTxOffset{-1};
 
@@ -544,20 +544,20 @@ void fromHostDmaComplete(uint32_t) {
 }
 
 // How many frames are waiting in the SSI TX buffer for the codec to play, up to and including txFrame (an index into
-// it). 1 to SSI_TX_BUFFER_NUM_SAMPLES - the audio engine counts both ends being in the same place as it being full
+// it). 1 to ssiTxRingNumSamples - the audio engine counts both ends being in the same place as it being full
 uint32_t txFramesQueued(uint32_t txFrame) {
 	uint32_t playing =
 	    (reinterpret_cast<int32_t*>(getTxBufferCurrentPlace()) - getTxBufferStart()) / NUM_MONO_OUTPUT_CHANNELS;
-	return ((txFrame - playing - 1) & (SSI_TX_BUFFER_NUM_SAMPLES - 1)) + 1;
+	return ((txFrame - playing - 1) & (ssiTxRingNumSamples - 1)) + 1;
 }
 
 // How many frames to send the host this USB frame. 44.1 on average, nudged by one either way to follow our sample
 // clock - which a host doing implicit feedback then copies, so this sets the rate both ways.
 //
 // What we steer by is the backlog: frames the codec's played that we haven't sent yet. The audio routine renders
-// anywhere up to a TX buffer (128 frames) ahead of the codec, depending on how busy it is, so how full toHostRing is
-// swings around by that much on its own - which a busy Deluge made us chase, running dry and stopping to rebuild. The
-// backlog only moves with the codec's clock against the USB one
+// anywhere up to a TX ring (128 frames, or 256) ahead of the codec, depending on how busy it is, so how full toHostRing
+// is swings around by that much on its own - which a busy Deluge made us chase, running dry and stopping to rebuild.
+// The backlog only moves with the codec's clock against the USB one
 constexpr int32_t kToHostTargetBacklog = 96;
 constexpr int32_t kToHostTolerance = 24;
 uint32_t toHostRateAccumulator = 0;
@@ -922,11 +922,14 @@ void startToHost() {
 
 // How far ahead of the codec's playback we aim to have the host's audio, in frames. That's what's in the ring past the
 // read position, plus what's already queued in the TX buffer in front of the render reading it - which is anywhere from
-// almost nothing to a whole TX buffer (128 frames), depending on how busy the audio routine is. Steering by the fill
-// alone, as we used to, chased those swings: a busy Deluge kept running the ring dry and restarting it. This only moves
-// with the host's clock against ours. A render window can take up to 128 frames, and needs them all there already -
-// the worst case for queued + window is ~190 - and packets bring ~44 at a time
-constexpr uint32_t kFromHostTargetLatency = 256;
+// almost nothing to a whole TX ring (128 frames normally), depending on how busy the audio routine is. Steering by the
+// fill alone, as we used to, chased those swings: a busy Deluge kept running the ring dry and restarting it. This only
+// moves with the host's clock against ours. A render window can take up to 128 frames, and needs them all there already
+// - the worst case for queued + window is ~190 - and packets bring ~44 at a time. With the bigger TX ring there can be
+// that many more frames queued, so it's that much more
+uint32_t fromHostTargetLatency() {
+	return 256 + (ssiTxRingNumSamples - SSI_TX_BUFFER_NUM_SAMPLES);
+}
 // How far the (averaged) latency can drift before we drop or repeat a frame. Packet and render timing jitter alone move
 // it a lot less than this once averaged
 constexpr int32_t kFromHostTolerance = 48;
@@ -938,7 +941,7 @@ struct {
 	uint32_t generation = 0;
 	bool primed = false;
 	uint32_t readFrame = 0;
-	int32_t averageLatency = kFromHostTargetLatency << 8; // 24.8 fixed point
+	int32_t averageLatency = 256 << 8; // 24.8 fixed point. Set to fromHostTargetLatency() whenever the read starts
 	uint32_t framesSinceCorrection = 0;
 } fromHostReader;
 
@@ -963,6 +966,7 @@ void skipFromHost(uint32_t numFrames) {
 // input into output2. txQueued is how many frames the codec has to play before it gets to these
 void readFromHost(int32_t* output, int32_t* output2, size_t numFrames, uint32_t txQueued) {
 	auto& reader = fromHostReader;
+	uint32_t const target_latency = fromHostTargetLatency();
 	uint32_t generation = fromHostGeneration.load(std::memory_order_relaxed);
 	if (reader.generation != generation) {
 		// A new stream - anything left in the ring is from the last one
@@ -981,7 +985,7 @@ void readFromHost(int32_t* output, int32_t* output2, size_t numFrames, uint32_t 
 			reader.readFrame = written; // Must have been from the previous stream
 			fill = 0;
 		}
-		if (fill + txQueued < kFromHostTargetLatency) {
+		if (fill + txQueued < target_latency) {
 			std::memset(output, 0, numFrames * sizeof(StereoSample));
 			if (output2 != nullptr) {
 				std::memset(output2, 0, numFrames * sizeof(StereoSample));
@@ -989,10 +993,10 @@ void readFromHost(int32_t* output, int32_t* output2, size_t numFrames, uint32_t 
 			fromHostRead.store(reader.readFrame, std::memory_order_release);
 			return;
 		}
-		fill = kFromHostTargetLatency - txQueued;
+		fill = target_latency - txQueued;
 		reader.readFrame = written - fill;
 		reader.primed = true;
-		reader.averageLatency = kFromHostTargetLatency << 8;
+		reader.averageLatency = static_cast<int32_t>(target_latency << 8);
 		reader.framesSinceCorrection = 0;
 	}
 
@@ -1000,7 +1004,7 @@ void readFromHost(int32_t* output, int32_t* output2, size_t numFrames, uint32_t 
 	reader.averageLatency += ((int32_t)((fill + txQueued) << 8) - reader.averageLatency) >> 5;
 	reader.framesSinceCorrection += numFrames;
 	if (reader.framesSinceCorrection >= kFromHostCorrectionInterval) {
-		int32_t error = (reader.averageLatency >> 8) - (int32_t)kFromHostTargetLatency;
+		int32_t error = (reader.averageLatency >> 8) - static_cast<int32_t>(target_latency);
 		if (error > kFromHostTolerance && fill > 0) {
 			reader.readFrame++; // Host's faster - drop a frame
 			fill--;
@@ -1334,9 +1338,9 @@ void sendToHost(std::span<const StereoSample> frames, int32_t const* txPosition,
 	// both here and to the TX buffer. Leaving it alone otherwise means the service interrupt can't catch it out of step
 	// with toHostWritten, between the two stores
 	uint32_t txFrame = (txPosition - getTxBufferStart()) / NUM_MONO_OUTPUT_CHANNELS;
-	auto txOffset = (int32_t)((txFrame - written) & (SSI_TX_BUFFER_NUM_SAMPLES - 1));
-	if (txOffset != toHostTxOffset.load(std::memory_order_relaxed)) {
-		toHostTxOffset.store(txOffset, std::memory_order_relaxed);
+	auto tx_offset = (int32_t)((txFrame - written) & (ssiTxRingNumSamples - 1));
+	if (tx_offset != toHostTxOffset.load(std::memory_order_relaxed)) {
+		toHostTxOffset.store(tx_offset, std::memory_order_relaxed);
 	}
 	toHostWritten.store(written, std::memory_order_release);
 }

@@ -75,6 +75,7 @@ SettingToggle menuShowBatteryLevel(RuntimeFeatureSettingType::ShowBatteryLevel);
 RoundedCornersSettingToggle menuRoundedCorners(RuntimeFeatureSettingType::RoundedCorners);
 Setting menuShortcutOverlay(RuntimeFeatureSettingType::ShortcutOverlay);
 SettingToggle menuFastPresetScrolling(RuntimeFeatureSettingType::FastPresetScrolling);
+SettingToggle menuBiggerOutputQueue(RuntimeFeatureSettingType::BiggerOutputQueue);
 SettingToggle menuCharacterFx(RuntimeFeatureSettingType::CharacterFx);
 
 std::array<MenuItem*, RuntimeFeatureSettingType::MaxElement - kNonTopLevelSettings> subMenuEntries{
@@ -104,6 +105,7 @@ std::array<MenuItem*, RuntimeFeatureSettingType::MaxElement - kNonTopLevelSettin
     &menuShowBatteryLevel,
     &menuShortcutOverlay,
     &menuFastPresetScrolling,
+    &menuBiggerOutputQueue,
     &menuCharacterFx};
 
 Settings::Settings(l10n::String name, l10n::String title) : menu_item::Submenu(name, title, subMenuEntries) {

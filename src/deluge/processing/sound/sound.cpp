@@ -1687,7 +1687,7 @@ void Sound::noteOnPostArpeggiator(ModelStackWithSoundFlags* modelStack, int32_t 
 			    synthMode == SynthMode::FM
 			    || std::ranges::any_of(std::views::iota(0, kNumSources),
 			                           [&](int32_t s) {
-				                           return voice->noteLocks.sourceActiveCurrently(*this, s, paramManager)
+				                           return voice->noteLocks.sourceActiveCurrently(modelStack, s)
 				                                  && sources[s].oscType != OscType::SAMPLE;
 			                           })
 			    || (voice->envelopes[0].state != EnvelopeStage::FAST_RELEASE
@@ -2171,11 +2171,12 @@ bool Sound::allowsVeryLateNoteStart(InstrumentClip* clip, ParamManagerForTimelin
 	return true;
 }
 
-bool Sound::isSourceActiveCurrently(int32_t s, ParamManagerForTimeline* paramManager) {
+bool Sound::isSourceActiveCurrently(ModelStackWithSoundFlags* modelStack, int32_t s) {
+	auto* paramManager = static_cast<ParamManagerForTimeline*>(modelStack->paramManager);
 	return (synthMode == SynthMode::RINGMOD
 	        || getSmoothedPatchedParamValue(params::LOCAL_OSC_A_VOLUME + s, *paramManager) != -2147483648)
 	       && (synthMode == SynthMode::FM || sources[s].oscType != OscType::SAMPLE
-	           || sources[s].hasAtLeastOneAudioFileLoaded());
+	           || modelStack->checkSourceHasAudioFile(s));
 }
 
 bool Sound::isSourceActiveEverDisregardingMissingSample(int32_t s, ParamManager* paramManager) {

@@ -14,6 +14,8 @@ add_library(deluge_spec STATIC
 ../../src/deluge/hid/display/starfield.cpp
 ../../src/deluge/hid/display/rainfall.cpp
 ../../src/deluge/dsp/reverb/freeverb/freeverb.cpp
+../../src/deluge/dsp/oscillators/sine_osc.cpp
+../../src/deluge/dsp/filter/lpladder.cpp
 ../../src/deluge/dsp/reverb/fdn.cpp
 mock_allocator.cpp
 ../32bit_unit_tests/mocks/mock_display.cpp
@@ -26,6 +28,14 @@ target_include_directories(deluge_spec PUBLIC ../../src/deluge ../../src ../32bi
 # Turns every DelayLine read outside its own reserved region into a hard failure.
 # Compiled out of the firmware; see dsp/reverb/fx_engine.hpp.
 target_compile_definitions(deluge_spec PUBLIC DELUGE_DSP_BOUNDS_CHECK=1)
+
+# Round float maths the way the Cortex-A9 does, so a NEON path can be held to its scalar original
+# bit for bit: in SSE registers rather than x87's 80-bit ones. And no MMX, which SIMDe uses for
+# 64-bit NEON vectors and which, lacking an EMMS, leaves the x87 stack that i386 still returns
+# floats on full of NaNs.
+if (UNIX AND NOT APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i.86")
+  target_compile_options(deluge_spec PUBLIC -msse2 -mfpmath=sse -mno-mmx -Wno-psabi)
+endif ()
 
 set_target_properties(deluge_spec PROPERTIES
   CXX_STANDARD 23

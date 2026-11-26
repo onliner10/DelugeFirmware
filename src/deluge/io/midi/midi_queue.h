@@ -28,12 +28,13 @@
 constexpr uint32_t kSystemTicksPerSampleQ8 = ((uint64_t)DELUGE_CLOCKS_PER << 8) / kSampleRate;
 
 /// Samples from the start of a render window until the playhead plays offset in it, given how many samples the playhead
-/// was then from lapping the start of the window
-int32_t samplesTilWindowOffsetPlays(int32_t samplesBeforeLappingPlayHead, int32_t offset);
+/// was then from lapping the start of the window, and how many the TX ring holds (ssiTxRingNumSamples)
+int32_t samplesTilWindowOffsetPlays(int32_t samplesBeforeLappingPlayHead, int32_t offset, int32_t txRingNumSamples);
 
-/// Time the playhead reaches offset in a render window, given the system timer time at the start of the window and how
-/// many samples the playhead was then from lapping the start of the window
-uint32_t dueAtWindowOffset(uint32_t windowStartTicks, int32_t samplesBeforeLappingPlayHead, int32_t offset);
+/// Time the playhead reaches offset in a render window, given the system timer time at the start of the window, how
+/// many samples the playhead was then from lapping the start of the window, and how many the TX ring holds
+uint32_t dueAtWindowOffset(uint32_t windowStartTicks, int32_t samplesBeforeLappingPlayHead, int32_t offset,
+                           int32_t txRingNumSamples);
 
 struct QueuedMIDI {
 	MIDIMessage message;
@@ -49,7 +50,7 @@ static_assert(sizeof(QueuedMIDI) == 12);
 class MIDIQueue {
 public:
 	static constexpr size_t kCapacity = 256;
-	/// Due times are never legitimately more than an audio buffer or so ahead
+	/// Due times are never legitimately more than the biggest TX ring plus a render (384 samples, 8.7ms) ahead
 	static constexpr int32_t kMaxTicksAhead = DELUGE_CLOCKS_PER / 100;
 
 	/// Producer only. A due time in the past or more than kMaxTicksAhead after now is stale (e.g. the audio routine

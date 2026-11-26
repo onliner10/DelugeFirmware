@@ -72,6 +72,7 @@ enum RuntimeFeatureSettingType : uint32_t {
 	RoundedCorners,
 	ShortcutOverlay,
 	FastPresetScrolling,
+	BiggerOutputQueue,
 	CharacterFx,
 	MaxElement // Keep as boundary
 };

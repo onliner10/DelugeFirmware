@@ -222,12 +222,20 @@ justInsertRecord:
 			FREEZE_WITH_ERROR("M123");
 		}
 		i = emptySpaces.insertAtKeyMultiWord((uint32_t*)&newRecord, insertRangeBegin);
+		if (i == -1) {
+			// The array's full, so one empty space has to go without a record - and with no record, it can't be
+			// allocated from until a neighbour is freed and merges with it. So make it the smallest one, which is the
+			// first record, rather than this one: losing track of a few bytes between two allocations costs nothing,
+			// but this space may be megabytes that were just stolen back from unused Clusters.
+			if (emptySpaces.getNumElements() > 0
+			    && ((EmptySpaceRecord*)emptySpaces.getElementAddress(0))->length < spaceSize) {
+				emptySpaces.deleteAtIndex(0, 1, false);
+				i = emptySpaces.insertAtKeyMultiWord((uint32_t*)&newRecord);
+			}
 #if ALPHA_OR_BETA_VERSION
-		if (i == -1) { // Array might have gotten full. This has to be coped with. Perhaps in a perfect world we should
-			           // opt to throw away the smallest empty space to make space for this one if this one is bigger?
 			D_PRINTLN("Lost track of empty space in region:  %s", name);
-		}
 #endif
+		}
 	}
 
 	if (false) {

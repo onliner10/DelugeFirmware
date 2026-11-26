@@ -210,6 +210,11 @@ void RuntimeFeatureSettings::init() {
 	                  STRING_FOR_COMMUNITY_FEATURE_FAST_PRESET_SCROLLING, "fastPresetScrolling",
 	                  RuntimeFeatureStateToggle::On);
 
+	// Bigger Output Queue. Only read at start-up - see AudioEngine::applyOutputQueueSetting()
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::BiggerOutputQueue],
+	                  STRING_FOR_COMMUNITY_FEATURE_BIGGER_OUTPUT_QUEUE, "biggerOutputQueue",
+	                  RuntimeFeatureStateToggle::Off);
+
 	// Character FX: alternative bitcrush and sample-rate reduction curves (dsp/character_fx.h)
 	SetupOnOffSetting(settings[RuntimeFeatureSettingType::CharacterFx], STRING_FOR_COMMUNITY_FEATURE_CHARACTER_FX,
 	                  "characterFx", RuntimeFeatureStateToggle::Off);

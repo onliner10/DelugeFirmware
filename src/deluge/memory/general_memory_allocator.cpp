@@ -25,7 +25,9 @@
 // these are never used directly, they're just reserving raw memory for use in the allocator  and clang tidy is unhappy
 // NOLINTBEGIN
 // TODO: Check if these have the right size
-PLACE_INTERNAL_FRUNK char emptySpacesMemory[sizeof(EmptySpaceRecord) * 512];
+// The stealable region. A big song's own allocations overflow into it once the other regions are full, and each one
+// can leave a small gap beside the Clusters around it - hundreds of them, each needing a record
+PLACE_INTERNAL_FRUNK char emptySpacesMemory[sizeof(EmptySpaceRecord) * 2048];
 PLACE_INTERNAL_FRUNK char emptySpacesMemoryInternal[sizeof(EmptySpaceRecord) * 1024];
 PLACE_INTERNAL_FRUNK char emptySpacesMemoryInternalSmall[sizeof(EmptySpaceRecord) * 256];
 PLACE_INTERNAL_FRUNK char emptySpacesMemoryGeneral[sizeof(EmptySpaceRecord) * 256];

@@ -148,6 +148,15 @@ void routineWithClusterLoading(bool mayProcessUserActionsBetween = false);
 void runRoutine();
 
 void init();
+/// Grows the queue of rendered audio in front of the codec (the SSI TX ring) from 128 samples to 256 if the community
+/// feature for it is on. For once at start-up, after the settings have been read and before anything plays or records:
+/// from then on everything goes by ssiTxRingNumSamples, whatever the setting's changed to. If the DMA doesn't take to
+/// the bigger ring, the queue stays as it was and the setting's shown as off
+void applyOutputQueueSetting();
+/// How many samples of rendered audio can be queued in front of the codec (the size of the SSI TX ring), which is how
+/// far behind the engine what's heard is. SSI_TX_BUFFER_NUM_SAMPLES unless applyOutputQueueSetting() grew it. The
+/// input's read as far behind again as this, so audio from the input comes back out two of these later
+int32_t getOutputQueueNumSamples();
 /// The volume context for a sample preview: the params the preview drum should adopt so that it sounds like the
 /// instrument or kit-row the sample will be loaded into (issue #1591). Values are already fully resolved - the song and
 /// kit output stages have been folded in by the caller.
@@ -198,7 +207,10 @@ char* getEmptyLogEntry();
 void printLog();
 #endif
 int32_t getNumAudio();
+/// The number of Voices assigned to all Sounds. O(1): the Voice pool's count of Voices handed out
 int32_t getNumVoices();
+/// The same, by summing every Sound's voices (O(number of Sounds)). For checking getNumVoices()
+int32_t countVoicesInSounds();
 bool doSomeOutputting();
 void updateReverbParams();
 

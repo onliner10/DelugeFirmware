@@ -44,6 +44,7 @@
 #include "model/instrument/kit.h"
 #include "model/mod_controllable/mod_controllable_audio.h"
 #include "model/sample/sample_recorder.h"
+#include "model/settings/runtime_feature_settings.h"
 #include "model/song/song.h"
 #include "model/voice/voice.h"
 #include "model/voice/voice_sample.h"
@@ -67,6 +68,7 @@
 #include "util/misc.h"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <bits/ranges_algo.h>
 #include <cstdint>
 #include <cstring>
@@ -101,6 +103,13 @@ uint32_t disableInterrupts[] = {INTC_ID_SPRI0,
 using namespace deluge;
 
 extern int32_t spareRenderingBuffer[][SSI_TX_BUFFER_NUM_SAMPLES];
+
+/// How many samples the SSI TX ring holds - the most that can be queued in front of the codec. Normally
+/// SSI_TX_BUFFER_NUM_SAMPLES; see AudioEngine::applyOutputQueueSetting(). A render is at most SSI_TX_BUFFER_NUM_SAMPLES
+/// whichever it is. Signed like that constant, for the sums it's in
+[[gnu::always_inline]] static inline int32_t txRingNumSamples() {
+	return (int32_t)ssiTxRingNumSamples;
+}
 
 // #define REPORT_CPU_USAGE 1
 
@@ -356,6 +365,12 @@ void init() {
 }
 
 void killAllVoices(bool deletingSong) {
+	// Rare enough (song swaps, stopping everything) to check the O(1) voice count against a full count here
+	if constexpr (ALPHA_OR_BETA_VERSION) {
+		if (getNumVoices() != countVoicesInSounds()) {
+			FREEZE_WITH_ERROR("A001");
+		}
+	}
 	for (Sound* sound : sounds) {
 		sound->killAllVoices();
 	}
@@ -510,7 +525,16 @@ int32_t getNumAudio() {
 	return currentSong != nullptr ? currentSong->countAudioVoices() : 0;
 }
 
+// Every live Voice from VoicePool is in exactly one Sound's voices_, and every Sound is in `sounds`: a Voice is only
+// acquired straight into Sound::voices_ (Sound::acquireVoice()), is only recycled by being erased from there or by
+// voices_ itself going away, and a Sound adds itself to `sounds` when it's constructed and removes itself when it's
+// destroyed. So the pool's live count is the sum of all Sounds' voice counts, without visiting every Sound (every kit
+// row is one) and taking a cache miss on each
 int32_t getNumVoices() {
+	return static_cast<int32_t>(VoicePool::get().numLive());
+}
+
+int32_t countVoicesInSounds() {
 	return std::transform_reduce(sounds.cbegin(), sounds.cend(), 0, std::plus{},
 	                             [](auto sound) { return sound->voices().size(); });
 }
@@ -649,9 +673,9 @@ size_t getRenderSize(size_t numSamples, int32_t timeTilNextTick) {
 	// when the CPU's busy, doubling can make a render take longer than the backlog it's catching up on. Never fewer
 	// than there's space for, though
 	if (numSamples > spaceInBuffer) {
-		float timeAvailable = (float)(SSI_TX_BUFFER_NUM_SAMPLES - (int32_t)spaceInBuffer - kRenderSafetyMargin)
-		                      - songTickReserve(timeTilNextTick);
-		float sizeAllowed = renderCost.sizeFor(timeAvailable);
+		float time_available = (float)(txRingNumSamples() - (int32_t)spaceInBuffer - kRenderSafetyMargin)
+		                       - songTickReserve(timeTilNextTick);
+		float sizeAllowed = renderCost.sizeFor(time_available);
 		if (sizeAllowed < (float)numSamples) {
 			numSamples = std::max(spaceInBuffer, (size_t)std::max(sizeAllowed, 0.f));
 		}
@@ -671,7 +695,7 @@ inline void setDireness(size_t numSamples, int32_t timeTilNextTick) {
 	// numSamples is the space in the output buffer, so the rest is still queued for the codec. The next render won't
 	// output anything until it's done, so predict how long it'll take from its size and what recent renders have cost,
 	// plus a song tick if one's due first
-	int32_t queued = SSI_TX_BUFFER_NUM_SAMPLES - (int32_t)numSamples;
+	int32_t queued = txRingNumSamples() - (int32_t)numSamples;
 	size_t renderSize = getRenderSize(numSamples, timeTilNextTick);
 	// If a tick falls within the window, tickSongFinalizeWindows() will cut the render short there
 	if (timeTilNextTick > 0) {
@@ -776,7 +800,8 @@ int32_t windowSamplesBeforeLappingPlayHead = 0;
 
 /// MIDI sent from now on is due when the playhead reaches this offset in the current render window
 void setMIDIDueAtWindowOffset(int32_t offset) {
-	midiEngine.setMIDIDue(dueAtWindowOffset(windowStartTicks, windowSamplesBeforeLappingPlayHead, offset));
+	midiEngine.setMIDIDue(
+	    dueAtWindowOffset(windowStartTicks, windowSamplesBeforeLappingPlayHead, offset, txRingNumSamples()));
 }
 
 void mergeGateOutputs(GateOutputs& into, const GateOutputs& from) {
@@ -960,11 +985,10 @@ float marginAfterAnotherVoiceStart() {
 		// The same prediction setDireness() will make for the next render, from what's queued now
 		size_t space = ((uint32_t)((uint32_t)getTxBufferCurrentPlace() - i2sTXBufferPos)
 		                >> (2 + NUM_MONO_OUTPUT_CHANNELS_MAGNITUDE))
-		               & (SSI_TX_BUFFER_NUM_SAMPLES - 1);
+		               & (txRingNumSamples() - 1);
 		int32_t timeTilNextTick = getTimeTilNextSongTick();
 		size_t renderSize = getRenderSize(space, timeTilNextTick);
-		margin =
-		    (SSI_TX_BUFFER_NUM_SAMPLES - space) - songTickReserve(timeTilNextTick) - renderCost.predict(renderSize);
+		margin = (txRingNumSamples() - space) - songTickReserve(timeTilNextTick) - renderCost.predict(renderSize);
 		perVoice = voiceRenderCost(renderSize);
 	}
 	int32_t newVoices = voices_started_this_render + voicesStartedLastRender + 1;
@@ -1004,8 +1028,8 @@ bool calledFromScheduler = false;
 	GeneralMemoryAllocator::get().checkStack("AudioDriver::routine");
 
 	saddr = (uint32_t)(getTxBufferCurrentPlace());
-	size_t numSamples = ((uint32_t)(saddr - i2sTXBufferPos) >> (2 + NUM_MONO_OUTPUT_CHANNELS_MAGNITUDE))
-	                    & (SSI_TX_BUFFER_NUM_SAMPLES - 1);
+	size_t numSamples =
+	    ((uint32_t)(saddr - i2sTXBufferPos) >> (2 + NUM_MONO_OUTPUT_CHANNELS_MAGNITUDE)) & (txRingNumSamples() - 1);
 
 	if (numSamples <= (10 * numRoutines)) {
 		if (!numRoutines && calledFromScheduler) {
@@ -1028,7 +1052,7 @@ bool calledFromScheduler = false;
 	setDireness(numSamples, timeTilNextTick);
 
 	// What's left of the TX buffer is still waiting for the codec, in front of this render
-	size_t const txQueued = SSI_TX_BUFFER_NUM_SAMPLES - numSamples;
+	size_t const txQueued = txRingNumSamples() - numSamples;
 
 	numSamples = getRenderSize(numSamples, timeTilNextTick);
 	voicesStartedLastRender = voices_started_this_render;
@@ -1481,7 +1505,8 @@ void scheduleMidiGateOutISR(size_t numSamples) {
 
 	// Gates are scheduled the same way as MIDI (see setMIDIDueAtWindowOffset()), so the two stay lined up
 	for (const WindowOutput& windowOutput : windowOutputs) {
-		int32_t samplesTilGate = samplesTilWindowOffsetPlays(windowSamplesBeforeLappingPlayHead, windowOutput.offset);
+		int32_t samplesTilGate =
+		    samplesTilWindowOffsetPlays(windowSamplesBeforeLappingPlayHead, windowOutput.offset, txRingNumSamples());
 
 		// samplesTilMIDI += 10; This gets the start of stuff perfectly lined up. About 10 for MIDI, 12 for gate
 
@@ -1644,14 +1669,14 @@ bool doSomeOutputting() {
 
 		// If we've reached the end of the known space in the output buffer...
 		if (!(((uint32_t)((uint32_t)i2sTXBufferPosNow - saddr) >> (2 + NUM_MONO_OUTPUT_CHANNELS_MAGNITUDE))
-		      & (SSI_TX_BUFFER_NUM_SAMPLES - 1))) {
+		      & (txRingNumSamples() - 1))) {
 
 			// See if there's now some more space.
 			saddr = (uint32_t)getTxBufferCurrentPlace();
 
 			// If there wasn't, stop for now
 			if (!(((uint32_t)((uint32_t)i2sTXBufferPosNow - saddr) >> (2 + NUM_MONO_OUTPUT_CHANNELS_MAGNITUDE))
-			      & (SSI_TX_BUFFER_NUM_SAMPLES - 1))) {
+			      & (txRingNumSamples() - 1))) {
 				break;
 			}
 		}
@@ -2102,6 +2127,59 @@ void doRecorderCardRoutines() {
 	}
 }
 
+int32_t getOutputQueueNumSamples() {
+	return txRingNumSamples();
+}
+
+void applyOutputQueueSetting() {
+	bool wanted = runtimeFeatureSettings.isOn(RuntimeFeatureSettingType::BiggerOutputQueue);
+#if SSI_TX_SECOND_HALF_LINKED_FROM_START
+	wanted = true; // The DMA's already going round the bigger ring, so we have to go by that
+#endif
+	if (!wanted || ssiTxRingNumSamples != SSI_TX_BUFFER_NUM_SAMPLES) {
+		return;
+	}
+
+	// The DMA finds out when it next gets to the end of the first half of the TX buffer, which is within a lap (2.9ms)
+	// - or two, if it had already read where to go next. It's then in the second half for a lap, so looking this often
+	// can't miss it. A couple of samples in, to be sure: its source address is at the very start of the second half
+	// for a moment each time it finishes the first, whichever it then goes on to
+	int32_t const* const well_into_second_half = getTxBufferSecondHalfStart() + (2 * NUM_MONO_OUTPUT_CHANNELS);
+	linkTxBufferSecondHalf();
+	bool linked = false;
+	for (int32_t i = 0; i < 300; i++) { // 30ms
+		if (static_cast<int32_t const*>(getTxBufferCurrentPlace()) >= well_into_second_half) {
+			linked = true;
+			break;
+		}
+		delayUS(100);
+	}
+	if (!linked) {
+		// It never went there, so the ring's as it was, and has to stay that way. Show the setting as off, as it is
+		unlinkTxBufferSecondHalf();
+		runtimeFeatureSettings.set(RuntimeFeatureSettingType::BiggerOutputQueue, RuntimeFeatureStateToggle::Off);
+		D_PRINTLN("bigger output queue: the DMA never reached the second half of the TX buffer");
+		return;
+	}
+
+	// From here the ring's twice the size. Start again as init() does, with what's in the TX buffer counting as queued
+	// (it's silence: nothing's playing yet) and the RX buffer read as far behind as that, plus the usual 16
+	setTxRingNumSamples(SSI_TX_BUFFER_MAX_NUM_SAMPLES);
+	clearTxBuffer();
+	i2sTXBufferPos = std::bit_cast<uint32_t>(getTxBufferCurrentPlace());
+	if (i2sTXBufferPos >= std::bit_cast<uint32_t>(getTxBufferEnd())) {
+		// The DMA's source address is the end of the buffer for a moment before it goes back to the start
+		i2sTXBufferPos = std::bit_cast<uint32_t>(getTxBufferStart());
+	}
+	saddr = i2sTXBufferPos;
+	uint32_t const rx_bytes_behind = static_cast<uint32_t>(txRingNumSamples() + 16)
+	                                 << (2 + NUM_MONO_INPUT_CHANNELS_MAGNITUDE);
+	i2sRXBufferPos = std::bit_cast<uint32_t>(getRxBufferCurrentPlace()) - rx_bytes_behind;
+	if (i2sRXBufferPos < std::bit_cast<uint32_t>(getRxBufferStart())) {
+		i2sRXBufferPos += (SSI_RX_BUFFER_NUM_SAMPLES << (2 + NUM_MONO_INPUT_CHANNELS_MAGNITUDE));
+	}
+}
+
 void slowRoutine() {
 	if (sdRoutineLock) {
 		// can happen if the SD routine is yielding
@@ -2110,23 +2188,21 @@ void slowRoutine() {
 	// The RX buffer is much bigger than the TX, and we get our timing from the TX buffer's sending.
 	// However, if there's an audio glitch, and also at start-up, it's possible we might have missed an entire cycle
 	// of the TX buffer. That would cause the RX buffer's latency to increase. So here, we check for that and
-	// correct it. The correct latency for the RX buffer is between (SSI_TX_BUFFER_NUM_SAMPLES) and (2 *
-	// SSI_TX_BUFFER_NUM_SAMPLES).
+	// correct it. The correct latency for the RX buffer is between one and two TX rings (ssiTxRingNumSamples).
+	uint32_t const tx_ring = ssiTxRingNumSamples;
 
 	uint32_t rxBufferWriteAddr = (uint32_t)getRxBufferCurrentPlace();
 	uint32_t latencyWithinAppropriateWindow =
-	    (((rxBufferWriteAddr - (uint32_t)i2sRXBufferPos) >> (2 + NUM_MONO_INPUT_CHANNELS_MAGNITUDE))
-	     - SSI_TX_BUFFER_NUM_SAMPLES)
+	    (((rxBufferWriteAddr - i2sRXBufferPos) >> (2 + NUM_MONO_INPUT_CHANNELS_MAGNITUDE)) - tx_ring)
 	    & (SSI_RX_BUFFER_NUM_SAMPLES - 1);
 
-	while (latencyWithinAppropriateWindow >= SSI_TX_BUFFER_NUM_SAMPLES) {
-		i2sRXBufferPos += (SSI_TX_BUFFER_NUM_SAMPLES << (2 + NUM_MONO_INPUT_CHANNELS_MAGNITUDE));
+	while (latencyWithinAppropriateWindow >= tx_ring) {
+		i2sRXBufferPos += (tx_ring << (2 + NUM_MONO_INPUT_CHANNELS_MAGNITUDE));
 		if (i2sRXBufferPos >= (uint32_t)getRxBufferEnd()) {
 			i2sRXBufferPos -= (SSI_RX_BUFFER_NUM_SAMPLES << (2 + NUM_MONO_INPUT_CHANNELS_MAGNITUDE));
 		}
 		latencyWithinAppropriateWindow =
-		    (((rxBufferWriteAddr - (uint32_t)i2sRXBufferPos) >> (2 + NUM_MONO_INPUT_CHANNELS_MAGNITUDE))
-		     - SSI_TX_BUFFER_NUM_SAMPLES)
+		    (((rxBufferWriteAddr - i2sRXBufferPos) >> (2 + NUM_MONO_INPUT_CHANNELS_MAGNITUDE)) - tx_ring)
 		    & (SSI_RX_BUFFER_NUM_SAMPLES - 1);
 	}
 

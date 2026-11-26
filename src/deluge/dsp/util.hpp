@@ -19,7 +19,9 @@
 #include "deluge/util/fixedpoint.h"
 #include "deluge/util/functions.h"
 #include <algorithm>
+#include <argon.hpp>
 #include <cmath>
+#include <limits>
 
 namespace deluge::dsp {
 /**
@@ -64,7 +66,7 @@ inline q31_t polynomialOscillatorApproximation(q31_t x) {
 	return out;
 }
 
-inline void foldBufferPolyApproximation(q31_t* startSample, q31_t* endSample, q31_t level) {
+inline void foldBufferPolyApproximationScalar(q31_t* startSample, q31_t const* endSample, q31_t level) {
 	q31_t* currentSample = startSample;
 	q31_t fold_level = add_saturate(level, FOLD_MIN);
 
@@ -78,6 +80,62 @@ inline void foldBufferPolyApproximation(q31_t* startSample, q31_t* endSample, q3
 
 		currentSample += 1;
 	} while (currentSample < endSample);
+}
+
+namespace fold_detail {
+/// multiply_32x32_rshift32 on 4 lanes, exact for every input: the high words of the 64-bit products
+[[gnu::always_inline]] inline int32x4_t multiplyHigh(int32x4_t a, int32x4_t b) {
+	int64x2_t const low = vmull_s32(vget_low_s32(a), vget_low_s32(b));
+	int64x2_t const high = vmull_s32(vget_high_s32(a), vget_high_s32(b));
+	return vcombine_s32(vshrn_n_s64(low, 32), vshrn_n_s64(high, 32));
+}
+
+/// multiply_32x32_rshift32 on 4 lanes, by a factor that is never INT32_MIN: vqdmulh only saturates when both
+/// are INT32_MIN, and otherwise floor(2ab / 2^32) >> 1 == floor(ab / 2^32).
+/// (The factor goes first: SIMDe's host vqdmulh, which the specs run, wrongly saturates when its *first* operand
+/// is INT32_MIN. The NEON instruction does not care about the order.)
+[[gnu::always_inline]] inline int32x4_t multiplyHighByNotMin(int32x4_t a, int32x4_t notMin) {
+	return vshrq_n_s32(vqdmulhq_s32(notMin, a), 1);
+}
+} // namespace fold_detail
+
+/// Same output as foldBufferPolyApproximationScalar(), bit for bit, 4 samples at a time. Every sample is
+/// independent. The "2 *" and "8 *" of polynomialOscillatorApproximation() wrap, and so do the shifts here.
+/// The products of two signals (x * x, x2 * x, r1 * r1, r2 * r1) can have both factors INT32_MIN, so they use
+/// full 64-bit products; the ones by fold_level (> 0, from add_saturate(level > 0, FOLD_MIN)) and THREE_FOURTHS
+/// use vqdmulh.
+inline void foldBufferPolyApproximation(q31_t* startSample, q31_t* endSample, q31_t level) {
+	using namespace fold_detail;
+	q31_t fold_level = add_saturate(level, FOLD_MIN);
+	if (fold_level == std::numeric_limits<q31_t>::min()) [[unlikely]] {
+		foldBufferPolyApproximationScalar(startSample, endSample, level);
+		return;
+	}
+
+	int32x4_t const fold_level_vector = vdupq_n_s32(fold_level);
+	int32x4_t const three_fourths = vdupq_n_s32(THREE_FOURTHS);
+	q31_t* current_sample = startSample;
+	for (; endSample - current_sample >= 4; current_sample += 4) {
+		int32x4_t const c = vld1q_s32(current_sample);
+
+		// lshiftAndSaturateUnknown(.., 8): a saturating shift saturates to INT32_MAX, not to 0x7FFFFF00
+		int32x4_t x = vqshlq_n_s32(multiplyHighByNotMin(c, fold_level_vector), 8);
+		x = vbicq_s32(x, vdupq_n_s32(0xFF));
+
+		int32x4_t const x2 = vshlq_n_s32(multiplyHigh(x, x), 1);
+		int32x4_t const x3 = vshlq_n_s32(multiplyHigh(x2, x), 1);
+		int32x4_t const r1 = vshlq_n_s32(vsubq_s32(multiplyHighByNotMin(x, three_fourths), x3), 3);
+
+		int32x4_t const r2 = vshlq_n_s32(multiplyHigh(r1, r1), 1);
+		int32x4_t const r3 = vshlq_n_s32(multiplyHigh(r2, r1), 1);
+		int32x4_t const out = vshlq_n_s32(vsubq_s32(multiplyHighByNotMin(r1, three_fourths), r3), 3);
+
+		// volume compensation
+		vst1q_s32(current_sample, vshrq_n_s32(out, 7));
+	}
+	if (current_sample < endSample) {
+		foldBufferPolyApproximationScalar(current_sample, endSample, level);
+	}
 }
 /**
  * foldBuffer folds a whole buffer. Works for stereo too
