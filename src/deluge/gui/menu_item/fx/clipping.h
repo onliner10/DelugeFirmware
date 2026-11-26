@@ -15,6 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 #pragma once
+#include "dsp/saturation_setting.h"
 #include "gui/menu_item/integer.h"
 #include "gui/ui/sound_editor.h"
 #include "model/instrument/kit.h"
@@ -30,10 +31,12 @@ class Clipping final : public IntegerWithOff {
 public:
 	using IntegerWithOff::IntegerWithOff;
 
-	void readCurrentValue() override { this->setValue(soundEditor.currentModControllable->clippingAmount); }
+	void readCurrentValue() override {
+		this->setValue(dsp::saturationToMenu(soundEditor.currentModControllable->saturation));
+	}
 	bool usesAffectEntire() override { return true; }
 	void writeCurrentValue() override {
-		int32_t current_value = this->getValue();
+		uint16_t current_value = dsp::saturationFromMenu(this->getValue());
 
 		// If affect-entire button held, do whole kit
 		if (currentUIMode == UI_MODE_HOLDING_AFFECT_ENTIRE_IN_SOUND_EDITOR && soundEditor.editingKitRow()) {
@@ -43,16 +46,16 @@ public:
 			for (Drum* thisDrum = kit->firstDrum; thisDrum != nullptr; thisDrum = thisDrum->next) {
 				if (thisDrum->type == DrumType::SOUND) {
 					auto* soundDrum = static_cast<SoundDrum*>(thisDrum);
-					soundDrum->clippingAmount = current_value;
+					soundDrum->saturation = current_value;
 				}
 			}
 		}
 		// Or, the normal case of just one sound
 		else {
-			soundEditor.currentModControllable->clippingAmount = current_value;
+			soundEditor.currentModControllable->saturation = current_value;
 		}
 	}
-	[[nodiscard]] int32_t getMaxValue() const override { return 15; }
+	[[nodiscard]] int32_t getMaxValue() const override { return dsp::kSaturationMenuMax; }
 	[[nodiscard]] RenderingStyle getRenderingStyle() const override { return BAR; }
 };
 

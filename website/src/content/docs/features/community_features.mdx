@@ -551,9 +551,16 @@ Here is a list of general improvements that have been made, ordered from newest 
 
 - A new `DRIVE` parameter for synths and kit rows, in `DISTORTION` next to `WAVEFOLD`, and on the unlabelled pad just below the `WAVEFOLD` pad. <Badge text="c1.4" variant="tip" />
   - Each voice is driven into a hard clip followed by a polynomial soft-clip curve. The drive sets how hard: the small-signal gain goes from about 1.2x just above 0 to 8x (+18 dB) at the maximum. It is not level-compensated, so more drive is louder, and it is not antialiased.
-  - It runs before `SATURATION`, which is unchanged; both can be used together.
+  - It runs before `SATURATION`; both can be used together.
   - `0` is off. It can be assigned to a gold knob or a MIDI CC, patched, automated and note-locked like other synth parameters, and is saved in presets and songs (as `drive`, only when it is used).
   - Old presets and songs load with drive off.
+
+### 3.42 - Smooth Saturation
+
+- `SATURATION` now goes from 0 to 127 in fine steps instead of 0 to 15. <Badge text="c1.4" variant="tip" />
+  - It is the same antialiased tanh saturation over the same range: 127 is the old 15, and every value in between moves the drive smoothly instead of in 6 dB jumps.
+  - Old presets and songs load at exactly their old amount and sound the same, bit for bit. The menu shows the nearest value, for example the old 3 as 25.
+  - It is saved as `saturation`, with `clippingAmount` alongside it rounded to the old 0 to 15 steps, so older firmware still loads something close.
 
 ## 4. New Features Added
 

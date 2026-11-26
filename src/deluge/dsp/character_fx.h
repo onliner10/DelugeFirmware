@@ -45,8 +45,8 @@ namespace deluge::dsp::character_fx {
 //
 // - Sound-level bitcrush / SRR: 2^24 * 1.64 / 0.40 = 2^26.04, so full scale is 2^26.
 // - Bus-level bitcrush / SRR (kit, audio clip, song master): those buffers come after the sounds' post-FX volume,
-//   and the existing clip-level tanh saturation already treats them as 4x (2 bits) hotter than a voice (shift 3 +
-//   clippingAmount instead of 5 + clippingAmount). Use the same 2 bits: full scale is 2^28.
+//   and the existing clip-level tanh saturation already treats them as 4x (2 bits) hotter than a voice (tanh
+//   shift 3 + amount instead of 5 + amount). Use the same 2 bits: full scale is 2^28.
 // - Per-voice drive: 2^24 * 1.64 / 0.17 = 2^27.26. Not a power of two: it is folded into the drive multiplier,
 //   which costs nothing.
 //

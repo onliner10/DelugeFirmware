@@ -106,7 +106,8 @@ public:
 	StutterConfig stutterConfig;
 
 	bool sampleRateReductionOnLastTime;
-	uint8_t clippingAmount; // Song probably doesn't currently use this?
+	/// Saturation amount in 1/4096 steps of the original 0..15 setting (see dsp/saturation_setting.h); 0 = off.
+	uint16_t saturation;
 	FilterMode lpfMode;
 	FilterMode hpfMode;
 	FilterRoute filterRoute;

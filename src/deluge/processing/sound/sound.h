@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "dsp/saturation_setting.h"
+
 #include "definitions_cxx.hpp"
 #include "dsp/saturation.hpp"
 #include "model/clip/deferred_note_ons.h"
@@ -311,22 +313,20 @@ public:
 	virtual ArpeggiatorBase* getArp() = 0;
 	void possiblySetupDefaultExpressionPatching(ParamManager* paramManager);
 
-	int32_t getShiftAmountForSaturation() const { return (clippingAmount >= 2) ? (clippingAmount - 2) : 0; }
-
-	///	clipping amount must be greater than 0! Check before calling
-	/// Shift amount is givben by getShiftAmountForSaturation
-	[[gnu::always_inline]] void saturate(int32_t* data, uint32_t* workingValue, int32_t shiftAmount) {
-		// Clipping
-		//*data = getTanHUnknown(*data, 5 + clippingAmount) << (shiftAmount);
-		*data = getTanHAntialiased(*data, workingValue, 5 + clippingAmount) << (shiftAmount);
+	/// The voices' saturator for the current amount, worked out again only when the amount changes
+	[[nodiscard]] const deluge::dsp::SaturationSetting& getSaturationSetting() {
+		if (saturationSetting_.amount != saturation) {
+			saturationSetting_ = deluge::dsp::SaturationSetting::make(saturation, 5, 2);
+		}
+		return saturationSetting_;
 	}
-	///	saturate() on every sample of a block, in place. The block holds kNumChannels interleaved channels, each
-	/// with its own working value. Clipping amount must be greater than 0! Check before calling
+	///	Saturate every sample of a block, in place. The block holds kNumChannels interleaved channels, each with its
+	/// own working value. The saturation amount must be greater than 0! Check before calling
 	template <size_t kNumChannels>
 	void saturateBlock(int32_t* data, size_t count, uint32_t* workingValues) {
-		deluge::dsp::saturateTanHAntialiased<kNumChannels>(data, count, workingValues, 5 + clippingAmount,
-		                                                   getShiftAmountForSaturation());
+		getSaturationSetting().applyBlock<kNumChannels>(data, count, workingValues);
 	}
+	deluge::dsp::SaturationSetting saturationSetting_;
 	uint32_t getSyncedLFOPhaseIncrement(const LFOConfig& config);
 
 	/// @brief Does this sound have any active voices?

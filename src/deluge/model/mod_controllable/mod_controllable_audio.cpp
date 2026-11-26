@@ -21,6 +21,7 @@
 #include "deluge/dsp/granular/GranularProcessor.h"
 #include "deluge/model/settings/runtime_feature_settings.h"
 #include "dsp/character_fx.h"
+#include "dsp/saturation_setting.h"
 #include "dsp/stereo_sample.h"
 #include "gui/l10n/l10n.h"
 #include "gui/ui/ui.h"
@@ -70,7 +71,7 @@ ModControllableAudio::ModControllableAudio() {
 	sampleRateReductionOnLastTime = false;
 
 	// Saturation
-	clippingAmount = 0;
+	saturation = 0;
 
 	SyncLevel syncLevel;
 	Song* song = preLoadedSong;
@@ -94,7 +95,7 @@ ModControllableAudio::~ModControllableAudio() {
 void ModControllableAudio::cloneFrom(ModControllableAudio* other) {
 	lpfMode = other->lpfMode;
 	hpfMode = other->hpfMode;
-	clippingAmount = other->clippingAmount;
+	saturation = other->saturation;
 	modFXType_ = other->modFXType_;
 	bassFreq = other->bassFreq; // Eventually, these shouldn't be variables like this
 	trebleFreq = other->trebleFreq;
@@ -602,8 +603,11 @@ void ModControllableAudio::writeAttributesToFile(Serializer& writer) {
 	// Community Firmware parameters (always write them after the official ones, just before closing the parent tag)
 	writer.writeAttribute("hpfMode", (char*)lpfTypeToString(hpfMode));
 	writer.writeAttribute("filterRoute", (char*)filterRouteToString(filterRoute));
-	if (clippingAmount) {
-		writer.writeAttribute("clippingAmount", clippingAmount);
+	if (saturation) {
+		// The nearest whole step for firmware that only knows 0..15, then the exact amount
+		writer.writeAttribute("clippingAmount", std::max<int32_t>(1, (saturation + deluge::dsp::kSaturationStep / 2)
+		                                                                 / deluge::dsp::kSaturationStep));
+		writer.writeAttribute("saturation", saturation);
 	}
 }
 
@@ -927,8 +931,14 @@ Error ModControllableAudio::readTagFromFile(Deserializer& reader, char const* ta
 	}
 
 	else if (!strcmp(tagName, "clippingAmount")) {
-		clippingAmount = reader.readTagOrAttributeValueInt();
+		// Written before "saturation", which overrides it where present
+		int32_t steps = std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, deluge::dsp::kSaturationMaxSteps);
+		saturation = steps * deluge::dsp::kSaturationStep;
 		reader.exitTag("clippingAmount");
+	}
+	else if (!strcmp(tagName, "saturation")) {
+		saturation = std::clamp<int32_t>(reader.readTagOrAttributeValueInt(), 0, deluge::dsp::kSaturationMax);
+		reader.exitTag("saturation");
 	}
 
 	// Arpeggiator

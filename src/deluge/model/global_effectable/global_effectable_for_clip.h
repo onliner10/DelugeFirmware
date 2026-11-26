@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "dsp/saturation_setting.h"
+
 #include "definitions_cxx.hpp"
 #include "dsp/stereo_sample.h"
 #include "model/global_effectable/global_effectable.h"
@@ -44,16 +46,17 @@ public:
 	                            GlobalEffectableForClip** globalEffectableWithMostReverb,
 	                            int32_t* highestReverbAmountFound);
 
-	int32_t getShiftAmountForSaturation() { return (clippingAmount >= 3) ? (clippingAmount - 3) : 0; }
-
-	/// clipping amount must be greater than 0! Check before calling
-	/// Shift amount is givben by getShiftAmountForSaturation
-	[[gnu::always_inline]] q31_t saturate(q31_t data, uint32_t* workingValue, int32_t shiftAmount) {
-		// Clipping
-		return getTanHAntialiased(data, workingValue, 3 + clippingAmount) << (shiftAmount);
+	/// The clip's saturator for the current amount, worked out again only when the amount changes. Clip buffers
+	/// sit 2 bits hotter than a voice, hence the different base and gain point.
+	[[nodiscard]] const deluge::dsp::SaturationSetting& getSaturationSetting() {
+		if (saturationSetting_.amount != saturation) {
+			saturationSetting_ = deluge::dsp::SaturationSetting::make(saturation, 3, 3);
+		}
+		return saturationSetting_;
 	}
 
 	std::array<uint32_t, 2> lastSaturationTanHWorkingValue = {2147483648u, 2147483648u};
+	deluge::dsp::SaturationSetting saturationSetting_;
 
 protected:
 	// The clip's volume and pitch adjust, and the reverb amount for what renderGlobalEffectableForClip() renders.

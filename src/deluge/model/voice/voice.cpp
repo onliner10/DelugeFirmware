@@ -1556,7 +1556,7 @@ skipUnisonPart: {}
 		filterSet.renderLongStereo(oscBuffer, oscBufferEnd);
 
 		// No drive, no clipping
-		if (driveGain == 0 && !sound.clippingAmount) {
+		if (driveGain == 0 && !sound.saturation) {
 
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			StereoSample* __restrict__ outputSample = (StereoSample*)soundBuffer;
@@ -1612,7 +1612,7 @@ skipUnisonPart: {}
 				} while (sample != oscBufferEnd);
 			}
 
-			if (sound.clippingAmount) {
+			if (sound.saturation) {
 				sound.saturateBlock<2>(oscBuffer, numSamples << 1, lastSaturationTanHWorkingValue.data());
 			}
 
@@ -1658,13 +1658,13 @@ skipUnisonPart: {}
 		filterSet.renderLong(oscBuffer, oscBufferEnd, numSamples);
 
 		// No drive, no clipping, mono, not FM: the common case, the amplitude ramp and a mix into the sound's buffer
-		if (driveGain == 0 && !sound.clippingAmount && !soundRenderingInStereo && synthMode != SynthMode::FM) {
+		if (driveGain == 0 && !sound.saturation && !soundRenderingInStereo && synthMode != SynthMode::FM) {
 			dsp::addMonoWithAmplitudeRamp(soundBuffer, oscBuffer, numSamples, overallOscAmplitudeLastTime,
 			                              overallOscillatorAmplitudeIncrement);
 		}
 
 		// No drive, no clipping
-		else if (driveGain == 0 && !sound.clippingAmount) {
+		else if (driveGain == 0 && !sound.saturation) {
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			int32_t* __restrict__ outputSample = soundBuffer;
 			int32_t overallOscAmplitudeNow = overallOscAmplitudeLastTime;
@@ -1716,7 +1716,7 @@ skipUnisonPart: {}
 				} while (++sample != oscBufferEnd);
 			}
 
-			if (sound.clippingAmount) {
+			if (sound.saturation) {
 				sound.saturateBlock<1>(oscBuffer, numSamples, lastSaturationTanHWorkingValue.data());
 			}
 

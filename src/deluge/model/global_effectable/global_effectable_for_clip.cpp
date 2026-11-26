@@ -142,11 +142,11 @@ GlobalEffectableForClip::GlobalEffectableForClip() {
 	compressor.setThreshold(compThreshold);
 
 	// Render saturation
-	if (clippingAmount != 0u) {
-		int32_t shiftAmount = getShiftAmountForSaturation();
+	if (saturation != 0u) {
+		const deluge::dsp::SaturationSetting& setting = getSaturationSetting();
 		for (StereoSample& sample : global_effectable_audio) {
-			sample.l = saturate(sample.l, &lastSaturationTanHWorkingValue[0], shiftAmount);
-			sample.r = saturate(sample.r, &lastSaturationTanHWorkingValue[1], shiftAmount);
+			sample.l = setting.apply(sample.l, &lastSaturationTanHWorkingValue[0]);
+			sample.r = setting.apply(sample.r, &lastSaturationTanHWorkingValue[1]);
 		}
 	}
 
