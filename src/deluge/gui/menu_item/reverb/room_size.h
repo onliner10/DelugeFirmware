@@ -34,6 +34,7 @@ public:
 		switch (AudioEngine::reverb.getModel()) {
 		case dsp::Reverb::Model::DIGITAL:
 		case dsp::Reverb::Model::MUTABLE:
+		case dsp::Reverb::Model::FDN:
 			return l10n::getView(STRING_FOR_TIME);
 		default:
 			return l10n::getView(this->name);

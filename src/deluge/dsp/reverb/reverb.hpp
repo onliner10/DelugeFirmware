@@ -2,6 +2,7 @@
 #include "base.hpp"
 #include "deluge/dsp/reverb/reverb.hpp"
 #include "digital.hpp"
+#include "fdn.hpp"
 #include "freeverb/freeverb.hpp"
 #include "mutable.hpp"
 #include <algorithm>
@@ -16,6 +17,7 @@ public:
 		FREEVERB = 0, // Freeverb is the original
 		MUTABLE,
 		DIGITAL,
+		FDN, // new values go at the end: songs store the number
 	};
 
 	Reverb() : base_(&std::get<reverb::Freeverb>(reverb_)) {
@@ -40,6 +42,9 @@ public:
 		case Model::MUTABLE:
 			base_ = &reverb_.emplace<reverb::Mutable>();
 			break;
+		case Model::FDN:
+			base_ = &reverb_.emplace<reverb::Fdn>();
+			break;
 		}
 		base_->setRoomSize(room_size_);
 		base_->setDamping(damping_);
@@ -62,6 +67,9 @@ public:
 			break;
 		case Model::DIGITAL:
 			reverb_as<Digital>().process(input, output);
+			break;
+		case Model::FDN:
+			reverb_as<Fdn>().process(input, output);
 			break;
 		}
 	}
@@ -112,9 +120,14 @@ private:
 	std::variant<         //<
 	    reverb::Freeverb, //<
 	    reverb::Mutable,  //<
-	    reverb::Digital   //<
+	    reverb::Digital,  //<
+	    reverb::Fdn       //<
 	    >
 	    reverb_{};
+
+	// The variant is as big as its biggest model, and it lives in internal RAM: the FDN model keeps its long lines in
+	// external RAM so it doesn't grow it
+	static_assert(sizeof(reverb::Fdn) <= sizeof(reverb::Mutable));
 
 	Model model_ = Model::FREEVERB;
 

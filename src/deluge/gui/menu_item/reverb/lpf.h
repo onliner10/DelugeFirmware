@@ -34,7 +34,8 @@ public:
 
 	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
 		auto model = AudioEngine::reverb.getModel();
-		return (model == dsp::Reverb::Model::MUTABLE) || (model == dsp::Reverb::Model::DIGITAL);
+		return (model == dsp::Reverb::Model::MUTABLE) || (model == dsp::Reverb::Model::DIGITAL)
+		       || (model == dsp::Reverb::Model::FDN);
 	}
 };
 } // namespace deluge::gui::menu_item::reverb

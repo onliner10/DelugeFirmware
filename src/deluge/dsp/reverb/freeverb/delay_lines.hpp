@@ -29,10 +29,11 @@ namespace freeverb {
 // or a block at a time. A block is done one line at a time, straight through, so a line that wraps round during the
 // block runs on into the overhang after the end of its buffer: that first gets a copy of the start of the buffer, and
 // is copied back there afterwards. The lines are all longer than a block, so the start is up to date when it's copied.
-template <size_t N>
+// T is the sample type: int32_t for Freeverb, float for the FDN model.
+template <size_t N, typename T = int32_t>
 struct DelayLines {
 	// The last maxblockframes words of the buffer are the overhang
-	void setBuffer(size_t i, std::span<int32_t> buffer) {
+	void setBuffer(size_t i, std::span<T> buffer) {
 		begin[i] = buffer.data();
 		end[i] = buffer.data() + buffer.size() - maxblockframes;
 		pos[i] = begin[i];
@@ -41,12 +42,12 @@ struct DelayLines {
 
 	void mute() {
 		for (size_t i = 0; i < N; i++) {
-			std::fill(begin[i], end[i], 0);
+			std::fill(begin[i], end[i], T{});
 		}
 	}
 
 	// Each line's sample from this frame, to be read and then replaced
-	[[gnu::always_inline]] int32_t& operator[](size_t i) { return *pos[i]; }
+	[[gnu::always_inline]] T& operator[](size_t i) { return *pos[i]; }
 
 	[[gnu::always_inline]] void advance() {
 		for (size_t i = 0; i < N; i++) {
@@ -95,9 +96,9 @@ struct DelayLines {
 		}
 	}
 
-	std::array<int32_t*, N> pos;
-	std::array<int32_t*, N> begin;
-	std::array<int32_t*, N> end;
+	std::array<T*, N> pos;
+	std::array<T*, N> begin;
+	std::array<T*, N> end;
 	size_t framesToWrap; // until the first of the lines gets to its end, so always at least 1
 };
 

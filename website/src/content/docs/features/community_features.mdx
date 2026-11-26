@@ -811,6 +811,14 @@ Here is a list of features that have been added to the firmware as a list, group
   set.
 - (#2788) <Badge text="c1.3" variant="tip" /> Added LPF to Mutable Instruments Model. 50 (default) corresponds to 20khz and 0 corresponds to 0hz.
 - (#3277) <Badge text="c1.3" variant="tip" /> Added new Digital reverb model.
+- Added the FDN reverb model: two four-line feedback delay networks fed through eight series allpass diffusers, with
+  no modulation in the tail. The reverb parameters map onto it as follows:
+  - `ROOM SIZE` (shown as `TIME`) sets the decay time, from about 0.46 s at 0 to about 8 s at 44 and 35 s at 49.
+    At 50 the tail freezes: it holds indefinitely and new input is ignored until the setting is lowered.
+  - `DAMPING` sets how much treble each pass through the network loses, from none at 0 to a 1 kHz low-pass at 50.
+  - `WIDTH` blends the stereo return from mono (0) to fully decorrelated (50).
+  - `HPF` and `LPF` filter the reverb input, with the same ranges as on the Mutable and Digital models.
+  - The predelay is fixed at under 1 ms.
 
 ### 4.2.10 - Launch Exclusively
 
