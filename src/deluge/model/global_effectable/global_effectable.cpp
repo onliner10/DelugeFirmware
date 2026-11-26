@@ -733,7 +733,7 @@ void GlobalEffectable::ensureModFXParamIsValid() {
 		}
 		else if (currentModFXParam == ModFXParam::OFFSET) {
 			if (modFXType_ != ModFXType::CHORUS && modFXType_ != ModFXType::CHORUS_STEREO
-			    && modFXType_ != ModFXType::GRAIN) {
+			    && modFXType_ != ModFXType::GRAIN && modFXType_ != ModFXType::TRI_CHORUS) {
 				goto ohNo;
 			}
 		}
@@ -1115,6 +1115,15 @@ ModFXType GlobalEffectable::getActiveModFXType(ParamManager* paramManager) {
 
 	UnpatchedParamSet* unpatchedParams = paramManager->getUnpatchedParamSet();
 
+	// The tri chorus uses feedback and offset as high-pass and width, whose minimum (40 Hz, 0 degrees) is a normal
+	// setting, so only its depth at minimum turns it off
+	if (modFXTypeNow == ModFXType::TRI_CHORUS) {
+		if (unpatchedParams->getValue(params::UNPATCHED_MOD_FX_DEPTH) == -2147483648) {
+			modFXTypeNow = ModFXType::NONE;
+		}
+		return modFXTypeNow;
+	}
+
 	if ((currentModFXParam == ModFXParam::DEPTH
 	     && unpatchedParams->getValue(params::UNPATCHED_MOD_FX_DEPTH) == -2147483648)
 	    || (currentModFXParam == ModFXParam::FEEDBACK
@@ -1173,7 +1182,7 @@ void GlobalEffectable::processFXForGlobalEffectable(std::span<StereoSample> buff
 	// TODO: this saves a tiny amount of memory at the cost of needing allocations during the audio render cycle...
 	// seems kinda dumb
 	if (util::one_of(modFXTypeNow, {ModFXType::CHORUS_STEREO, ModFXType::CHORUS, ModFXType::FLANGER, ModFXType::WARBLE,
-	                                ModFXType::DIMENSION})) {
+	                                ModFXType::DIMENSION, ModFXType::TRI_CHORUS})) {
 		modfx.setupBuffer();
 		disableGrain();
 	}
@@ -1203,8 +1212,9 @@ deluge::vector<std::string_view> getModNames() {
 	    l10n::getView(STRING_FOR_PHASER),        //<
 	    l10n::getView(STRING_FOR_STEREO_CHORUS), //<
 	    l10n::getView(STRING_FOR_WARBLE),
-	    l10n::getView(STRING_FOR_DIMENSION), //<
-	    l10n::getView(STRING_FOR_GRAIN),     //<
+	    l10n::getView(STRING_FOR_DIMENSION),  //<
+	    l10n::getView(STRING_FOR_GRAIN),      //<
+	    l10n::getView(STRING_FOR_TRI_CHORUS), //<
 	};
 }
 
@@ -1221,6 +1231,19 @@ const char* getParamName(ModFXType type, ModFXParam param, bool shortName) {
 			return l10n::get(shortName ? STRING_FOR_GRAIN_RANDOMNESS_SHORT : STRING_FOR_GRAIN_RANDOMNESS);
 		case ModFXParam::OFFSET:
 			return l10n::get(shortName ? STRING_FOR_GRAIN_DENSITY_SHORT : STRING_FOR_GRAIN_DENSITY);
+		default:
+			return l10n::get(STRING_FOR_NONE);
+		}
+	}
+
+	case ModFXType::TRI_CHORUS: {
+		switch (param) {
+		case ModFXParam::DEPTH:
+			return l10n::get(shortName ? STRING_FOR_DEPTH_SHORT : STRING_FOR_DEPTH);
+		case ModFXParam::FEEDBACK:
+			return l10n::get(STRING_FOR_HPF);
+		case ModFXParam::OFFSET:
+			return l10n::get(shortName ? STRING_FOR_WIDTH_SHORT : STRING_FOR_WIDTH);
 		default:
 			return l10n::get(STRING_FOR_NONE);
 		}
@@ -1259,6 +1282,8 @@ const char* modFXToString(ModFXType type) {
 		return l10n::get(STRING_FOR_GRAIN);
 	case ModFXType::WARBLE:
 		return l10n::get(STRING_FOR_WARBLE);
+	case ModFXType::TRI_CHORUS:
+		return l10n::get(STRING_FOR_TRI_CHORUS);
 	default:
 		return l10n::get(STRING_FOR_DISABLED);
 	}

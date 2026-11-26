@@ -23,6 +23,9 @@
 #include <cstdint>
 #include <span>
 
+/// Triangle chorus delay when the LFO is at its low point, in whole samples (5.37 ms at 44.1 kHz)
+constexpr uint32_t kModFXTriChorusBaseSamples = 237;
+
 class ModFXProcessor {
 
 	void setupChorus(const ModFXType& modFXType, int32_t modFXDepth, int32_t* postFXVolume,
@@ -47,7 +50,32 @@ class ModFXProcessor {
 	                                   int32_t feedback, int32_t lfoOutput, int32_t lfo2Output);
 	StereoSample processOnePhaserSample(StereoSample sample, int32_t modFXDepth, int32_t feedback, int32_t lfoOutput);
 
+	/// Per-buffer settings for the triangle chorus, derived from the mod FX params.
+	struct TriChorusSettings {
+		uint32_t phaseIncrement; ///< LFO phase increment per sample (2^32 = one cycle)
+		uint32_t widthPhase;     ///< right-channel LFO phase offset (2^31 = 180 degrees)
+		int32_t sweep;           ///< delay sweep at the triangle peak, Q20 samples, times 2
+		int32_t highPassCoef;    ///< input high-pass one-pole coefficient, Q32
+	};
+	TriChorusSettings setupTriChorus(int32_t modFXRate, int32_t modFXDepth, UnpatchedParamSet* unpatchedParams);
+	// Kept out of line so its loops get registers to themselves
+	[[gnu::noinline]] void processTriChorusBuffer(std::span<StereoSample> buffer, const TriChorusSettings& settings,
+	                                              bool stereo);
+
 public:
+	/// Triangle chorus state for one channel
+	struct TriChorusChannel {
+		int32_t delay;    ///< smoothed delay above the base delay, Q20 samples
+		int32_t highPass; ///< input high-pass: the one-pole low-pass that gets subtracted
+		int32_t lowPass;  ///< wet low-pass, half scale
+	};
+	TriChorusChannel triChorusChannels[2]{};
+	// Last rate -> phase increment and high-pass param -> coefficient conversions (-1: not computed yet)
+	int32_t triChorusCachedRate{-1};
+	uint32_t triChorusCachedPhaseIncrement{0};
+	int32_t triChorusCachedHighPassParam{0};
+	int32_t triChorusCachedHighPassCoef{-1};
+
 	ModFXProcessor() {
 		// Mod FX
 		ModFXProcessor::modFXBuffer = nullptr;

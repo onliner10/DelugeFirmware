@@ -266,6 +266,7 @@ enum class String : size_t {
 	STRING_FOR_PHASER,
 	STRING_FOR_STEREO_CHORUS,
 	STRING_FOR_DIMENSION,
+	STRING_FOR_TRI_CHORUS,
 
 	// gui/menu_item/modulator/destination.h
 	STRING_FOR_CARRIERS,
