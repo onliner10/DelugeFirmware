@@ -18,6 +18,7 @@
 #pragma once
 
 #include "dsp/saturation.hpp"
+#include "dsp/saturation_curves.h"
 #include "util/fixedpoint.h"
 #include <algorithm>
 #include <cmath>
@@ -45,7 +46,7 @@ constexpr int32_t kSaturationMenuMax = 127;
 	return static_cast<uint16_t>((value * kSaturationMax + kSaturationMenuMax / 2) / kSaturationMenuMax);
 }
 
-/// How the antialiased tanh saturator runs for one amount.
+/// How the antialiased saturator runs for one amount and curve type (dsp/saturation_curves.h).
 ///
 /// A whole step n does what the 0..15 setting always did: getTanHAntialiased(x, base + n) << max(n - gainFrom, 0).
 /// Each step drives the tanh 6dB harder; from step gainFrom up the output ceiling stays put and the small-signal gain
@@ -56,15 +57,20 @@ constexpr int32_t kSaturationMenuMax = 127;
 /// also scaled by 2^-f so the gain stays 1. Whole steps take none of this, so they are bit-for-bit what they were.
 struct SaturationSetting {
 	uint16_t amount = 0;
+	SaturationType type = SaturationType::CLASSIC;
+	int16_t const* table = nullptr; ///< the type's antialiased table
 	uint32_t tanhShift = 0;
 	int32_t outShift = 0;
 	q31_t preGain = 0;  ///< q31; 0 = none
 	q31_t postGain = 0; ///< q31, after outShift; 0 = none
 
 	/// base: 5 for a sound's voices, 3 for clips. gainFrom: 2 for voices, 3 for clips.
-	static SaturationSetting make(uint16_t amount, int32_t base, int32_t gainFrom) {
+	static SaturationSetting make(uint16_t amount, int32_t base, int32_t gainFrom,
+	                              SaturationType type = SaturationType::CLASSIC) {
 		SaturationSetting s;
 		s.amount = amount;
+		s.type = type;
+		s.table = saturationTable(type);
 		int32_t n = amount / kSaturationStep;
 		int32_t fraction = amount % kSaturationStep;
 		if (fraction == 0) {
@@ -90,7 +96,7 @@ struct SaturationSetting {
 		if (preGain != 0) {
 			x = doublingMultiplyHigh(x, preGain);
 		}
-		q31_t y = getTanHAntialiased(x, workingValue, tanhShift) << outShift;
+		q31_t y = getTanHAntialiased(x, workingValue, tanhShift, table) << outShift;
 		if (postGain != 0) {
 			y = doublingMultiplyHigh(y, postGain);
 		}
@@ -109,7 +115,7 @@ struct SaturationSetting {
 				data[i] = doublingMultiplyHigh(data[i], preGain);
 			}
 		}
-		saturateTanHAntialiased<kNumChannels>(data, count, workingValues, tanhShift, outShift);
+		saturateTanHAntialiased<kNumChannels>(data, count, workingValues, tanhShift, outShift, table);
 		if (postGain == 0) {
 			return;
 		}

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "dsp/saturation_curves.h"
+
 #include "definitions_cxx.hpp"
 #include "deluge/dsp/granular/GranularProcessor.h"
 #include "dsp/compressor/rms_feedback.h"
@@ -108,6 +110,8 @@ public:
 	bool sampleRateReductionOnLastTime;
 	/// Saturation amount in 1/4096 steps of the original 0..15 setting (see dsp/saturation_setting.h); 0 = off.
 	uint16_t saturation;
+	/// The saturation's shaping curve
+	deluge::dsp::SaturationType saturationType;
 	FilterMode lpfMode;
 	FilterMode hpfMode;
 	FilterRoute filterRoute;

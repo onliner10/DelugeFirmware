@@ -49,8 +49,8 @@ public:
 	/// The clip's saturator for the current amount, worked out again only when the amount changes. Clip buffers
 	/// sit 2 bits hotter than a voice, hence the different base and gain point.
 	[[nodiscard]] const deluge::dsp::SaturationSetting& getSaturationSetting() {
-		if (saturationSetting_.amount != saturation) {
-			saturationSetting_ = deluge::dsp::SaturationSetting::make(saturation, 3, 3);
+		if (saturationSetting_.amount != saturation || saturationSetting_.type != saturationType) {
+			saturationSetting_ = deluge::dsp::SaturationSetting::make(saturation, 3, 3, saturationType);
 		}
 		return saturationSetting_;
 	}

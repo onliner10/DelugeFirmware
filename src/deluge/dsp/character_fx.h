@@ -17,8 +17,8 @@
 
 #pragma once
 
-// Per-voice drive (LOCAL_DRIVE: a polynomial soft clipper), and the "Character FX" community setting's alternative
-// bitcrush (a fractional bit-depth quantizer) and sample-rate reduction (a crossfaded dual sample-and-hold).
+// The "Character FX" community setting's alternative bitcrush (a fractional bit-depth quantizer) and sample-rate
+// reduction (a crossfaded dual sample-and-hold).
 //
 // Each effect is defined on a normalised signal, full scale +-1.0, and a normalised amount p in [0, 1], where p == 0
 // is an exact bypass. Here they run in q31 against a fixed full-scale reference per place in the chain (see below).
@@ -34,11 +34,11 @@ namespace deluge::dsp::character_fx {
 
 // Level references -------------------------------------------------------------------------------------------------
 //
-// The curves are designed so that a full-level sample peaks at about 0.40 of full scale at the quantizer input and
-// at about 0.17 of full scale at the drive input. The references below place a full-level Deluge sample there.
+// The curves are designed so that a full-level sample peaks at about 0.40 of full scale at the quantizer input. The
+// references below place a full-level Deluge sample there.
 //
 // A 0 dBFS 16-bit sample at default Deluge settings (osc volume max, LOCAL_VOLUME 0, envelope at sustain, velocity
-// 100) peaks at about 2^24 * 1.64 at the per-voice drive / saturation point in Voice::render() and at the Sound's
+// 100) peaks at about 2^24 * 1.64 at the per-voice saturation point in Voice::render() and at the Sound's
 // processSRRAndBitcrushing(): sample << 16 = 2^31, times source amplitude 2^25 << 3, times overall amplitude
 // 2^28 << 1, gives 2^24; velocity 100 through the default velocity->volume cable and the volume parabola adds
 // about x1.64. These figures come from reading the code, not from a measurement, so expect a few dB of error.
@@ -47,49 +47,11 @@ namespace deluge::dsp::character_fx {
 // - Bus-level bitcrush / SRR (kit, audio clip, song master): those buffers come after the sounds' post-FX volume,
 //   and the existing clip-level tanh saturation already treats them as 4x (2 bits) hotter than a voice (tanh
 //   shift 3 + amount instead of 5 + amount). Use the same 2 bits: full scale is 2^28.
-// - Per-voice drive: 2^24 * 1.64 / 0.17 = 2^27.26. Not a power of two: it is folded into the drive multiplier,
-//   which costs nothing.
 //
 // The quantizer clips its input at +-full scale, so the references leave a few dB of room over a single full-level
 // sample. SRR does not depend on level.
 constexpr int32_t kSoundFullScaleLog2 = 26;
 constexpr int32_t kBusFullScaleLog2 = 28;
-constexpr double kVoiceDriveFullScale = 16777216.0 * 1.64 / 0.17;
-
-// Polynomial soft clipper (per-voice drive) ------------------------------------------------------------------------
-//
-// drive = 0.1534 + 0.8465 * p^2 (<= 1), y = clip(drive * x, +-1), then y = y * (2 - |y|) three times. Each pass has
-// slope 2 at 0 and 0 at +-1, so the small-signal gain is 8 * drive and the curve meets the rails smoothly. Not level
-// compensated and not antialiased. p is LOCAL_DRIVE's final value (q31, 0 = off: the caller skips it).
-
-/// drive * 2^57 / full scale: smmul by this then << 6 gives drive * x / full scale in q31
-constexpr int32_t kDriveGainForFullDrive = (int32_t)(144115188075855872.0 / kVoiceDriveFullScale);
-/// 2 * full scale: smmul by this takes q31 back to the reference's scale
-constexpr int32_t kDriveOutputGain = (int32_t)(2.0 * kVoiceDriveFullScale);
-
-/// Input gain for drive amount p (q31, > 0). Per block.
-[[gnu::always_inline]] inline int32_t driveInputGain(q31_t amount) {
-	constexpr q31_t kOffset = (q31_t)(0.1534 * 2147483648.0);
-	constexpr q31_t kSlope = (q31_t)(0.8465 * 2147483648.0);
-	q31_t squared = multiply_32x32_rshift32(amount, amount) << 1;
-	q31_t drive = kOffset + (multiply_32x32_rshift32(squared, kSlope) << 1); // at most 0.9999, so no overflow
-	return multiply_32x32_rshift32(drive, kDriveGainForFullDrive) << 1;
-}
-
-/// y * (2 - |y|) in q31, written as y + y * (1 - |y|) so that 2.0 never has to be represented.
-[[gnu::always_inline]] inline q31_t driveShape(q31_t y) {
-	q31_t magnitude = y ^ (y >> 31); // |y|, one LSB short for negatives, so -2^31 can't overflow
-	// y * (1 - |y|) is at most 1/4, so the << 1 can't overflow; the saturating add catches the last LSB at the rails
-	return add_saturate(y, multiply_32x32_rshift32(y, ONE_Q31 - magnitude) << 1);
-}
-
-[[gnu::always_inline]] inline q31_t drive(q31_t x, int32_t inputGain) {
-	q31_t y = lshiftAndSaturate<6>(multiply_32x32_rshift32(x, inputGain)); // clip(drive * x, +-1)
-	y = driveShape(y);
-	y = driveShape(y);
-	y = driveShape(y);
-	return multiply_32x32_rshift32(y, kDriveOutputGain);
-}
 
 // Fractional bit-depth quantizer -----------------------------------------------------------------------------------
 //

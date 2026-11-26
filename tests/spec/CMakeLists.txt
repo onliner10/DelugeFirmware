@@ -17,6 +17,7 @@ add_library(deluge_spec STATIC
 ../../src/deluge/dsp/oscillators/sine_osc.cpp
 ../../src/deluge/dsp/filter/lpladder.cpp
 ../../src/deluge/dsp/reverb/fdn.cpp
+../../src/deluge/dsp/saturation_curves.cpp
 mock_allocator.cpp
 ../32bit_unit_tests/mocks/mock_display.cpp
 ../32bit_unit_tests/mocks/mock_print.cpp

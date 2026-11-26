@@ -315,8 +315,8 @@ public:
 
 	/// The voices' saturator for the current amount, worked out again only when the amount changes
 	[[nodiscard]] const deluge::dsp::SaturationSetting& getSaturationSetting() {
-		if (saturationSetting_.amount != saturation) {
-			saturationSetting_ = deluge::dsp::SaturationSetting::make(saturation, 5, 2);
+		if (saturationSetting_.amount != saturation || saturationSetting_.type != saturationType) {
+			saturationSetting_ = deluge::dsp::SaturationSetting::make(saturation, 5, 2, saturationType);
 		}
 		return saturationSetting_;
 	}

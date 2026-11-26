@@ -32,20 +32,6 @@ int32_t computeFinalValueForStandardMenuItem(int32_t value) {
 	}
 }
 
-int32_t computeCurrentValueForFineMenuItem(int32_t value) {
-	return (((int64_t)value + 2147483648) * kMaxFineMenuValue + 2147483648) >> 32;
-}
-
-int32_t computeFinalValueForFineMenuItem(int32_t value) {
-	if (value >= kMaxFineMenuValue) {
-		return 2147483647;
-	}
-	if (value <= 0) {
-		return -2147483648;
-	}
-	return (int32_t)(((int64_t)value * 4294967296 + kMaxFineMenuValue / 2) / kMaxFineMenuValue - 2147483648);
-}
-
 int32_t computeFinalValueForHalfPrecisionMenuItem(int32_t value) {
 	// comp params and osc pulse width aren't set up for negative inputs
 	if (value == kMaxMenuValue) {
