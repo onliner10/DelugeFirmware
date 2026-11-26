@@ -5232,37 +5232,44 @@ void Sound::setSampleStartsIdle(bool idle, std::span<const int16_t> usedNotes, b
 
 		// Releasing: the farthest first, so they're the first stolen within their queue. Claiming back: the nearest
 		// first, so the zones the Clips play are first in the loading queue.
+		std::array<uint8_t, kMaxZonesSorted> order{};
+		int32_t numOrdered = std::min<int32_t>(numRanges, kMaxZonesSorted);
+		for (int32_t e = 0; e < numOrdered; e++) {
+			order[e] = e;
+		}
+		if (!allUsed) {
+			// std::sort, as std::stable_sort may allocate. Ties keep zone order.
+			std::sort(order.begin(), order.begin() + numOrdered, [&](uint8_t a, uint8_t b) {
+				if (distance[a] != distance[b]) {
+					return idle ? distance[a] > distance[b] : distance[a] < distance[b];
+				}
+				return a < b;
+			});
+		}
 		bool reversed = source.sampleControls.isCurrentlyReversed();
-		int32_t firstPass = allUsed ? 0 : (idle ? 255 : 0);
-		int32_t lastPass = allUsed ? 0 : (idle ? 0 : 255);
-		int32_t step = idle ? -1 : 1;
-		for (int32_t pass = firstPass; pass != lastPass + step; pass += step) {
-			for (int32_t e = 0; e < numRanges; e++) {
-				int32_t d = allUsed ? 0 : distance[e];
-				if (d != pass) {
-					continue;
-				}
-				auto* holder = static_cast<SampleHolderForVoice*>(source.ranges.getElement(e)->getAudioFileHolder());
-				if (holder->audioFile == nullptr) {
-					continue;
-				}
-				if (!idle) {
-					holder->claimClusterReasons(reversed, CLUSTER_ENQUEUE);
-					continue;
-				}
-				Cluster::IdleStart mark = d ? Cluster::IdleStart::UNUSED_ZONE : Cluster::IdleStart::USED_ZONE;
-				for (Cluster* cluster : holder->clustersForStart) {
-					if (cluster != nullptr) {
-						cluster->idleSampleStart = mark;
-					}
-				}
-				for (Cluster* cluster : holder->clustersForLoopStart) {
-					if (cluster != nullptr) {
-						cluster->idleSampleStart = mark;
-					}
-				}
-				holder->unassignAllClusterReasons();
+		for (int32_t i = 0; i < numRanges; i++) {
+			int32_t e = (i < numOrdered) ? order[i] : i;
+			int32_t d = allUsed ? 0 : distance[e];
+			auto* holder = static_cast<SampleHolderForVoice*>(source.ranges.getElement(e)->getAudioFileHolder());
+			if (holder->audioFile == nullptr) {
+				continue;
 			}
+			if (!idle) {
+				holder->claimClusterReasons(reversed, CLUSTER_ENQUEUE);
+				continue;
+			}
+			Cluster::IdleStart mark = d ? Cluster::IdleStart::UNUSED_ZONE : Cluster::IdleStart::USED_ZONE;
+			for (Cluster* cluster : holder->clustersForStart) {
+				if (cluster != nullptr) {
+					cluster->idleSampleStart = mark;
+				}
+			}
+			for (Cluster* cluster : holder->clustersForLoopStart) {
+				if (cluster != nullptr) {
+					cluster->idleSampleStart = mark;
+				}
+			}
+			holder->unassignAllClusterReasons();
 		}
 	}
 }

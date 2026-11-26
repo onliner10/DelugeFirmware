@@ -68,6 +68,17 @@ public:
 	/// Returns whether it loaded one.
 	bool loadLazySample(std::span<const int16_t> notes, bool anyOther);
 	bool hasLazySamples() const { return lazyPending; }
+	/// Whether loadLazySample(notes, false) would find anything to load
+	bool hasLazySampleFor(std::span<const int16_t> notes);
+	/// Gets the start of the zones notes fall in into RAM right now, so they can be played straight away
+	void loadZoneStartsNowFor(std::span<const int16_t> notes);
+	/// Of a big multisample, unloads the zones none of notes fall in, so they're left for loadLazySample() again and
+	/// their samples are the first to be stolen. Only ones loaded from their normal path, so they'll be found again.
+	/// No Voice may be using any of them. Returns whether it unloaded any.
+	bool unloadZonesNotFor(std::span<const int16_t> notes);
+	/// Whether the zones that notes (already transposed) fall in, or all zones if allZones, could start sounding now:
+	/// sample loaded and its first Cluster in RAM. A zone whose file is missing has nothing to wait for.
+	bool zonesReadyFor(std::span<const int16_t> notes, bool allZones);
 	void setReversed(bool newReversed);
 	int32_t getRangeIndex(int32_t note);
 	MultiRange* getRange(int32_t note);

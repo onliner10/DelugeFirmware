@@ -433,3 +433,84 @@ DxPatch* Source::ensureDxPatch() {
     }
 
  */
+
+bool Source::zonesReadyFor(std::span<const int16_t> notes, bool allZones) {
+	if (oscType != OscType::SAMPLE) {
+		return true;
+	}
+	int32_t numRanges = ranges.getNumElements();
+	for (int32_t e = 0; e < numRanges; e++) {
+		if (!allZones && !rangePlaysAnyOf(e, notes)) {
+			continue;
+		}
+		auto* holder = static_cast<SampleHolder*>(ranges.getElement(e)->getAudioFileHolder());
+		if (holder->audioFile == nullptr) {
+			// Still to be loaded lazily? Otherwise the file is missing
+			if (lazyPending && e < kMaxLazyRanges && numRanges == lazyNumRanges && !lazyTried[e]
+			    && !holder->filePath.isEmpty()) {
+				return false;
+			}
+			continue;
+		}
+		Cluster* first = holder->clustersForStart[0];
+		if (first == nullptr || !first->loaded) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool Source::hasLazySampleFor(std::span<const int16_t> notes) {
+	if (!lazyPending || ranges.getNumElements() != lazyNumRanges) {
+		return lazyPending; // Zones changed since: let loadLazySample() sort it out
+	}
+	for (int32_t e = 0; e < lazyNumRanges; e++) {
+		if (!lazyTried[e] && !ranges.getElement(e)->getAudioFileHolder()->audioFile && rangePlaysAnyOf(e, notes)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void Source::loadZoneStartsNowFor(std::span<const int16_t> notes) {
+	if (oscType != OscType::SAMPLE) {
+		return;
+	}
+	for (int32_t e = 0; e < ranges.getNumElements(); e++) {
+		auto* holder = static_cast<SampleHolder*>(ranges.getElement(e)->getAudioFileHolder());
+		if (holder->audioFile != nullptr && rangePlaysAnyOf(e, notes)) {
+			Cluster* first = holder->clustersForStart[0];
+			if (first == nullptr || !first->loaded) {
+				holder->claimClusterReasons(sampleControls.isCurrentlyReversed(), CLUSTER_LOAD_IMMEDIATELY_OR_ENQUEUE);
+			}
+		}
+	}
+}
+
+bool Source::unloadZonesNotFor(std::span<const int16_t> notes) {
+	int32_t numRanges = ranges.getNumElements();
+	if (oscType != OscType::SAMPLE || numRanges < kMinRangesToLoadLazily || numRanges > kMaxLazyRanges) {
+		return false;
+	}
+	if (!lazyPending || lazyNumRanges != numRanges) {
+		// Start lazy bookkeeping afresh: what's loaded counts as tried, what isn't as still to try
+		lazyTried.reset();
+		lazyNumRanges = numRanges;
+		for (int32_t e = 0; e < numRanges; e++) {
+			lazyTried[e] = (ranges.getElement(e)->getAudioFileHolder()->audioFile != nullptr);
+		}
+	}
+	bool unloadedAny = false;
+	for (int32_t e = 0; e < numRanges; e++) {
+		AudioFileHolder* holder = ranges.getElement(e)->getAudioFileHolder();
+		if (holder->audioFile == nullptr || !holder->audioFile->loadedFromAlternatePath.isEmpty()
+		    || rangePlaysAnyOf(e, notes)) {
+			continue;
+		}
+		holder->setAudioFile(nullptr);
+		lazyTried[e] = false;
+		lazyPending = true;
+		unloadedAny = true;
+	}
+	return unloadedAny;
+}

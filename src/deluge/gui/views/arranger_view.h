@@ -110,6 +110,9 @@ public:
 	int32_t autoScrollNumSquaresBehind{};
 
 	int32_t lastInteractedOutputIndex;
+	/// The row last auditioned, which keeps all its samples loaded while in the arranger (see getSampleNeed()). Only
+	/// compared, never followed: it may have been deleted since.
+	Output* lastAuditionedOutput = nullptr;
 	int32_t lastInteractedPos;
 	uint8_t lastInteractedSection;
 	ClipInstance* lastInteractedClipInstance;

@@ -343,6 +343,10 @@ public:
 	/// allZonesUsed means don't tell zones apart. Otherwise the Clusters are claimed (and reloaded if stolen) again.
 	void setSampleStartsIdle(bool idle, std::span<const int16_t> usedNotes = {}, bool allZonesUsed = true);
 	bool sampleStartsIdle = false;
+	/// See Source::zonesReadyFor()
+	bool sampleZonesReadyFor(std::span<const int16_t> notes, bool allZones) {
+		return sources[0].zonesReadyFor(notes, allZones) && sources[1].zonesReadyFor(notes, allZones);
+	}
 
 	/// @brief Get the voice with the lowest priority
 	/// @return The voice with the lowest priority

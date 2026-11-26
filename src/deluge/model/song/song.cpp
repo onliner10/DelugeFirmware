@@ -2383,6 +2383,7 @@ skipInstance:
 
 	AudioEngine::logAction("aaa5.1");
 	sortOutWhichClipsAreActiveWithoutSendingPGMs(modelStack, playbackWillStartInArrangerAtPos);
+	samplesMayLoadLazily = (song_firmware_version >= FirmwareVersion::official({2, 1, 0, "beta"}));
 	AudioEngine::logAction("aaa5.2");
 
 	AudioEngine::routineWithClusterLoading();
@@ -2451,7 +2452,14 @@ readClip:
 void Song::loadAllSamples(bool mayActuallyReadFiles) {
 
 	for (Output* thisOutput = firstOutput; thisOutput; thisOutput = thisOutput->next) {
-		thisOutput->loadAllAudioFiles(mayActuallyReadFiles);
+		// A synth in the arrangement is left out: the arrangement can start its Clips with no time to load
+		if (thisOutput->type == OutputType::SYNTH && samplesMayLoadLazily
+		    && !thisOutput->clipInstances.getNumElements()) {
+			static_cast<SoundInstrument*>(thisOutput)->loadAudioFilesLazily(this, mayActuallyReadFiles);
+		}
+		else {
+			thisOutput->loadAllAudioFiles(mayActuallyReadFiles);
+		}
 	}
 
 	// NOTE: Using AllClips instead of AudioClips to ensure we call into the audio engine during

@@ -280,6 +280,10 @@ public:
 	bool paramsInAutomationMode;
 
 	bool inClipMinderViewOnLoad; // Temp variable only valid while loading Song
+	/// Whether this Song's sample zones may be left unloaded until needed (see
+	/// SoundInstrument::loadAudioFilesLazily()). Not for files from before V2.1, whose zone markers in milliseconds can
+	/// only be converted while loading the Song.
+	bool samplesMayLoadLazily = false;
 
 	int32_t unautomatedParamValues[deluge::modulation::params::kMaxNumUnpatchedParams];
 

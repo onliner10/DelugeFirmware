@@ -159,10 +159,28 @@ gotError:
 		}
 	}
 
-	// Samples not yet loaded after previewing presets wouldn't get copied below, so load them first
-	for (Output* output = currentSong->firstOutput; output; output = output->next) {
-		if (output->type == OutputType::SYNTH && static_cast<SoundInstrument*>(output)->hasLazyAudioFiles()) {
-			output->loadAllAudioFiles(true);
+	// Samples not yet loaded after previewing presets, or since loading the Song, wouldn't get copied below, so load
+	// them first. Those left from loading the Song only need copying if collecting, or if they might be in the Song's
+	// own folder from an earlier collecting.
+	{
+		bool songFolderMightHaveSamples = collectingSamples;
+		if (!songFolderMightHaveSamples) {
+			String songFolder;
+			songFolderMightHaveSamples = audioFileManager.setupAlternateAudioFileDir(
+			                                 songFolder, currentSong->dirPath.get(), currentSong->name.get())
+			                                 != Error::NONE
+			                             || StorageManager::fileExists(songFolder.get());
+		}
+		for (Output* output = currentSong->firstOutput; output; output = output->next) {
+			if (output->type != OutputType::SYNTH) {
+				continue;
+			}
+			auto* synth = static_cast<SoundInstrument*>(output);
+			if (synth->hasLazyAudioFiles() && (!synth->lazyFromSong || songFolderMightHaveSamples)) {
+				output->loadAllAudioFiles(true);
+				// Let idleSampleStartsTask() release the starts of what was just loaded, if it's idle
+				synth->sampleStartsIdle = false;
+			}
 		}
 	}
 

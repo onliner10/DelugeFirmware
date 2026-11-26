@@ -70,6 +70,7 @@
 #include "processing/audio_output.h"
 #include "processing/engines/audio_engine.h"
 #include "processing/sound/sound_drum.h"
+#include "processing/sound/sound_instrument.h"
 #include "processing/stem_export/stem_export.h"
 #include "storage/audio/audio_file_manager.h"
 #include "storage/file_item.h"
@@ -741,6 +742,7 @@ void ArrangerView::beginAudition(Output* output) {
 	}
 
 	Instrument* instrument = (Instrument*)output;
+	lastAuditionedOutput = output;
 
 	if (!playbackHandler.playbackState && !Buttons::isShiftButtonPressed()) {
 
@@ -772,6 +774,10 @@ void ArrangerView::beginAudition(Output* output) {
 		else {
 			int32_t note = (currentSong->key.rootNote + 120) % 12;
 			note += 60;
+			// Its samples may not have been loaded yet (see SoundInstrument::loadAudioFilesLazily())
+			if (instrument->type == OutputType::SYNTH) {
+				static_cast<SoundInstrument*>(instrument)->loadZonesForNoteNow(currentSong, note);
+			}
 			((MelodicInstrument*)instrument)
 			    ->beginAuditioningForNote(modelStack, note, instrument->defaultVelocity, zeroMPEValues);
 		}

@@ -720,6 +720,10 @@ bool StemExport::startCurrentStemExport(StemExportType stemExportType, Output* o
 		return false;
 	}
 
+	// What's just been unmuted may not have its samples loaded, or the start of them in RAM, yet (see
+	// idleSampleStartsTask()): wait for that, for a few seconds at most, so the stem doesn't begin silent
+	yieldWithTimeout([]() { return !session.anyActiveClipWithoutSamples(); }, 5);
+
 	// start resampling which ends when end of track / clip is reached and audio is silent
 	startOutputRecordingUntilLoopEndAndSilence();
 
