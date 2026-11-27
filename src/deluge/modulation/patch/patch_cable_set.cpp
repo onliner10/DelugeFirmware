@@ -56,6 +56,58 @@ void unflagCable(uint32_t* flags, int32_t c) {
 	flags[idx] &= ~((uint32_t)1 << (c & 31));
 }
 
+namespace {
+PatchCable* allocOverflow() {
+	void* memory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(PatchCable) * PatchCableStorage::kNumOverflow);
+	return static_cast<PatchCable*>(memory);
+}
+} // namespace
+
+bool PatchCableStorage::reserve(int32_t numCables) {
+	if (numCables <= capacity()) {
+		return true;
+	}
+	if (numCables > kMaxNumPatchCables) {
+		return false;
+	}
+	PatchCable* overflow = allocOverflow();
+	if (overflow == nullptr) {
+		return false;
+	}
+	for (int32_t c = 0; c < kNumOverflow; c++) {
+		new (&overflow[c]) PatchCable();
+	}
+	overflow_ = overflow;
+	return true;
+}
+
+bool PatchCableStorage::allocOverflowForClone(PatchCableStorage const& other, PatchCable** overflow) {
+	*overflow = nullptr;
+	if (other.overflow_ == nullptr) {
+		return true;
+	}
+	*overflow = allocOverflow();
+	return *overflow != nullptr;
+}
+
+void PatchCableStorage::adoptClone(PatchCable* overflow) {
+	if (overflow_ != nullptr) {
+		memcpy(static_cast<void*>(overflow), overflow_, sizeof(PatchCable) * kNumOverflow);
+	}
+	overflow_ = overflow;
+}
+
+PatchCableStorage::~PatchCableStorage() {
+	if (overflow_ == nullptr) {
+		return;
+	}
+	for (int32_t c = 0; c < kNumOverflow; c++) {
+		overflow_[c].~PatchCable();
+	}
+	delugeDealloc(overflow_);
+	overflow_ = nullptr;
+}
+
 inline void PatchCableSet::freeDestinationMemory(bool destructing) {
 	for (int32_t g = 0; g < 2; g++) {
 		if (destinations[g]) {
@@ -422,8 +474,8 @@ uint8_t PatchCableSet::getPatchCableIndex(PatchSource from, ParamDescriptor dest
 		return 255;
 	}
 
-	// If all patch cables are full up, see if we can overwrite an "unusable" one
-	if (numPatchCables >= kMaxNumPatchCables) {
+	// If all patch cables are full up (or there's no RAM for more), see if we can overwrite an "unusable" one
+	if (!reserveCables(numPatchCables + 1)) {
 		/* Deactivated - what if we overwrote one currently being edited in the SoundEditor? Just fail for now
 		 *
 		if (numUsablePatchCables < maxNumPatchCables) {
@@ -758,7 +810,7 @@ void PatchCableSet::beenCloned(bool copyAutomation, int32_t reverseDirectionWith
 	}
 
 	// This initialization avoids a rare crash! (Ok that comment was from ages ago; not sure about now.)
-	for (; c < kMaxNumPatchCables; c++) {
+	for (; c < patchCables.capacity(); c++) {
 		patchCables[c].param.init();
 	}
 
@@ -822,7 +874,7 @@ void PatchCableSet::readPatchCablesFromFile(Deserializer& reader, int32_t readAu
 	char const* tagName;
 	reader.match('[');
 	while (reader.match('{') && *(tagName = reader.readNextTagOrAttributeName())
-	       && numPatchCables < kMaxNumPatchCables) { // box and name.
+	       && reserveCables(numPatchCables + 1)) { // box and name.
 		if (!strcmp(tagName, "patchCable")) {
 			reader.match('{'); // inner object value.
 			int32_t numCablesAtStartOfThing = numPatchCables;
@@ -856,7 +908,7 @@ void PatchCableSet::readPatchCablesFromFile(Deserializer& reader, int32_t readAu
 				else if (!strcmp(tagName, "depthControlledBy")) {
 					reader.match('[');
 					while (reader.match('{') && *(tagName = reader.readNextTagOrAttributeName())
-					       && numPatchCables < kMaxNumPatchCables - 1) {
+					       && reserveCables(numPatchCables + 2)) {
 						if (!strcmp(tagName, "patchCable")) {
 							reader.match('{');
 							PatchSource rangeSource = PatchSource::NONE;

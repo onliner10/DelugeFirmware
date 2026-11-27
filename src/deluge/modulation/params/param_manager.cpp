@@ -60,6 +60,13 @@ namespace {
 constexpr uint32_t alignCollection(uint32_t size) {
 	return (size + alignof(std::max_align_t) - 1) & ~(alignof(std::max_align_t) - 1);
 }
+
+// The PatchCableSet has an allocation of its own; the other main collections share one.
+bool hasOwnAllocation(ParamCollection const* collection) {
+	// getParamKind() doesn't modify anything, it just isn't declared const
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+	return const_cast<ParamCollection*>(collection)->getParamKind() == deluge::modulation::params::Kind::PATCH_CABLE;
+}
 } // namespace
 
 Error ParamManager::setupMIDI() {
@@ -95,16 +102,22 @@ Error ParamManager::setupUnpatched() {
 Error ParamManager::setupWithPatching() {
 	// The main collections are always allocated, moved and freed together, so they share one
 	// allocation: one block in the allocator's size classes rather than three.
+	// Except the PatchCableSet: with it, they wouldn't fit the 2 KB size class, and there's one of these per kit row
+	// per clip.
 	constexpr uint32_t patched_offset = alignCollection(sizeof(UnpatchedParamSet));
-	constexpr uint32_t patch_cables_offset = patched_offset + alignCollection(sizeof(PatchedParamSet));
-	auto* memory =
-	    static_cast<char*>(GeneralMemoryAllocator::get().allocMaxSpeed(patch_cables_offset + sizeof(PatchCableSet)));
+	constexpr uint32_t main_size = patched_offset + sizeof(PatchedParamSet);
+	static_assert(main_size + 8 <= 2048, "Unpatched and patched params no longer fit a 2 KB block (8 for its header)");
+	auto* memory = static_cast<char*>(GeneralMemoryAllocator::get().allocMaxSpeed(main_size));
 	if (memory == nullptr) {
+		return Error::INSUFFICIENT_RAM;
+	}
+	void* memory_patch_cables = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(PatchCableSet));
+	if (memory_patch_cables == nullptr) {
+		delugeDealloc(memory);
 		return Error::INSUFFICIENT_RAM;
 	}
 	void* memory_unpatched = memory;
 	void* memory_patched = memory + patched_offset;
-	void* memory_patch_cables = memory + patch_cables_offset;
 
 	destructAndForgetMainParamCollections(); // Don't leak a previous setup. Leaves any expression params in slot 0
 	summaries[3] = summaries[0];             // Shuffle the expression params over, rather than overwriting them
@@ -206,18 +219,29 @@ Error ParamManager::cloneParamCollectionsFrom(ParamManager const* other, bool co
 		otherStopAt++;
 	}
 
-	// The main collections share one allocation, as when set up; expression params have their own.
+	// The main collections share one allocation, as when set up; the PatchCableSet and expression params have their
+	// own.
 	ParamCollectionSummary const* other_main_end = &other->summaries[other->expressionParamSetOffset];
 	uint32_t main_size = 0;
 	for (auto const* summary = otherSummary; summary != other_main_end; summary++) {
-		main_size += alignCollection(summary->paramCollection->objectSize);
+		if (!hasOwnAllocation(summary->paramCollection)) {
+			main_size += alignCollection(summary->paramCollection->objectSize);
+		}
 	}
 	char* main_memory = nullptr;
+	PatchCable* cable_overflow = nullptr; // The PatchCableSet's cables beyond its inline ones, if it has any
 	while (otherSummary != otherStopAt) {
 		// To cut corners, we store this currently blank/undefined memory in our array of type ParamCollectionSummary
-		if (otherSummary == other_main_end) {
+		if (otherSummary == other_main_end || hasOwnAllocation(otherSummary->paramCollection)) {
 			newSummary->paramCollection = static_cast<ParamCollection*>(
 			    GeneralMemoryAllocator::get().allocMaxSpeed(otherSummary->paramCollection->objectSize));
+			if (newSummary->paramCollection != nullptr && otherSummary != other_main_end) {
+				auto const* other_cables = static_cast<PatchCableSet const*>(otherSummary->paramCollection);
+				if (!PatchCableStorage::allocOverflowForClone(other_cables->patchCables, &cable_overflow)) {
+					delugeDealloc(newSummary->paramCollection);
+					newSummary->paramCollection = nullptr;
+				}
+			}
 		}
 		else {
 			if (main_memory == nullptr) {
@@ -237,6 +261,14 @@ Error ParamManager::cloneParamCollectionsFrom(ParamManager const* other, bool co
 		if (!newSummary->paramCollection) {
 			if (main_memory != nullptr) {
 				delugeDealloc(main_memory);
+			}
+			for (int32_t i = 0; &newSummaries[i] != newSummary; i++) {
+				if (hasOwnAllocation(other->summaries[i].paramCollection)) {
+					delugeDealloc(newSummaries[i].paramCollection);
+				}
+			}
+			if (cable_overflow != nullptr) {
+				delugeDealloc(cable_overflow);
 			}
 
 			if (this == other) {
@@ -261,6 +293,9 @@ Error ParamManager::cloneParamCollectionsFrom(ParamManager const* other, bool co
 	while (otherSummary != otherStopAt) {
 
 		memcpy(newSummary->paramCollection, otherSummary->paramCollection, otherSummary->paramCollection->objectSize);
+		if (otherSummary != other_main_end && hasOwnAllocation(otherSummary->paramCollection)) {
+			static_cast<PatchCableSet*>(newSummary->paramCollection)->patchCables.adoptClone(cable_overflow);
+		}
 
 		newSummary->paramCollection->beenCloned(
 		    copyAutomation, reverseDirectionWithLength); // Ignore error - just means automation doesn't get cloned.
@@ -341,11 +376,16 @@ void ParamManager::destructAndForgetParamCollections() {
 	expressionParamSetOffset = 0;
 }
 
-// The main collections share the allocation that starts with the first of them.
+// The main collections share the allocation that starts with the first of them, apart from the PatchCableSet.
 void ParamManager::releaseMainParamCollections() {
 	for (int32_t i = 0; i < expressionParamSetOffset; i++) {
-		if (summaries[i].paramCollection) {
-			summaries[i].paramCollection->~ParamCollection();
+		ParamCollection* collection = summaries[i].paramCollection;
+		if (collection) {
+			bool own_allocation = hasOwnAllocation(collection);
+			collection->~ParamCollection();
+			if (own_allocation) {
+				delugeDealloc(collection);
+			}
 		}
 	}
 	if (expressionParamSetOffset > 0 && summaries[0].paramCollection != nullptr) {
