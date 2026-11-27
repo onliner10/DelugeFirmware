@@ -1422,10 +1422,15 @@ void ArrangerView::editPadAction(int32_t x, int32_t y, bool on) {
 
 			// Already pressing - length edit
 			else if (currentUIMode == UI_MODE_HOLDING_ARRANGEMENT_ROW) {
-				// Only when pressing on the same row, and to the right of the currently held pad
+				// Only when pressing on the same row. To the right of the held pad sets the end there; to the
+				// left, inside the held instance, makes the pressed pad its last pad.
 				if (y == yPressedEffective && x > xPressed) {
 					deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::InstanceLength);
 					adjustClipInstanceLength(output, xPressed, y, squareStart, squareEnd);
+				}
+				else if (y == yPressedEffective && x < xPressed) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::InstanceLength);
+					shortenClipInstanceToSquare(output, y, squareEnd);
 				}
 			}
 		}
@@ -1771,6 +1776,40 @@ void ArrangerView::adjustClipInstanceLength(Output* output, int32_t x, int32_t y
 			                      nullptr, clipInstance);
 		}
 	}
+
+	desiredLength = clipInstance->length;
+
+	uiNeedsRendering(this, 1 << y, 0);
+}
+
+/// called from ArrangerView::editPadAction
+/// holding a pad of a clip instance and pressing a pad to its left, inside the same instance, makes that pad the
+/// instance's last pad
+void ArrangerView::shortenClipInstanceToSquare(Output* output, int32_t y, int32_t squareEnd) {
+	actionOnDepress = false;
+
+	if (!pressedClipInstanceIsInValidPosition) {
+		return;
+	}
+
+	ClipInstance* clipInstance = output->clipInstances.getElement(pressedClipInstanceIndex);
+	if (!clipInstance) {
+		return;
+	}
+
+	int32_t newLength = squareEnd - clipInstance->pos;
+
+	// Pressed pad is left of the instance's start, or already its last pad
+	if (newLength <= 0 || newLength >= clipInstance->length) {
+		return;
+	}
+
+	Action* action = actionLogger.getNewAction(ActionType::CLIP_INSTANCE_EDIT, ActionAddition::ALLOWED);
+	if (clipInstance->clip) {
+		arrangement.rowEdited(output, clipInstance->pos + newLength, clipInstance->pos + clipInstance->length,
+		                      clipInstance->clip, nullptr);
+	}
+	clipInstance->change(action, output, clipInstance->pos, newLength, clipInstance->clip);
 
 	desiredLength = clipInstance->length;
 
