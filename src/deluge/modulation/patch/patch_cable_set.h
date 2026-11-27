@@ -38,6 +38,43 @@ struct Destination {
 	uint8_t endCable;
 };
 
+/// A PatchCableSet's cables. The first few - all most sounds ever have - are kept inline; the rest go in one array that
+/// is allocated the first time it's needed, at full size, and then stays where it is. So cables never move, and nothing
+/// holding a pointer into them can be left dangling. (32 inline cables made every kit row's and clip's param
+/// collections a 4 KB block, nearly half of it unused.)
+class PatchCableStorage {
+public:
+	/// As many as fit, with the rest of PatchCableSet, its allocator size class
+	static constexpr int32_t kNumInline = 6;
+	static constexpr int32_t kNumOverflow = kMaxNumPatchCables - kNumInline;
+
+	PatchCable& operator[](int32_t c) { return (c < kNumInline) ? inline_[c] : overflow_[c - kNumInline]; }
+	PatchCable const& operator[](int32_t c) const { return (c < kNumInline) ? inline_[c] : overflow_[c - kNumInline]; }
+
+	/// How many cables there's room for without allocating
+	[[nodiscard]] int32_t capacity() const { return (overflow_ != nullptr) ? kMaxNumPatchCables : kNumInline; }
+
+	/// Makes room for numCables cables, up to kMaxNumPatchCables. False if they don't fit or there isn't the RAM.
+	[[nodiscard]] bool reserve(int32_t numCables);
+
+	/// For cloning: memory for a copy's overflow cables, if other has any. False if they're needed but there isn't the
+	/// RAM. Pass the result to adoptClone() on the copy.
+	[[nodiscard]] static bool allocOverflowForClone(PatchCableStorage const& other, PatchCable** overflow);
+
+	/// After a PatchCableSet was memcpy'd, take over the overflow from allocOverflowForClone() and copy the cables in.
+	/// Like the inline ones, they're shallow copies until their params are told they've been cloned.
+	void adoptClone(PatchCable* overflow);
+
+	PatchCableStorage() = default;
+	PatchCableStorage(PatchCableStorage const&) = delete;
+	PatchCableStorage& operator=(PatchCableStorage const&) = delete;
+	~PatchCableStorage();
+
+private:
+	PatchCable inline_[kNumInline];
+	PatchCable* overflow_ = nullptr;
+};
+
 class PatchCableSet final : public ParamCollection {
 public:
 	PatchCableSet(ParamCollectionSummary* summary);
@@ -107,13 +144,16 @@ public:
 
 	uint32_t sourcesPatchedToAnything[2]; // Only valid after setupPatching()
 
-	PatchCable patchCables[kMaxNumPatchCables]; // TODO: store these in dynamic memory.
+	PatchCableStorage patchCables;
 	uint8_t numUsablePatchCables;
 	uint8_t numPatchCables;
 
 	Destination* destinations[2];
 
 	bool shouldParamIndicateMiddleValue(ModelStackWithParamId const* modelStack) override { return true; };
+
+	/// Makes room for numCables cables. False if over kMaxNumPatchCables or there isn't the RAM
+	[[nodiscard]] bool reserveCables(int32_t numCables) { return patchCables.reserve(numCables); }
 
 	static void dissectParamId(uint32_t paramId, ParamDescriptor* destinationParamDescriptor, PatchSource* s);
 

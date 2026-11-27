@@ -279,13 +279,13 @@ void Sound::possiblySetupDefaultExpressionPatching(ParamManager* paramManager) {
 void Sound::setupDefaultExpressionPatching(ParamManager* paramManager) {
 	PatchCableSet* patchCableSet = paramManager->getPatchCableSet();
 
-	if (patchCableSet->numPatchCables >= kMaxNumPatchCables) {
+	if (!patchCableSet->reserveCables(patchCableSet->numPatchCables + 1)) {
 		return;
 	}
 	patchCableSet->patchCables[patchCableSet->numPatchCables++].setup(PatchSource::AFTERTOUCH, params::LOCAL_VOLUME,
 	                                                                  getParamFromUserValue(params::PATCH_CABLE, 33));
 
-	if (patchCableSet->numPatchCables >= kMaxNumPatchCables) {
+	if (!patchCableSet->reserveCables(patchCableSet->numPatchCables + 1)) {
 		return;
 	}
 
