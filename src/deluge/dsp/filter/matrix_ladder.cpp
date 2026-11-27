@@ -19,13 +19,92 @@
 
 namespace deluge::dsp::filter {
 
-// Each stage is a trapezoidal one-pole: with G = g / (1 + g), its lowpass output is lp = G in + (1 - G) s and its
-// memory becomes s' = 2 lp - s; the highpass output is in - lp. A stage's output is linear in its input and memory, so
-// the ladder's output is linear in the loop input u and the memories, and the feedback u = c x - k y can be solved for
-// u directly: no delay in the loop. Substituting gives the four matrices. c = 1 + k keeps the passband at unity gain (a
-// ladder's passband otherwise drops by 1 / (1 + k) as resonance goes up).
+namespace {
+[[gnu::always_inline]] inline float32x4_t matVec(float32x4_t const (&m)[4], float32x4_t v) {
+	float32x4_t t0 = vmulq_lane_f32(m[0], vget_low_f32(v), 0);
+	float32x4_t t1 = vmulq_lane_f32(m[1], vget_low_f32(v), 1);
+	float32x4_t t2 = vmulq_lane_f32(m[2], vget_high_f32(v), 0);
+	float32x4_t t3 = vmulq_lane_f32(m[3], vget_high_f32(v), 1);
+	return vaddq_f32(vaddq_f32(t0, t1), vaddq_f32(t2, t3));
+}
+// out = m n, all as columns
+[[gnu::always_inline]] inline void matMul(float32x4_t const (&m)[4], float32x4_t const (&n)[4], float32x4_t (&out)[4]) {
+	for (int32_t i = 0; i < 4; i++) {
+		out[i] = matVec(m, n[i]);
+	}
+}
+// Columns <-> rows
+[[gnu::always_inline]] inline void transpose(float32x4_t const (&in)[4], float32x4_t (&out)[4]) {
+	float32x4x2_t const t01 = vtrnq_f32(in[0], in[1]);
+	float32x4x2_t const t23 = vtrnq_f32(in[2], in[3]);
+	out[0] = vcombine_f32(vget_low_f32(t01.val[0]), vget_low_f32(t23.val[0]));
+	out[1] = vcombine_f32(vget_low_f32(t01.val[1]), vget_low_f32(t23.val[1]));
+	out[2] = vcombine_f32(vget_high_f32(t01.val[0]), vget_high_f32(t23.val[0]));
+	out[3] = vcombine_f32(vget_high_f32(t01.val[1]), vget_high_f32(t23.val[1]));
+}
+[[gnu::always_inline]] inline float dot(float32x4_t a, float32x4_t b) {
+	float32x4_t const m = vmulq_f32(a, b);
+	float32x2_t const s = vadd_f32(vget_low_f32(m), vget_high_f32(m));
+	return vget_lane_f32(vpadd_f32(s, s), 0);
+}
+
+// The 2-pole state-variable filter (trapezoidal): hp = (x - (2R + g) s1 - s2) / (1 + 2Rg + g^2), bp = g hp + s1,
+// lp = g bp + s2, s1' = 2 bp - s1, s2' = 2 lp - s2. All linear in x and the memories, so its matrices come straight out
+void svfMatrices(bool highpass, float g, float R, float32x4_t (&a)[4], float32x4_t& b, float32x4_t& c, float& d) {
+	float const h = 1.f / (1.f + 2.f * R * g + g * g);
+	// hp = h x + hp1 s1 + hp2 s2
+	float const hp1 = -h * (2.f * R + g);
+	float const hp2 = -h;
+	// bp = g h x + (g hp1 + 1) s1 + g hp2 s2
+	float const bp1 = g * hp1 + 1.f;
+	float const bp2 = g * hp2;
+	// lp = g^2 h x + g bp1 s1 + (g bp2 + 1) s2
+	float const lp1 = g * bp1;
+	float const lp2 = g * bp2 + 1.f;
+	a[0] = (float32x4_t){2.f * bp1 - 1.f, 2.f * lp1, 0.f, 0.f}; // column for s1
+	a[1] = (float32x4_t){2.f * bp2, 2.f * lp2 - 1.f, 0.f, 0.f}; // column for s2
+	a[2] = vdupq_n_f32(0.f);
+	a[3] = vdupq_n_f32(0.f);
+	b = (float32x4_t){2.f * g * h, 2.f * g * g * h, 0.f, 0.f};
+	if (highpass) {
+		c = (float32x4_t){hp1, hp2, 0.f, 0.f};
+		d = h;
+	}
+	else {
+		c = (float32x4_t){lp1, lp2, 0.f, 0.f};
+		d = g * g * h;
+	}
+}
+
+template <int L>
+using Lane = std::integral_constant<int, L>;
+
+// One sample's step A s + B x, as four independent products added in a tree
+[[gnu::always_inline]] inline float32x4_t step(float32x4_t const (&a)[4], float32x4_t b, float32x4_t s, float32x2_t x,
+                                               auto xLane) {
+	float32x2_t const lo = vget_low_f32(s);
+	float32x2_t const hi = vget_high_f32(s);
+	float32x4_t t0 = vmulq_lane_f32(a[0], lo, 0);
+	float32x4_t const t1 = vmulq_lane_f32(a[1], lo, 1);
+	float32x4_t const t2 = vmulq_lane_f32(a[2], hi, 0);
+	float32x4_t const t3 = vmulq_lane_f32(a[3], hi, 1);
+	t0 = vmlaq_lane_f32(t0, b, x, decltype(xLane)::value);
+	return vaddq_f32(vaddq_f32(t0, t1), vaddq_f32(t2, t3));
+}
+} // namespace
+
+// Ladders: each stage is a trapezoidal one-pole: with G = g / (1 + g), its lowpass output is lp = G in + (1 - G) s and
+// its memory becomes s' = 2 lp - s; the highpass output is in - lp. A stage's output is linear in its input and memory,
+// so the ladder's output is linear in the loop input u and the memories, and the feedback u = c x - k y can be solved
+// for u directly: no delay in the loop. Substituting gives the four matrices. c = 1 + k keeps the passband at unity
+// gain (a ladder's passband otherwise drops by 1 / (1 + k) as resonance goes up).
 void MatrixLadder::configureReference(Topology topology, float g, float k) {
-	lastG_ = -1.f; // configure() mustn't take these for its own
+	lastG_ = 0.f; // configure() mustn't take these for its own
+	if (topology == Topology::SVF_LP || topology == Topology::SVF_HP) {
+		svfMatrices(topology == Topology::SVF_HP, g, k, a_, b_, c_, d_);
+		configureFourSteps();
+		return;
+	}
 	bool const highpass = (topology == Topology::HP4 || topology == Topology::HP2);
 	int32_t const n = (topology == Topology::LP4 || topology == Topology::HP4) ? 4 : 2;
 	float const G = g / (1.f + g);
@@ -100,235 +179,7 @@ void MatrixLadder::configureReference(Topology topology, float g, float k) {
 	configureFourSteps();
 }
 
-namespace {
-[[gnu::always_inline]] inline float32x4_t matVec(float32x4_t const (&m)[4], float32x4_t v) {
-	float32x4_t t0 = vmulq_lane_f32(m[0], vget_low_f32(v), 0);
-	float32x4_t t1 = vmulq_lane_f32(m[1], vget_low_f32(v), 1);
-	t0 = vmlaq_lane_f32(t0, m[2], vget_high_f32(v), 0);
-	t1 = vmlaq_lane_f32(t1, m[3], vget_high_f32(v), 1);
-	return vaddq_f32(t0, t1);
-}
-// out = m * n, all as columns
-[[gnu::always_inline]] inline void matMul(float32x4_t const (&m)[4], float32x4_t const (&n)[4], float32x4_t (&out)[4]) {
-	for (int32_t i = 0; i < 4; i++) {
-		out[i] = matVec(m, n[i]);
-	}
-}
-// Columns <-> rows
-[[gnu::always_inline]] inline void transpose(float32x4_t const (&in)[4], float32x4_t (&out)[4]) {
-	float32x4x2_t const t01 = vtrnq_f32(in[0], in[1]);
-	float32x4x2_t const t23 = vtrnq_f32(in[2], in[3]);
-	out[0] = vcombine_f32(vget_low_f32(t01.val[0]), vget_low_f32(t23.val[0]));
-	out[1] = vcombine_f32(vget_low_f32(t01.val[1]), vget_low_f32(t23.val[1]));
-	out[2] = vcombine_f32(vget_high_f32(t01.val[0]), vget_high_f32(t23.val[0]));
-	out[3] = vcombine_f32(vget_high_f32(t01.val[1]), vget_high_f32(t23.val[1]));
-}
-[[gnu::always_inline]] inline float dot(float32x4_t a, float32x4_t b) {
-	float32x4_t const m = vmulq_f32(a, b);
-	float32x2_t const s = vadd_f32(vget_low_f32(m), vget_high_f32(m));
-	return vget_lane_f32(vpadd_f32(s, s), 0);
-}
-} // namespace
-
-void MatrixLadder::configureFourSteps() {
-	float32x4_t a2[4];
-	float32x4_t a3[4];
-	matMul(a_, a_, a2);
-	matMul(a2, a_, a3);
-	matMul(a3, a_, a4_);
-	float32x4_t const ab = matVec(a_, b_);
-	float32x4_t const a2b = matVec(a2, b_);
-	float32x4_t const a3b = matVec(a3, b_);
-	p_[0] = a3b;
-	p_[1] = a2b;
-	p_[2] = ab;
-	p_[3] = b_;
-	// Row k of O is C A^k, i.e. (A^k)^T C
-	float32x4_t rows[4];
-	float32x4_t r[4];
-	r[0] = c_;
-	transpose(a_, rows);
-	r[1] = matVec(rows, c_);
-	transpose(a2, rows);
-	r[2] = matVec(rows, c_);
-	transpose(a3, rows);
-	r[3] = matVec(rows, c_);
-	// o_[i] holds element i of each row, so O s = sum_i o_[i] s_i
-	transpose(r, o_);
-	float const markov[4] = {d_, dot(c_, b_), dot(c_, ab), dot(c_, a2b)};
-	markov_ = vld1q_f32(markov);
-}
-
-namespace {
-// One step of the recursion: A s + B x, as four independent products added in a tree
-[[gnu::always_inline]] inline float32x4_t stepTree(float32x4_t const (&a)[4], float32x4_t b, float32x4_t s,
-                                                   float32x2_t x, auto xLane) {
-	float32x2_t const lo = vget_low_f32(s);
-	float32x2_t const hi = vget_high_f32(s);
-	float32x4_t t0 = vmulq_lane_f32(a[0], lo, 0);
-	float32x4_t t1 = vmulq_lane_f32(a[1], lo, 1);
-	float32x4_t t2 = vmulq_lane_f32(a[2], hi, 0);
-	float32x4_t t3 = vmulq_lane_f32(a[3], hi, 1);
-	t0 = vmlaq_lane_f32(t0, b, x, decltype(xLane)::value);
-	return vaddq_f32(vaddq_f32(t0, t1), vaddq_f32(t2, t3));
-}
-
-[[gnu::always_inline]] inline float32x4_t stepChain(float32x4_t const (&a)[4], float32x4_t b, float32x4_t s,
-                                                    float32x2_t x, auto xLane) {
-	float32x2_t const lo = vget_low_f32(s);
-	float32x2_t const hi = vget_high_f32(s);
-	float32x4_t t = vmulq_lane_f32(b, x, decltype(xLane)::value);
-	t = vmlaq_lane_f32(t, a[0], lo, 0);
-	t = vmlaq_lane_f32(t, a[1], lo, 1);
-	t = vmlaq_lane_f32(t, a[2], hi, 0);
-	t = vmlaq_lane_f32(t, a[3], hi, 1);
-	return t;
-}
-
-template <int L>
-using Lane = std::integral_constant<int, L>;
-
-template <bool kTree>
-[[gnu::always_inline]] inline void run(float32x4_t const (&a)[4], float32x4_t b, float32x4_t c, float d,
-                                       float32x4_t& state, q31_t* buffer, int32_t numSamples, int32_t stride) {
-	auto step = [&](float32x4_t s, float32x2_t x, auto lane) {
-		if constexpr (kTree) {
-			return stepTree(a, b, s, x, lane);
-		}
-		else {
-			return stepChain(a, b, s, x, lane);
-		}
-	};
-	float32x4_t s = state;
-	int32_t i = 0;
-	for (; i + 4 <= numSamples; i += 4) {
-		q31_t* p = buffer + i * stride;
-		int32x4_t in;
-		int32x4x2_t pair;
-		if (stride == 1) {
-			in = vld1q_s32(p);
-		}
-		else {
-			pair = vld2q_s32(p);
-			in = pair.val[0];
-		}
-		float32x4_t const xs = vcvtq_n_f32_s32(in, 31);
-		float32x2_t const x01 = vget_low_f32(xs);
-		float32x2_t const x23 = vget_high_f32(xs);
-		// The state before each of the four samples - the output is worked out from those after, outside the recursion
-		float32x4_t const s0 = s;
-		s = step(s, x01, Lane<0>{});
-		float32x4_t const s1 = s;
-		s = step(s, x01, Lane<1>{});
-		float32x4_t const s2 = s;
-		s = step(s, x23, Lane<0>{});
-		float32x4_t const s3 = s;
-		s = step(s, x23, Lane<1>{});
-		// y = C s + D x for the four samples at once: transpose so each vector holds one memory across the samples
-		float32x4x2_t const t01 = vtrnq_f32(s0, s1);
-		float32x4x2_t const t23 = vtrnq_f32(s2, s3);
-		float32x4_t const m0 = vcombine_f32(vget_low_f32(t01.val[0]), vget_low_f32(t23.val[0]));
-		float32x4_t const m1 = vcombine_f32(vget_low_f32(t01.val[1]), vget_low_f32(t23.val[1]));
-		float32x4_t const m2 = vcombine_f32(vget_high_f32(t01.val[0]), vget_high_f32(t23.val[0]));
-		float32x4_t const m3 = vcombine_f32(vget_high_f32(t01.val[1]), vget_high_f32(t23.val[1]));
-		float32x4_t y = vmulq_n_f32(xs, d);
-		y = vmlaq_lane_f32(y, m0, vget_low_f32(c), 0);
-		y = vmlaq_lane_f32(y, m1, vget_low_f32(c), 1);
-		y = vmlaq_lane_f32(y, m2, vget_high_f32(c), 0);
-		y = vmlaq_lane_f32(y, m3, vget_high_f32(c), 1);
-		int32x4_t const out = vcvtq_n_s32_f32(y, 31); // saturates
-		if (stride == 1) {
-			vst1q_s32(p, out);
-		}
-		else {
-			pair.val[0] = out;
-			vst2q_s32(p, pair);
-		}
-	}
-	// The last few, one at a time
-	for (; i < numSamples; i++) {
-		q31_t* p = buffer + i * stride;
-		float32x2_t const x = vdup_n_f32(static_cast<float>(*p) * (1.f / 2147483648.f));
-		float32x4_t const sc = vmulq_f32(s, c);
-		float32x2_t const sum2 = vadd_f32(vget_low_f32(sc), vget_high_f32(sc));
-		float32x2_t const y = vmla_n_f32(vpadd_f32(sum2, sum2), x, d);
-		*p = vget_lane_s32(vcvt_n_s32_f32(y, 31), 0);
-		s = step(s, x, Lane<0>{});
-	}
-	state = s;
-}
-} // namespace
-
-void MatrixLadder::processTree(q31_t* buffer, int32_t numSamples, int32_t stride) {
-	run<true>(a_, b_, c_, d_, state_, buffer, numSamples, stride);
-}
-
-void MatrixLadder::process(q31_t* buffer, int32_t numSamples, int32_t stride) {
-	float32x4_t s = state_;
-	float32x4_t const zero = vdupq_n_f32(0.f);
-	float32x2_t const mk01 = vget_low_f32(markov_);
-	float32x2_t const mk23 = vget_high_f32(markov_);
-	int32_t i = 0;
-	for (; i + 4 <= numSamples; i += 4) {
-		q31_t* p = buffer + i * stride;
-		int32x4_t in;
-		int32x4x2_t pair;
-		if (stride == 1) {
-			in = vld1q_s32(p);
-		}
-		else {
-			pair = vld2q_s32(p);
-			in = pair.val[0];
-		}
-		float32x4_t const x = vcvtq_n_f32_s32(in, 31);
-		float32x2_t const x01 = vget_low_f32(x);
-		float32x2_t const x23 = vget_high_f32(x);
-		float32x2_t const s01 = vget_low_f32(s);
-		float32x2_t const s23 = vget_high_f32(s);
-
-		// The four outputs: O s, plus the inputs through the Toeplitz T (each diagonal is x shifted down)
-		float32x4_t y0 = vmulq_lane_f32(o_[0], s01, 0);
-		float32x4_t y1 = vmulq_lane_f32(o_[1], s01, 1);
-		y0 = vmlaq_lane_f32(y0, o_[2], s23, 0);
-		y1 = vmlaq_lane_f32(y1, o_[3], s23, 1);
-		y0 = vmlaq_lane_f32(y0, x, mk01, 0);
-		y1 = vmlaq_lane_f32(y1, vextq_f32(zero, x, 3), mk01, 1);
-		y0 = vmlaq_lane_f32(y0, vextq_f32(zero, x, 2), mk23, 0);
-		y1 = vmlaq_lane_f32(y1, vextq_f32(zero, x, 1), mk23, 1);
-
-		// The state after them: A^4 s + P x
-		float32x4_t n0 = vmulq_lane_f32(a4_[0], s01, 0);
-		float32x4_t n1 = vmulq_lane_f32(a4_[1], s01, 1);
-		n0 = vmlaq_lane_f32(n0, a4_[2], s23, 0);
-		n1 = vmlaq_lane_f32(n1, a4_[3], s23, 1);
-		n0 = vmlaq_lane_f32(n0, p_[0], x01, 0);
-		n1 = vmlaq_lane_f32(n1, p_[1], x01, 1);
-		n0 = vmlaq_lane_f32(n0, p_[2], x23, 0);
-		n1 = vmlaq_lane_f32(n1, p_[3], x23, 1);
-		s = vaddq_f32(n0, n1);
-
-		int32x4_t const out = vcvtq_n_s32_f32(vaddq_f32(y0, y1), 31); // saturates
-		if (stride == 1) {
-			vst1q_s32(p, out);
-		}
-		else {
-			pair.val[0] = out;
-			vst2q_s32(p, pair);
-		}
-	}
-	state_ = s;
-	if (i < numSamples) {
-		// The last 1-3, a sample at a time
-		run<true>(a_, b_, c_, d_, state_, buffer + i * stride, numSamples - i, stride);
-	}
-}
-
-void MatrixLadder::processChain(q31_t* buffer, int32_t numSamples, int32_t stride) {
-	run<false>(a_, b_, c_, d_, state_, buffer, numSamples, stride);
-}
-
-// The same matrices as configureReference(), built a column at a time in NEON registers, and the four-step ones with
-// two matrix products (A^2, A^4) and a few matrix-vector ones. Nothing to do if nothing changed.
+// The same matrices as configureReference(), the ladders' built a column at a time in NEON registers
 void MatrixLadder::configure(Topology topology, float g, float k) {
 	if (topology == lastTopology_ && g == lastG_ && k == lastK_) {
 		return;
@@ -336,6 +187,11 @@ void MatrixLadder::configure(Topology topology, float g, float k) {
 	lastTopology_ = topology;
 	lastG_ = g;
 	lastK_ = k;
+	if (topology == Topology::SVF_LP || topology == Topology::SVF_HP) {
+		svfMatrices(topology == Topology::SVF_HP, g, k, a_, b_, c_, d_);
+		configureFourSteps();
+		return;
+	}
 	bool const highpass = (topology == Topology::HP4 || topology == Topology::HP2);
 	bool const four = (topology == Topology::LP4 || topology == Topology::HP4);
 	float const G = g / (1.f + g);
@@ -404,10 +260,11 @@ void MatrixLadder::configure(Topology topology, float g, float k) {
 		c_ = vmlaq_n_f32(v, r, Bn);
 		d_ = Bn * a;
 	}
-	configureFourStepsFast();
+	configureFourSteps();
 }
 
-void MatrixLadder::configureFourStepsFast() {
+// The four-sample matrices, from A, B, C and D: two matrix products (A^2, A^4) and a few matrix-vector ones
+void MatrixLadder::configureFourSteps() {
 	float32x4_t a2[4];
 	matMul(a_, a_, a2);
 	matMul(a2, a2, a4_);
@@ -417,6 +274,7 @@ void MatrixLadder::configureFourStepsFast() {
 	p_[1] = a2b;
 	p_[2] = ab;
 	p_[3] = b_;
+	// Row k of O is C A^k, i.e. (A^T)^k C
 	float32x4_t at[4];
 	transpose(a_, at);
 	float32x4_t r[4];
@@ -424,34 +282,22 @@ void MatrixLadder::configureFourStepsFast() {
 	r[1] = matVec(at, c_);
 	r[2] = matVec(at, r[1]);
 	r[3] = matVec(at, r[2]);
+	// o_[i] holds element i of each row, so O s = sum_i o_[i] s_i
 	transpose(r, o_);
 	float const markov[4] = {d_, dot(c_, b_), dot(r[1], b_), dot(r[2], b_)};
 	markov_ = vld1q_f32(markov);
 }
 
-// Like process(), with every product its own multiply and the sums as trees (no chains of multiply-accumulates), and
-// the coefficients in locals
-void MatrixLadder::processMul(q31_t* buffer, int32_t numSamples, int32_t stride) {
-	float32x4_t s = state_;
-	float32x4_t const zero = vdupq_n_f32(0.f);
-	float32x4_t const o0 = o_[0], o1 = o_[1], o2 = o_[2], o3 = o_[3];
-	float32x4_t const f0 = a4_[0], f1 = a4_[1], f2 = a4_[2], f3 = a4_[3];
-	float32x4_t const q0 = p_[0], q1 = p_[1], q2 = p_[2], q3 = p_[3];
-	float32x2_t const mk01 = vget_low_f32(markov_);
-	float32x2_t const mk23 = vget_high_f32(markov_);
-	int32_t i = 0;
-	for (; i + 4 <= numSamples; i += 4) {
-		q31_t* p = buffer + i * stride;
-		int32x4_t in;
-		int32x4x2_t pair;
-		if (stride == 1) {
-			in = vld1q_s32(p);
-		}
-		else {
-			pair = vld2q_s32(p);
-			in = pair.val[0];
-		}
-		float32x4_t const x = vcvtq_n_f32_s32(in, 31);
+namespace {
+/// Four samples: their outputs, and the state after them. Every product its own multiply and the sums as trees: on the
+/// Cortex-A9, chains of float multiply-accumulates wait on each other (measured: 39.5 cycles/sample with chains, 26
+/// like this)
+struct Four {
+	float32x4_t o0, o1, o2, o3, f0, f1, f2, f3, q0, q1, q2, q3;
+	float32x2_t mk01, mk23;
+
+	[[gnu::always_inline]] inline float32x4_t run(float32x4_t& s, float32x4_t x) const {
+		float32x4_t const zero = vdupq_n_f32(0.f);
 		float32x2_t const x01 = vget_low_f32(x);
 		float32x2_t const x23 = vget_high_f32(x);
 		float32x2_t const s01 = vget_low_f32(s);
@@ -473,9 +319,54 @@ void MatrixLadder::processMul(q31_t* buffer, int32_t numSamples, int32_t stride)
 		float32x4_t const y6 = vmulq_lane_f32(vextq_f32(zero, x, 2), mk23, 0);
 		float32x4_t const y7 = vmulq_lane_f32(vextq_f32(zero, x, 1), mk23, 1);
 		s = vaddq_f32(vaddq_f32(vaddq_f32(n0, n1), vaddq_f32(n2, n3)), vaddq_f32(vaddq_f32(n4, n5), vaddq_f32(n6, n7)));
-		float32x4_t const y =
-		    vaddq_f32(vaddq_f32(vaddq_f32(y0, y1), vaddq_f32(y2, y3)), vaddq_f32(vaddq_f32(y4, y5), vaddq_f32(y6, y7)));
-		int32x4_t const out = vcvtq_n_s32_f32(y, 31);
+		return vaddq_f32(vaddq_f32(vaddq_f32(y0, y1), vaddq_f32(y2, y3)),
+		                 vaddq_f32(vaddq_f32(y4, y5), vaddq_f32(y6, y7)));
+	}
+};
+
+/// One sample at a time, for the last 1-3 of a buffer
+[[gnu::always_inline]] inline void singleSteps(float32x4_t const (&a)[4], float32x4_t b, float32x4_t c, float d,
+                                               float32x4_t& s, q31_t* p, int32_t numSamples, int32_t stride) {
+	for (int32_t i = 0; i < numSamples; i++, p += stride) {
+		float32x2_t const x = vdup_n_f32(static_cast<float>(*p) * (1.f / 2147483648.f));
+		float32x4_t const sc = vmulq_f32(s, c);
+		float32x2_t const sum2 = vadd_f32(vget_low_f32(sc), vget_high_f32(sc));
+		float32x2_t const y = vmla_n_f32(vpadd_f32(sum2, sum2), x, d);
+		*p = vget_lane_s32(vcvt_n_s32_f32(y, 31), 0);
+		s = step(a, b, s, x, Lane<0>{});
+	}
+}
+} // namespace
+
+void MatrixLadder::process(q31_t* buffer, int32_t numSamples, int32_t stride) {
+	Four const k{o_[0],
+	             o_[1],
+	             o_[2],
+	             o_[3],
+	             a4_[0],
+	             a4_[1],
+	             a4_[2],
+	             a4_[3],
+	             p_[0],
+	             p_[1],
+	             p_[2],
+	             p_[3],
+	             vget_low_f32(markov_),
+	             vget_high_f32(markov_)};
+	float32x4_t s = state_;
+	int32_t i = 0;
+	for (; i + 4 <= numSamples; i += 4) {
+		q31_t* p = buffer + i * stride;
+		int32x4_t in;
+		int32x4x2_t pair;
+		if (stride == 1) {
+			in = vld1q_s32(p);
+		}
+		else {
+			pair = vld2q_s32(p);
+			in = pair.val[0];
+		}
+		int32x4_t const out = vcvtq_n_s32_f32(k.run(s, vcvtq_n_f32_s32(in, 31)), 31); // saturates
 		if (stride == 1) {
 			vst1q_s32(p, out);
 		}
@@ -484,64 +375,52 @@ void MatrixLadder::processMul(q31_t* buffer, int32_t numSamples, int32_t stride)
 			vst2q_s32(p, pair);
 		}
 	}
-	state_ = s;
 	if (i < numSamples) {
-		processTree(buffer + i * stride, numSamples - i, stride);
+		singleSteps(a_, b_, c_, d_, s, buffer + i * stride, numSamples - i, stride);
 	}
+	state_ = s;
 }
 
-// Both channels of interleaved stereo with one set of coefficients, the two recursions side by side in one loop
 void MatrixLadder::processStereo(q31_t* buffer, int32_t numFrames) {
+	Four const k{o_[0],
+	             o_[1],
+	             o_[2],
+	             o_[3],
+	             a4_[0],
+	             a4_[1],
+	             a4_[2],
+	             a4_[3],
+	             p_[0],
+	             p_[1],
+	             p_[2],
+	             p_[3],
+	             vget_low_f32(markov_),
+	             vget_high_f32(markov_)};
 	float32x4_t sl = state_;
 	float32x4_t sr = stateR_;
-	float32x4_t const zero = vdupq_n_f32(0.f);
-	float32x2_t const mk01 = vget_low_f32(markov_);
-	float32x2_t const mk23 = vget_high_f32(markov_);
-	auto block = [&](float32x4_t& s, float32x4_t x) {
-		float32x2_t const x01 = vget_low_f32(x);
-		float32x2_t const x23 = vget_high_f32(x);
-		float32x2_t const s01 = vget_low_f32(s);
-		float32x2_t const s23 = vget_high_f32(s);
-		float32x4_t y0 = vmulq_lane_f32(o_[0], s01, 0);
-		float32x4_t y1 = vmulq_lane_f32(o_[1], s01, 1);
-		y0 = vmlaq_lane_f32(y0, o_[2], s23, 0);
-		y1 = vmlaq_lane_f32(y1, o_[3], s23, 1);
-		y0 = vmlaq_lane_f32(y0, x, mk01, 0);
-		y1 = vmlaq_lane_f32(y1, vextq_f32(zero, x, 3), mk01, 1);
-		y0 = vmlaq_lane_f32(y0, vextq_f32(zero, x, 2), mk23, 0);
-		y1 = vmlaq_lane_f32(y1, vextq_f32(zero, x, 1), mk23, 1);
-		float32x4_t n0 = vmulq_lane_f32(a4_[0], s01, 0);
-		float32x4_t n1 = vmulq_lane_f32(a4_[1], s01, 1);
-		n0 = vmlaq_lane_f32(n0, a4_[2], s23, 0);
-		n1 = vmlaq_lane_f32(n1, a4_[3], s23, 1);
-		n0 = vmlaq_lane_f32(n0, p_[0], x01, 0);
-		n1 = vmlaq_lane_f32(n1, p_[1], x01, 1);
-		n0 = vmlaq_lane_f32(n0, p_[2], x23, 0);
-		n1 = vmlaq_lane_f32(n1, p_[3], x23, 1);
-		s = vaddq_f32(n0, n1);
-		return vaddq_f32(y0, y1);
-	};
 	int32_t i = 0;
 	for (; i + 4 <= numFrames; i += 4) {
 		q31_t* p = buffer + i * 2;
 		int32x4x2_t lr = vld2q_s32(p);
-		float32x4_t const yl = block(sl, vcvtq_n_f32_s32(lr.val[0], 31));
-		float32x4_t const yr = block(sr, vcvtq_n_f32_s32(lr.val[1], 31));
+		// The two channels' recursions side by side: each one's work fills the other's waits
+		float32x4_t const yl = k.run(sl, vcvtq_n_f32_s32(lr.val[0], 31));
+		float32x4_t const yr = k.run(sr, vcvtq_n_f32_s32(lr.val[1], 31));
 		lr.val[0] = vcvtq_n_s32_f32(yl, 31);
 		lr.val[1] = vcvtq_n_s32_f32(yr, 31);
 		vst2q_s32(p, lr);
 	}
 	if (i < numFrames) {
-		// The last 1-3 frames a sample at a time, each channel with its own state
-		state_ = sr;
-		processTree(buffer + i * 2 + 1, numFrames - i, 2);
-		sr = state_;
-		state_ = sl;
-		processTree(buffer + i * 2, numFrames - i, 2);
-		sl = state_;
+		singleSteps(a_, b_, c_, d_, sl, buffer + i * 2, numFrames - i, 2);
+		singleSteps(a_, b_, c_, d_, sr, buffer + i * 2 + 1, numFrames - i, 2);
 	}
 	state_ = sl;
 	stateR_ = sr;
+}
+
+void MatrixLadder::processTree(q31_t* buffer, int32_t numSamples, int32_t stride) {
+	float32x4_t s = state_;
+	singleSteps(a_, b_, c_, d_, s, buffer, numSamples, stride);
+	state_ = s;
 }
 
 } // namespace deluge::dsp::filter

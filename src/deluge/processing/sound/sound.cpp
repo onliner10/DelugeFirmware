@@ -1296,6 +1296,11 @@ Error Sound::readTagFromFileOrError(Deserializer& reader, char const* tagName, P
 		reader.exitTag("polyphonic");
 	}
 
+	else if (!strcmp(tagName, "saturationPreFilter")) {
+		saturationPreFilter = reader.readTagOrAttributeValueInt() != 0;
+		reader.exitTag("saturationPreFilter");
+	}
+
 	else if (!strcmp(tagName, "maxVoices")) {
 		maxVoiceCount = reader.readTagOrAttributeValueInt();
 		reader.exitTag("maxVoices");
@@ -2599,14 +2604,16 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 		q31_t lpfFreq = getSmoothedPatchedParamValue(params::LOCAL_LPF_FREQ, *paramManager);
 		q31_t hpfMorph = getSmoothedPatchedParamValue(params::LOCAL_HPF_MORPH, *paramManager);
 		q31_t hpfFreq = getSmoothedPatchedParamValue(params::LOCAL_HPF_FREQ, *paramManager);
+		// Morph only means something to the SVF modes
+		bool const lpfMorphs = (lpfMode == FilterMode::SVF_BAND || lpfMode == FilterMode::SVF_NOTCH);
+		bool const hpfMorphs = (hpfMode == FilterMode::SVF_BAND || hpfMode == FilterMode::SVF_NOTCH);
 		bool doLPF = thisHasFilters
-		             && (lpfMode == FilterMode::TRANSISTOR_24DB_DRIVE
-		                 || paramManager->getPatchCableSet()->doesParamHaveSomethingPatchedToIt(params::LOCAL_LPF_FREQ)
-		                 || (lpfFreq < 0x7FFFFFD2) || (lpfMorph > std::numeric_limits<q31_t>::min()));
-		bool doHPF =
-		    thisHasFilters
-		    && (paramManager->getPatchCableSet()->doesParamHaveSomethingPatchedToIt(params::LOCAL_HPF_FREQ)
-		        || (hpfFreq != std::numeric_limits<q31_t>::min()) || (hpfMorph > std::numeric_limits<q31_t>::min()));
+		             && (paramManager->getPatchCableSet()->doesParamHaveSomethingPatchedToIt(params::LOCAL_LPF_FREQ)
+		                 || (lpfFreq < 0x7FFFFFD2) || (lpfMorphs && lpfMorph > std::numeric_limits<q31_t>::min()));
+		bool doHPF = thisHasFilters
+		             && (paramManager->getPatchCableSet()->doesParamHaveSomethingPatchedToIt(params::LOCAL_HPF_FREQ)
+		                 || (hpfFreq != std::numeric_limits<q31_t>::min())
+		                 || (hpfMorphs && hpfMorph > std::numeric_limits<q31_t>::min()));
 		for (auto it = voices_.begin(); it != voices_.end();) {
 			ActiveVoice& voice = *it;
 
@@ -4304,6 +4311,9 @@ void Sound::writeToFile(Serializer& writer, bool savingSong, ParamManager* param
 		writer.writeAttribute("path", pathAttribute);
 	}
 	writer.writeAttribute("maxVoices", maxVoiceCount);
+	if (saturationPreFilter) {
+		writer.writeAttribute("saturationPreFilter", 1);
+	}
 
 	writer.writeOpeningTagEnd();
 

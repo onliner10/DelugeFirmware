@@ -137,6 +137,9 @@ public:
 
 	PolyphonyMode polyphonic = PolyphonyMode::POLY;
 	uint8_t maxVoiceCount = 8;
+	/// Whether the saturation (drive / clipping, with its type) comes before the filter rather than after it (and
+	/// after the amplitude envelope), as it always used to
+	bool saturationPreFilter = false;
 
 	int16_t transpose = 0;
 	int8_t cents = 0;

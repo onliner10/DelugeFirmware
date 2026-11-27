@@ -18,8 +18,7 @@
 #pragma once
 
 #include "definitions_cxx.hpp"
-#include "dsp/filter/hpladder.h"
-#include "dsp/filter/lpladder.h"
+#include "dsp/filter/matrix_filter.h"
 #include "dsp/filter/svf.h"
 #include "model/mod_controllable/filters/filter_config.h"
 #include "util/fixedpoint.h"
@@ -30,13 +29,13 @@ class Sound;
 namespace deluge::dsp::filter {
 
 union LowPass {
-	LpLadderFilter ladder;
+	MatrixFilter ladder;
 	SVFilter svf;
 	LowPass() {}
 };
 
 union HighPass {
-	HpLadderFilter ladder;
+	MatrixFilter ladder;
 	SVFilter svf;
 	HighPass() {}
 };

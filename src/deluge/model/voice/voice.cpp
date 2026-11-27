@@ -1535,17 +1535,25 @@ carriersDone: {}
 skipUnisonPart: {}
 	}
 
+	// The saturation (clipping) comes after the filter and the amplitude envelope, unless the sound wants it before
+	// the filter
+	bool const clipPre = sound.saturation && sound.saturationPreFilter;
+	bool const clipHere = sound.saturation && !sound.saturationPreFilter;
+
 	if (didStereoTempBuffer) {
 		int32_t* const oscBufferEnd = oscBuffer + (numSamples << 1);
 		// fold
 		if (paramFinalValues[params::LOCAL_FOLD] > 0) {
 			dsp::foldBufferPolyApproximation(oscBuffer, oscBufferEnd, paramFinalValues[params::LOCAL_FOLD]);
 		}
+		if (clipPre) {
+			sound.saturateBlock<2>(oscBuffer, numSamples << 1, lastSaturationTanHWorkingValue.data());
+		}
 		// Filters
 		filterSet.renderLongStereo(oscBuffer, oscBufferEnd);
 
 		// No clipping
-		if (!sound.saturation) {
+		if (!clipHere) {
 
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			StereoSample* __restrict__ outputSample = (StereoSample*)soundBuffer;
@@ -1627,16 +1635,19 @@ skipUnisonPart: {}
 			dsp::foldBufferPolyApproximation(oscBuffer, oscBufferEnd, foldAmount);
 		}
 
+		if (clipPre) {
+			sound.saturateBlock<1>(oscBuffer, numSamples, lastSaturationTanHWorkingValue.data());
+		}
 		filterSet.renderLong(oscBuffer, oscBufferEnd, numSamples);
 
 		// No clipping, mono, not FM: the common case, the amplitude ramp and a mix into the sound's buffer
-		if (!sound.saturation && !soundRenderingInStereo && synthMode != SynthMode::FM) {
+		if (!clipHere && !soundRenderingInStereo && synthMode != SynthMode::FM) {
 			dsp::addMonoWithAmplitudeRamp(soundBuffer, oscBuffer, numSamples, overallOscAmplitudeLastTime,
 			                              overallOscillatorAmplitudeIncrement);
 		}
 
 		// No clipping
-		else if (!sound.saturation) {
+		else if (!clipHere) {
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			int32_t* __restrict__ outputSample = soundBuffer;
 			int32_t overallOscAmplitudeNow = overallOscAmplitudeLastTime;

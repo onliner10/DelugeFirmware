@@ -22,32 +22,38 @@
 
 namespace deluge::dsp::filter {
 
-/// A linear ladder filter (2 or 4 one-pole stages with global feedback, solved without a delay in the loop), written
-/// as a state-space system: per sample, s' = A s + B x and y = C s + D x, with the up-to-4 stage memories s in one
-/// NEON register. The matrices only depend on cutoff, resonance and topology, so they're worked out once per buffer
-/// (closed form, see MatrixLadder::configure()), and a sample costs four vector multiplies, whatever the topology.
-/// Linear by design: no saturation in the loop, so resonance stops short of self-oscillation.
+/// A linear resonant filter written as a state-space system: per sample, s' = A s + B x and y = C s + D x, with the
+/// filter's (up to 4) memories s in one NEON register. The matrices only depend on cutoff, resonance and topology, so
+/// they're worked out once per buffer (closed form, configure()), and samples go four at a time: their four outputs and
+/// the state after them come straight from the state before them (two 4x4 matrix-vector products), so no sample waits
+/// on the one before. The cost is the same whatever the topology and the resonance.
+///
+/// Linear by design - no saturation in the loop, so resonance stops short of self-oscillation.
 class MatrixLadder {
 public:
-	enum class Topology : uint8_t { LP4, LP2, HP4, HP2 };
+	enum class Topology : uint8_t {
+		LP4,    ///< 4-pole ladder lowpass (24 dB/oct)
+		LP2,    ///< 2-pole ladder lowpass
+		HP4,    ///< 4-pole ladder highpass
+		HP2,    ///< 2-pole ladder highpass
+		SVF_LP, ///< 2-pole state-variable lowpass (12 dB/oct)
+		SVF_HP, ///< 2-pole state-variable highpass
+	};
 
-	/// g: tan(pi * cutoff / sampleRate) (prewarped cutoff). k: feedback, 0 to just under the oscillation point
-	/// (4 for the 4-pole ladders, 2 for the 2-pole ones). Passband gain is held at 1 whatever k.
+	/// g: tan(pi * cutoff / sampleRate) (prewarped cutoff). For the ladders, k is the feedback, 0 to just under the
+	/// oscillation point (4 for 4 poles, 2 for 2), with the passband held at unity gain; for the SVFs it's the damping
+	/// R = 1 / (2 Q), from 0.707 (no resonance) down to a little over 0
 	void configure(Topology topology, float g, float k);
 	/// The same matrices worked out plainly, element by element. For the tests and the benchmark
 	void configureReference(Topology topology, float g, float k);
 
 	/// Filters a block of q31 samples in place, every `stride`th one (1 for mono, 2 for one channel of interleaved
-	/// stereo). Four samples at a time: their four outputs and the state after them come straight from the state before
-	/// them (two 4x4 matrix-vector products), so the samples don't wait on each other
+	/// stereo)
 	void process(q31_t* buffer, int32_t numSamples, int32_t stride);
-	/// Benchmark only: one sample per step, the step's sum as a tree / as one chain of multiply-accumulates
-	void processTree(q31_t* buffer, int32_t numSamples, int32_t stride);
-	void processChain(q31_t* buffer, int32_t numSamples, int32_t stride);
-	/// Benchmark only: process() with separate multiplies and tree sums
-	void processMul(q31_t* buffer, int32_t numSamples, int32_t stride);
 	/// Both channels of an interleaved stereo buffer, one set of coefficients, a state each
 	void processStereo(q31_t* buffer, int32_t numFrames);
+	/// One sample per step. For the tests and the benchmark
+	void processTree(q31_t* buffer, int32_t numSamples, int32_t stride);
 
 	void reset() {
 		state_ = vdupq_n_f32(0.f);
@@ -68,12 +74,14 @@ public:
 
 private:
 	void configureFourSteps();
-	void configureFourStepsFast();
-	float32x4_t state_ = vdupq_n_f32(0.f);
-	float32x4_t stateR_ = vdupq_n_f32(0.f);
-	Topology lastTopology_ = Topology::LP4;
-	float lastG_ = -1.f;
-	float lastK_ = -1.f;
+
+	float32x4_t state_;
+	float32x4_t stateR_;
+	// What configure() was last given: it does nothing when that hasn't changed. Zeroed (by FilterSet's reset) is
+	// never a valid g, so the first configure() always does its work
+	Topology lastTopology_;
+	float lastG_;
+	float lastK_;
 };
 
 } // namespace deluge::dsp::filter
