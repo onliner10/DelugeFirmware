@@ -73,6 +73,7 @@ enum class ActionType {
 	NOTEROW_LENGTH_EDIT,
 	NOTEROW_HORIZONTAL_SHIFT,
 	SECTION_REORDER,
+	SELECTION_EDIT,
 };
 
 class Action {
