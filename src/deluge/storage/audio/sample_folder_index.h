@@ -79,6 +79,22 @@ public:
 		return c != fileName && c[-1] != '.' && c[-1] != ' ';
 	}
 
+	/// A hash of a file name that ignores the case of ASCII letters, just as strcasecmp() does - and only those, as
+	/// stored names can hold other bytes. Names strcasecmp() finds equal always hash the same, so find() only compares
+	/// the names whose hashes match. Sample names in one folder often share most of their characters, which makes
+	/// comparing every one of them slow.
+	static constexpr uint16_t nameHash(char const* name) {
+		uint32_t hash = 2166136261u; // FNV-1a
+		for (; *name; name++) {
+			uint8_t ch = *name;
+			if (ch >= 'a' && ch <= 'z') {
+				ch -= 'a' - 'A';
+			}
+			hash = (hash ^ ch) * 16777619u;
+		}
+		return static_cast<uint16_t>(hash ^ (hash >> 16));
+	}
+
 	static constexpr size_t kMaxFolders = 4;
 	static constexpr size_t kMaxPathLength = 256;
 	/// A folder is read up to this many directory entries (32 bytes each, a long name taking several), however few
@@ -128,6 +144,8 @@ private:
 		FilePointer filePointer;
 		uint16_t longName; ///< Distances back from the end of the Entry's block to the names
 		uint16_t shortName;
+		uint16_t longNameHash; ///< nameHash() of each
+		uint16_t shortNameHash;
 	};
 	struct Folder;
 	class Block;

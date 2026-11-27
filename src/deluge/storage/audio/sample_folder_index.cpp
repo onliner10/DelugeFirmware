@@ -121,10 +121,12 @@ std::optional<FilePointer> SampleFolderIndex::find(char const* filePath) {
 	// which keep short names upper case. Where only the start of a folder is indexed, a file found there is the first
 	// match in the whole folder too.
 	char const* name = slash + 1;
+	uint16_t hash = nameHash(name);
 	for (Block* block = folder->blocks; block; block = block->next) {
 		for (int32_t e = 0; e < block->numEntries; e++) {
 			Entry const& entry = block->entries()[e];
-			if (!strcasecmp(name, block->name(entry.longName)) || !strcasecmp(name, block->name(entry.shortName))) {
+			if ((entry.longNameHash == hash && !strcasecmp(name, block->name(entry.longName)))
+			    || (entry.shortNameHash == hash && !strcasecmp(name, block->name(entry.shortName)))) {
 				if (++folder->hits == kHitsToPayOff) {
 					lookupsBeforeIndexing_ = kMinLookupsBeforeIndexing;
 				}
@@ -227,7 +229,8 @@ SampleFolderIndex::Folder* SampleFolderIndex::indexFolder(char const* path) {
 		auto shortName = static_cast<uint16_t>(*longName - longNameSize);
 		memcpy(block->name(*longName), info.fname, longNameSize);
 		memcpy(block->name(shortName), info.altname, shortNameSize);
-		block->entries()[block->numEntries++] = {filePointer, *longName, shortName};
+		block->entries()[block->numEntries++] = {filePointer, *longName, shortName, nameHash(info.fname),
+		                                         nameHash(info.altname)};
 	}
 
 	// If the card was written to or swapped while we read, what we read may not match it any more. And a folder with
