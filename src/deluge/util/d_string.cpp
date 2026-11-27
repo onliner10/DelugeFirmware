@@ -137,13 +137,13 @@ void String::set(String const* otherString) {
 		D_PRINTLN("setting string to itself");
 		return;
 	}
-	// if the other string has memory and it's not in a region allocExternal() allocates it from (the external regions,
-	// or the stealable one once those are full). Sharing it would have beenCloned() write a reason count into memory
-	// we don't own
+	// if the other string has memory and it's not in a region allocExternal() allocates it from (the external regions
+	// and their reserve, or the stealable one once those are full). Sharing it would have beenCloned() write a reason
+	// count into memory we don't own
 	if (sm != nullptr) {
 		int32_t region = GeneralMemoryAllocator::get().getRegion(sm);
 		if (region != MEMORY_REGION_EXTERNAL && region != MEMORY_REGION_EXTERNAL_SMALL
-		    && region != MEMORY_REGION_STEALABLE) {
+		    && region != MEMORY_REGION_EXTERNAL_RESERVE && region != MEMORY_REGION_STEALABLE) {
 			FREEZE_WITH_ERROR("S001");
 			return;
 		}
