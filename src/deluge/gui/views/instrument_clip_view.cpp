@@ -139,6 +139,9 @@ bool InstrumentClipView::opened() {
 void InstrumentClipView::openedInBackground() {
 	bool rendering_to_store = (currentUIMode == UI_MODE_ANIMATION_FADE);
 
+	noteSelection.clear();
+	std::fill(std::begin(selectionPadsHeld), std::end(selectionPadsHeld), 0);
+
 	recalculateColours();
 
 	AudioEngine::routineWithClusterLoading();
@@ -168,6 +171,10 @@ void InstrumentClipView::focusRegained() {
 	InstrumentClipMinder::focusRegained();
 
 	setLedStates();
+	if (noteSelectionUsable()) {
+		noteSelection.endSession();
+		indicator_leds::setLedState(IndicatorLED::LEARN, true);
+	}
 }
 
 void InstrumentClipView::displayOrLanguageChanged() {
@@ -305,6 +312,54 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 	using namespace deluge::hid::button;
 
 	maybeStartShortcutOverview(b, on);
+
+	// Learn: a tap on its own ends the note selection
+	if (b == LEARN) {
+		if (inCardRoutine) {
+			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+		}
+		if (on) {
+			selectionGesture.used = false;
+			selectionGesture.hasCorner = false;
+			selectionGesture.rowsStarted = false;
+		}
+		else if (!selectionGesture.used && currentUIMode == UI_MODE_MIDI_LEARN) {
+			clearNoteSelection();
+		}
+		ActionResult result = InstrumentClipMinder::buttonAction(b, on, inCardRoutine);
+		if (result == ActionResult::NOT_DEALT_WITH) {
+			result = ClipView::buttonAction(b, on, inCardRoutine);
+		}
+		if (!on && noteSelectionUsable()) {
+			indicator_leds::setLedState(IndicatorLED::LEARN, true);
+		}
+		return result;
+	}
+
+	// Undo / redo: whatever the note selection did so far is one step, closed now
+	if (b == BACK && on && noteSelection.isActive()) {
+		if (Buttons::isShiftButtonPressed()) {
+			noteSelection.endSession();
+		}
+		else {
+			noteSelection.undoing();
+		}
+	}
+
+	// Shift + Save/Delete deletes the selected notes
+	if (b == SAVE && on && Buttons::isShiftButtonPressed() && currentUIMode == UI_MODE_NONE && noteSelectionUsable()) {
+		if (inCardRoutine) {
+			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+		}
+		char modelStackMemory[MODEL_STACK_MAX_SIZE];
+		ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+		int32_t count = noteSelection.countNotes(modelStack);
+		noteSelectionEdited(noteSelection.deleteNotes(modelStack));
+		char buffer[24];
+		snprintf(buffer, sizeof(buffer), display->haveOLED() ? "Deleted %d notes" : "%d", static_cast<int>(count));
+		display->displayPopup(buffer);
+		return ActionResult::DEALT_WITH;
+	}
 
 	// Scale mode button
 	if (b == SCALE_MODE && currentUIMode != UI_MODE_HOLDING_LOAD_BUTTON) {
@@ -773,7 +828,25 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 		}
 
-		if (Buttons::isShiftButtonPressed()) {
+		if (noteSelectionUsable()) {
+			selectionGesture.used = true;
+			char modelStackMemory[MODEL_STACK_MAX_SIZE];
+			ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+			if (Buttons::isShiftButtonPressed()) {
+				if (noteSelection.hasClipboard()) {
+					noteSelectionEdited(noteSelection.paste(modelStack));
+					display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_NOTES_PASTED));
+				}
+			}
+			else {
+				int32_t count = noteSelection.copy(modelStack);
+				char buffer[24];
+				snprintf(buffer, sizeof(buffer), display->haveOLED() ? "Copied %d notes" : "%d",
+				         static_cast<int>(count));
+				display->displayPopup(buffer);
+			}
+		}
+		else if (Buttons::isShiftButtonPressed()) {
 			pasteNotes();
 		}
 		else {
@@ -1864,6 +1937,19 @@ bool InstrumentClipView::changeOutputType(OutputType newOutputType) {
 }
 
 void InstrumentClipView::selectEncoderAction(int8_t offset) {
+	// Note selection: velocity of all its notes
+	if (getCurrentUI() == this && isNoUIModeActive() && noteSelectionUsable()) {
+		char modelStackMemory[MODEL_STACK_MAX_SIZE];
+		ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+		int32_t velocity;
+		noteSelectionEdited(noteSelection.changeVelocity(modelStack, offset, &velocity));
+		if (velocity >= 0) {
+			char buffer[24];
+			snprintf(buffer, sizeof(buffer), display->haveOLED() ? "Velocity: %d" : "%d", static_cast<int>(velocity));
+			display->displayPopup(buffer);
+		}
+		return;
+	}
 
 	exitedShortcutOverview = true;
 	uiNeedsRendering(this);
@@ -1955,6 +2041,10 @@ const uint32_t auditionPadActionUIModes[] = {UI_MODE_AUDITIONING,
                                              0};
 
 ActionResult InstrumentClipView::padAction(int32_t x, int32_t y, int32_t velocity) {
+
+	if (std::optional<ActionResult> result = noteSelectionPadAction(x, y, velocity)) {
+		return *result;
+	}
 
 	// Drum Randomizer
 	if (x == 15 && y == 2 && velocity > 0
@@ -6600,6 +6690,27 @@ ActionResult InstrumentClipView::verticalEncoderAction(int32_t offset, bool inCa
 	char modelStackMemory[MODEL_STACK_MAX_SIZE];
 	ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
 
+	// Note selection: transpose it by a row (a scale step, or a kit row), with shift by a semitone, pushed in by an
+	// octave
+	if (getCurrentUI() == this && isNoUIModeActive() && !Buttons::isButtonPressed(deluge::hid::button::X_ENC)
+	    && noteSelectionUsable()) {
+		if (inCardRoutine) {
+			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+		}
+		using Step = ClipNoteSelection::Step;
+		Step step = Buttons::isShiftButtonPressed()                        ? Step::SEMITONE
+		            : Buttons::isButtonPressed(deluge::hid::button::Y_ENC) ? Step::OCTAVE
+		                                                                   : Step::ROW;
+		// Several detents may arrive at once: one step each, stopping at the first that can't go
+		ClipNoteSelection::Result result = ClipNoteSelection::Result::DONE;
+		for (int32_t i = 0; i < std::abs(offset) && result == ClipNoteSelection::Result::DONE; i++) {
+			result = noteSelection.transpose(modelStack, step, (offset > 0) ? 1 : -1);
+		}
+		noteSelectionFollow(inCardRoutine);
+		noteSelectionEdited(result);
+		return ActionResult::DEALT_WITH;
+	}
+
 	// If horizontal encoder button pressed, rotate notes within octave
 	if (Buttons::isButtonPressed(deluge::hid::button::X_ENC)) {
 		if (getCurrentOutputType() != OutputType::KIT) {
@@ -7025,6 +7136,21 @@ ActionResult InstrumentClipView::horizontalEncoderAction(int32_t offset) {
 	uiNeedsRendering(this);
 	if (sdRoutineLock) {
 		return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE; // Just be safe - maybe not necessary
+	}
+
+	// Note selection: move it, or with shift put a copy of it beside it. Pushed in, the encoder still zooms.
+	if (getCurrentUI() == this && isNoUIModeActive() && !Buttons::isButtonPressed(deluge::hid::button::Y_ENC)
+	    && noteSelectionUsable()) {
+		char modelStackMemory[MODEL_STACK_MAX_SIZE];
+		ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+		int32_t direction = (offset > 0) ? 1 : -1;
+		ClipNoteSelection::Result result =
+		    Buttons::isShiftButtonPressed()
+		        ? noteSelection.duplicate(modelStack, direction)
+		        : noteSelection.move(modelStack, offset * (getPosFromSquare(1) - getPosFromSquare(0)));
+		noteSelectionFollow(false);
+		noteSelectionEdited(result);
+		return ActionResult::DEALT_WITH;
 	}
 
 	// If holding down notes
@@ -7915,6 +8041,7 @@ bool InstrumentClipView::renderMainPads(uint32_t whichRows, RGB image[][kDisplay
 	                    currentSong->xZoom[NAVIGATION_CLIP], kDisplayWidth, kDisplayWidth + kSideBarWidth,
 	                    drawUndefinedArea);
 	render_selected_note_pulse(whichRows, image);
+	renderNoteSelection(whichRows, image);
 	PadLEDs::renderingLock = false;
 
 	return true;
@@ -8741,4 +8868,227 @@ void InstrumentClipView::blinkSelectedNoteRow(int32_t whichMainRows) {
 	noteRowFlashOn = !noteRowFlashOn;
 	uiNeedsRendering(getRootUI(), whichMainRows, 0xFFFFFFFF);
 	uiTimerManager.setTimer(TimerName::NOTE_ROW_BLINK, 180);
+}
+
+// ---- Note selection ----
+//
+// Hold Learn and press two pads: in the same row that selects those steps on every row, in different rows the
+// rectangle between them. Still holding Learn, audition pads narrow the rows. Once Learn is released the selection
+// stays: the horizontal encoder moves it (with shift: duplicates it beside itself), the vertical one transposes it
+// (scale step; shift: semitone; pushed: octave), select changes velocity, Learn + push horizontal copies,
+// Shift + Learn + push horizontal pastes at it, Shift + Save deletes. A tap on Learn alone or on any pad ends it.
+
+bool InstrumentClipView::noteSelectionUsable() {
+	if (!noteSelection.isActive()) {
+		return false;
+	}
+	if (noteSelection.clip() != getCurrentInstrumentClip()) {
+		clearNoteSelection();
+		return false;
+	}
+	return true;
+}
+
+void InstrumentClipView::clearNoteSelection() {
+	bool wasActive = noteSelection.isActive();
+	noteSelection.clear();
+	selectionGesture.hasCorner = false;
+	if (wasActive) {
+		if (getCurrentUI() == this) {
+			uiNeedsRendering(this, 0xFFFFFFFF, 0);
+		}
+		if (currentUIMode != UI_MODE_MIDI_LEARN) {
+			indicator_leds::setLedState(IndicatorLED::LEARN, false);
+		}
+	}
+}
+
+std::optional<ActionResult> InstrumentClipView::noteSelectionPadAction(int32_t x, int32_t y, int32_t velocity) {
+	if (x > kDisplayWidth + 1 || y < 0 || y >= kDisplayHeight) {
+		return std::nullopt;
+	}
+
+	// The release of a press the selection took
+	if (!velocity) {
+		if (selectionPadsHeld[y] & (1u << x)) {
+			selectionPadsHeld[y] &= ~(1u << x);
+			return ActionResult::DEALT_WITH;
+		}
+		return std::nullopt;
+	}
+
+	// A press the selection doesn't take must not have its release swallowed
+	selectionPadsHeld[y] &= ~(1u << x);
+
+	if (getCurrentUI() != this) {
+		return std::nullopt;
+	}
+
+	bool learnHeld = currentUIMode == UI_MODE_MIDI_LEARN && Buttons::isButtonPressed(deluge::hid::button::LEARN);
+
+	if (x < kDisplayWidth) {
+		if (learnHeld) {
+			if (sdRoutineLock) {
+				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+			}
+			noteSelectionCornerPress(x, y);
+		}
+		// Any pad pressed outside a selection gesture lets go of the selection, and does nothing else
+		else if (noteSelectionUsable() && currentUIMode == UI_MODE_NONE && !Buttons::isShiftButtonPressed()) {
+			clearNoteSelection();
+		}
+		else {
+			return std::nullopt;
+		}
+	}
+
+	// Audition pads narrow the rows, but only once the grid has started a selection: Learn + audition pad on its own
+	// stays MIDI learn (whose release would otherwise forget the row's learned input)
+	else if (x == kDisplayWidth + 1 && learnHeld && (selectionGesture.hasCorner || noteSelectionUsable())) {
+		noteSelectionRowPress(y);
+	}
+	else {
+		return std::nullopt;
+	}
+
+	selectionPadsHeld[y] |= (1u << x);
+	return ActionResult::DEALT_WITH;
+}
+
+void InstrumentClipView::noteSelectionCornerPress(int32_t x, int32_t yDisplay) {
+	InstrumentClip* clip = getCurrentInstrumentClip();
+	int32_t loopLength = clip->loopLength;
+	int32_t squareStart = getPosFromSquare(x);
+	int32_t squareEnd = std::min(getPosFromSquare(x + 1), loopLength);
+	if (squareStart >= loopLength) {
+		return; // Past the end of the clip
+	}
+	int32_t row = yDisplay + clip->yScroll;
+
+	selectionGesture.used = true;
+	selectionGesture.rowsStarted = false;
+
+	ClipNoteSelection::Range range;
+	if (!selectionGesture.hasCorner) {
+		selectionGesture.hasCorner = true;
+		selectionGesture.cornerStart = squareStart;
+		selectionGesture.cornerEnd = squareEnd;
+		selectionGesture.cornerRow = row;
+		range = {squareStart, squareEnd, false, row, row};
+	}
+	else {
+		selectionGesture.hasCorner = false;
+		range.start = std::min(squareStart, selectionGesture.cornerStart);
+		range.end = std::max(squareEnd, selectionGesture.cornerEnd);
+		// Two pads in one row: those steps on every row
+		range.allRows = (row == selectionGesture.cornerRow);
+		range.rowLo = std::min(row, selectionGesture.cornerRow);
+		range.rowHi = std::max(row, selectionGesture.cornerRow);
+	}
+	noteSelection.select(clip, range);
+	popupNoteSelectionCount();
+	uiNeedsRendering(this, 0xFFFFFFFF, 0);
+}
+
+void InstrumentClipView::noteSelectionRowPress(int32_t yDisplay) {
+	int32_t row = yDisplay + getCurrentInstrumentClip()->yScroll;
+	selectionGesture.used = true;
+	selectionGesture.hasCorner = false;
+	if (!noteSelection.isActive()) {
+		return;
+	}
+	const ClipNoteSelection::Range& range = noteSelection.range();
+	if (!selectionGesture.rowsStarted || range.allRows) {
+		selectionGesture.rowsStarted = true;
+		noteSelection.setRows(row, row);
+	}
+	else {
+		noteSelection.setRows(std::min(row, range.rowLo), std::max(row, range.rowHi));
+	}
+	popupNoteSelectionCount();
+	uiNeedsRendering(this, 0xFFFFFFFF, 0);
+}
+
+void InstrumentClipView::popupNoteSelectionCount() {
+	char modelStackMemory[MODEL_STACK_MAX_SIZE];
+	ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+	int32_t count = noteSelection.countNotes(modelStack);
+	char buffer[24];
+	if (display->haveOLED()) {
+		snprintf(buffer, sizeof(buffer), "%s%d notes", noteSelection.range().allRows ? "All rows: " : "",
+		         static_cast<int>(count));
+	}
+	else {
+		snprintf(buffer, sizeof(buffer), "%d", static_cast<int>(count));
+	}
+	display->displayPopup(buffer);
+}
+
+void InstrumentClipView::noteSelectionEdited(ClipNoteSelection::Result result) {
+	if (result == ClipNoteSelection::Result::NO_RAM) {
+		display->displayError(Error::INSUFFICIENT_RAM);
+	}
+	else if (result == ClipNoteSelection::Result::BLOCKED) {
+		display->displayPopup(display->haveOLED() ? "Can't go further" : "EDGE");
+	}
+	recalculateColours();
+	uiNeedsRendering(this, 0xFFFFFFFF, 0);
+}
+
+// Scrolls so the selection's start is on screen
+void InstrumentClipView::noteSelectionFollow(bool inCardRoutine) {
+	const ClipNoteSelection::Range& range = noteSelection.range();
+	int32_t xScroll = currentSong->xScroll[NAVIGATION_CLIP];
+	int32_t screenWidth = getPosFromSquare(kDisplayWidth) - getPosFromSquare(0);
+	if (screenWidth > 0 && (range.start < xScroll || range.start >= xScroll + screenWidth)) {
+		currentSong->xScroll[NAVIGATION_CLIP] = range.start / screenWidth * screenWidth;
+		uiNeedsRendering(this, 0xFFFFFFFF, 0);
+	}
+
+	if (!range.allRows) {
+		InstrumentClip* clip = getCurrentInstrumentClip();
+		int32_t scrollBy = 0;
+		if (range.rowHi < clip->yScroll) {
+			scrollBy = range.rowHi - clip->yScroll;
+		}
+		else if (range.rowLo >= clip->yScroll + kDisplayHeight) {
+			scrollBy = range.rowLo - (clip->yScroll + kDisplayHeight - 1);
+		}
+		if (scrollBy) {
+			char modelStackMemory[MODEL_STACK_MAX_SIZE];
+			ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+			scrollVertical(scrollBy, inCardRoutine, false, modelStack);
+		}
+	}
+}
+
+void InstrumentClipView::renderNoteSelection(uint32_t whichRows, RGB image[][kDisplayWidth + kSideBarWidth]) {
+	if (!noteSelectionUsable()) {
+		return;
+	}
+	InstrumentClip* clip = getCurrentInstrumentClip();
+	const ClipNoteSelection::Range& range = noteSelection.range();
+
+	bool inTime[kDisplayWidth];
+	for (int32_t x = 0; x < kDisplayWidth; x++) {
+		inTime[x] = getPosFromSquare(x) < range.end && getPosFromSquare(x + 1) > range.start;
+	}
+
+	for (int32_t yDisplay = 0; yDisplay < kDisplayHeight; yDisplay++) {
+		if (!(whichRows & (1 << yDisplay))) {
+			continue;
+		}
+		bool inRows = noteSelection.containsRow(yDisplay + clip->yScroll);
+		for (int32_t x = 0; x < kDisplayWidth; x++) {
+			RGB& colour = image[yDisplay][x];
+			if (inRows && inTime[x]) {
+				if (colour == colours::black) {
+					colour = RGB::monochrome(24); // So the empty part of the selection shows too
+				}
+			}
+			else {
+				colour = colour.dim(2);
+			}
+		}
+	}
 }

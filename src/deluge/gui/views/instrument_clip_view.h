@@ -19,6 +19,7 @@
 
 #include "definitions_cxx.hpp"
 #include "gui/views/accidental_rows.h"
+#include "gui/views/clip_note_selection.h"
 #include "gui/views/clip_view.h"
 #include "gui/views/note_lock_editor.h"
 #include "hid/button.h"
@@ -451,6 +452,29 @@ private:
 	                        ModelStackWithNoteRow* modelStackWithNoteRowOnCurrentClip);
 	void recordNoteOff(int32_t yDisplay, ModelStackWithNoteRow* modelStackWithNoteRowOnCurrentClip);
 	int32_t getVelocityToSound(int32_t velocity);
+
+	// Note selection: Learn + two pads selects a range, the encoders then move / transpose it (see ClipNoteSelection)
+	std::optional<ActionResult> noteSelectionPadAction(int32_t x, int32_t y, int32_t velocity);
+	void noteSelectionCornerPress(int32_t x, int32_t yDisplay);
+	void noteSelectionRowPress(int32_t yDisplay);
+	/// Whether the selection is there and still belongs to the clip on screen (forgets it if not)
+	bool noteSelectionUsable();
+	void clearNoteSelection();
+	void noteSelectionEdited(ClipNoteSelection::Result result);
+	void noteSelectionFollow(bool inCardRoutine);
+	void popupNoteSelectionCount();
+	void renderNoteSelection(uint32_t whichRows, RGB image[][kDisplayWidth + kSideBarWidth]);
+	ClipNoteSelection noteSelection;
+	struct {
+		bool used = false;       ///< This Learn press did something to the selection, so its release doesn't end it
+		bool hasCorner = false;  ///< One corner pressed, waiting for the second
+		int32_t cornerStart = 0; ///< That corner's square, in ticks
+		int32_t cornerEnd = 0;
+		int32_t cornerRow = 0;    ///< Visual row
+		bool rowsStarted = false; ///< Audition pads already narrowed the rows during this Learn press
+	} selectionGesture;
+	/// Pads whose press the selection took, so their release is swallowed too. Bit x per row
+	uint32_t selectionPadsHeld[kDisplayHeight]{};
 };
 
 extern InstrumentClipView instrumentClipView;

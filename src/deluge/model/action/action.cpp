@@ -54,7 +54,7 @@ Action::Action(ActionType newActionType) {
 	offset = 0;
 }
 
-constinit EnumStringMap<ActionType, 29> action_type_map{
+constinit EnumStringMap<ActionType, 30> action_type_map{
     {{{ActionType::MISC, "misc"},
       {ActionType::NOTE_EDIT, "note_edit"},
       {ActionType::NOTE_TAIL_EXTEND, "note_tail_extend"},
@@ -83,6 +83,7 @@ constinit EnumStringMap<ActionType, 29> action_type_map{
       {ActionType::NOTEROW_ROTATE, "noterow_rotate"},
       {ActionType::NOTEROW_LENGTH_EDIT, "noterow_length_edit"},
       {ActionType::SECTION_REORDER, "section_reorder"},
+      {ActionType::SELECTION_EDIT, "selection_edit"},
       {ActionType::NOTEROW_HORIZONTAL_SHIFT, "noterow_horizontal_shift"}}}};
 
 // Call this before the destructor!
