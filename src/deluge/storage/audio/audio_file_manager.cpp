@@ -1667,6 +1667,11 @@ void AudioFileManager::releaseAllPrefetches() {
 	}
 }
 
+bool AudioFileManager::anyClusterLoadsPending() {
+	CriticalSectionGuard guard;
+	return clusterBeingRead_ != nullptr || clusterReadsStart_ != clusterReadsEnd_ || !loadingQueue.empty();
+}
+
 bool AudioFileManager::loadingQueueHasAnySampleStarts() {
 	CriticalSectionGuard guard;
 	if (clusterBeingRead_ != nullptr && priorityBeingRead_ == ClusterPriority::kSampleStart) {

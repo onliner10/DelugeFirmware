@@ -45,6 +45,10 @@ public:
 	void scheduleFillEvent(Clip* clip, int64_t atTickCount);
 	void cancelAllLaunchScheduling();
 	void launchSchedulingMightNeedCancelling();
+	/// Whether a Clip armed to start hasn't got the samples it plays loaded yet
+	bool anyClipStartingWithoutSamples();
+	/// Whether a Clip that's active hasn't got the samples it plays loaded yet
+	bool anyActiveClipWithoutSamples();
 	void reSyncClipToSongTicks(Clip* clip);
 	void reSyncClip(ModelStackWithTimelineCounter* modelStack, bool mustSetPosToSomething = false,
 	                bool mayResumeClip = true) override;
@@ -103,6 +107,9 @@ public:
 	int16_t numRepeatsTilLaunch;
 	int32_t currentArmedLaunchLengthForOneRepeat;
 	bool switchToArrangementAtLaunchEvent;
+	/// How many repeats the pending launch has waited for samples (see anyClipStartingWithoutSamples())
+	int8_t launchesWaitedForSamples = 0;
+	static constexpr int8_t kMaxLaunchWaitsForSamples = 2;
 
 private:
 	bool giveClipOpportunityToBeginLinearRecording(Clip* clip, int32_t clipIndex, int32_t buttonPressLatency);

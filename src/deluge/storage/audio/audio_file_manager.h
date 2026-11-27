@@ -146,6 +146,8 @@ public:
 	Error setupAlternateAudioFileDir(String& newPath, char const* rootDir, const char* songFilenameWithoutExtension);
 	/// Whether any Samples' first Clusters, which let them start instantly, are still waiting to load
 	bool loadingQueueHasAnySampleStarts();
+	/// Whether any Cluster is being read or waiting to be, e.g. for Voices that are playing
+	bool anyClusterLoadsPending();
 	/// Whether any Clusters are still waiting to load, or being loaded
 	bool hasClusterLoadsPending();
 

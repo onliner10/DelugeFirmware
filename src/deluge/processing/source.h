@@ -68,6 +68,14 @@ public:
 	/// Returns whether it loaded one.
 	bool loadLazySample(std::span<const int16_t> notes, bool anyOther);
 	bool hasLazySamples() const { return lazyPending; }
+	/// Whether loadLazySample(notes, false) would find anything to load
+	bool hasLazySampleFor(std::span<const int16_t> notes);
+	/// Gets the start of the zones notes fall in into RAM right now, so they can be played straight away
+	void loadZoneStartsNowFor(std::span<const int16_t> notes);
+	/// Whether the zones that notes (already transposed) fall in, or all zones if allZones, could start sounding now:
+	/// sample loaded and its first Cluster in RAM, claimed or not. A zone whose file is missing has nothing to wait
+	/// for.
+	bool zonesReadyFor(std::span<const int16_t> notes, bool allZones);
 	void setReversed(bool newReversed);
 	int32_t getRangeIndex(int32_t note);
 	MultiRange* getRange(int32_t note);
@@ -84,10 +92,14 @@ private:
 	void destructAllMultiRanges();
 	bool rangePlaysAnyOf(int32_t e, std::span<const int16_t> notes);
 	void loadRange(int32_t e);
+	bool zoneReady(int32_t e);
 
 	// Lazy loading. Multisamples with more zones than this are just loaded in full.
 	static constexpr int32_t kMaxLazyRanges = 256;
-	bool lazyPending = false;              ///< Some zones skipped by loadSamplesForNotes() may still need loading
-	int16_t lazyNumRanges = 0;             ///< How many zones there were when lazyTried was set up
+	bool lazyPending = false;    ///< Some zones skipped by loadSamplesForNotes() may still need loading
+	int16_t loadedRangeHint = 0; ///< A zone hasAtLeastOneAudioFileLoaded() last found loaded, to look at first
+	int16_t lazyNumRanges = 0;   ///< How many zones there were when lazyTried was set up
 	std::bitset<kMaxLazyRanges> lazyTried; ///< Zones already loaded or tried, so a missing file isn't retried forever
+	/// Which zones notes fall in: one lookup per note, rather than every zone against every note
+	std::bitset<kMaxLazyRanges> zonesPlayedBy(std::span<const int16_t> notes);
 };

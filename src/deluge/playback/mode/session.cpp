@@ -796,6 +796,27 @@ void Session::scheduleFillEvent(Clip* clip, int64_t atTickCount) {
 	}
 }
 
+bool Session::anyClipStartingWithoutSamples() {
+	for (int32_t c = 0; c < currentSong->sessionClips.getNumElements(); c++) {
+		Clip* clip = currentSong->sessionClips.getClipAtIndex(c);
+		if ((clip->armState == ArmState::ON_NORMAL || clip->armState == ArmState::ON_TO_SOLO)
+		    && !currentSong->isClipActive(clip) && !clipSamplesReady(clip)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool Session::anyActiveClipWithoutSamples() {
+	for (int32_t c = 0; c < currentSong->sessionClips.getNumElements(); c++) {
+		Clip* clip = currentSong->sessionClips.getClipAtIndex(c);
+		if (currentSong->isClipActive(clip) && !clipSamplesReady(clip)) {
+			return true;
+		}
+	}
+	return false;
+}
+
 void Session::cancelAllLaunchScheduling() {
 	launchEventAtSwungTickCount = 0;
 }
@@ -1651,7 +1672,8 @@ void Session::armClipsToStartOrSoloWithQuantization(uint32_t pos, uint32_t quant
 				// See if that given point was only just reached a few milliseconds ago - in which case we'll do a "late
 				// start"
 				uint32_t timeAgo = pos * playbackHandler.getTimePerInternalTick(); // Accurate enough
-				doLateStart = (timeAgo < kAmountNoteOnLatenessAllowed);
+				// Not if its samples aren't loaded yet: its first notes would be silent. Arm it for next time instead
+				doLateStart = (timeAgo < kAmountNoteOnLatenessAllowed) && clipSamplesReady(clip);
 			}
 
 			armClipToStartOrSoloUsingQuantization(clip, doLateStart, pos, armState);
@@ -2357,6 +2379,19 @@ traverseClips:
 	// If launch event right now
 	if (launchEventAtSwungTickCount && playbackHandler.lastSwungTickActioned >= launchEventAtSwungTickCount) {
 		numRepeatsTilLaunch--;
+
+		// If a Clip about to start hasn't got its samples loaded yet (see SoundInstrument::loadAudioFilesLazily()), its
+		// first notes would be silent: wait another repeat, a couple of times at most so a slow card can't hold it up
+		if (numRepeatsTilLaunch <= 0 && !preLoadedSong && !switchToArrangementAtLaunchEvent
+		    && currentArmedLaunchLengthForOneRepeat > 0 && launchesWaitedForSamples < kMaxLaunchWaitsForSamples
+		    && anyClipStartingWithoutSamples()) {
+			launchesWaitedForSamples++;
+			numRepeatsTilLaunch = 1;
+			display->displayPopup(display->haveOLED() ? "Loading samples" : "LOAD");
+		}
+		if (numRepeatsTilLaunch <= 0) {
+			launchesWaitedForSamples = 0;
+		}
 
 		// If no more repeats remain, do the actual launch event now!
 		if (numRepeatsTilLaunch <= 0) {

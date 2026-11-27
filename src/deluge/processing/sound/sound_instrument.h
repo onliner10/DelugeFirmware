@@ -53,9 +53,20 @@ public:
 	/// For previewing presets quickly: of a big multisample, loads only the samples that the clips of notesFrom (the
 	/// Instrument this one is replacing) play, and leaves the rest to loadLazyAudioFilesTask().
 	Error loadAudioFilesForPreview(Song* song, Output* notesFrom);
-	/// Loads one sample left by loadAudioFilesForPreview(): one the visible audition pads would play, or, if anyOther,
-	/// any. Returns whether it loaded one.
-	bool loadLazyAudioFile(bool anyOther);
+	/// While loading song, instead of loadAllAudioFiles(): of a big multisample, loads only the zones its Clips play,
+	/// unless it needs them all (see getSampleNeed()), and leaves the rest to loadLazyAudioFilesTask().
+	Error loadAudioFilesLazily(Song* song, bool mayActuallyReadFiles);
+	/// Loads one sample left out by loadAudioFilesForPreview() or loadAudioFilesLazily(): first one its Clips or the
+	/// visible audition pads play, then, if it needs all of them (see getSampleNeed()) and mayLoadTheRest, any.
+	/// Returns whether it loaded one, or took the time to find there's none it needs.
+	bool loadLazyAudioFile(Song* song, bool mayLoadTheRest);
+	/// Loads the zone note plays, if left out, and gets its start into RAM, so it can be played straight away
+	void loadZonesForNoteNow(Song* song, int32_t note);
+	/// When loadLazyAudioFile() last found every zone its Clips play loaded, in AudioEngine::audioSampleTimer units,
+	/// so it doesn't check again for a while. 0 if not. Notes can change off screen too (undo, transposing the song).
+	uint32_t playedZonesLoadedAt = 0;
+	/// Whether the samples left out came from loading the Song (so live in its folders), rather than from previewing
+	bool lazyFromSong = false;
 	bool hasLazyAudioFiles() { return sources[0].hasLazySamples() || sources[1].hasLazySamples(); }
 	void resyncLFOs(bool reset_state = false) override;
 	ModControllable* toModControllable() override;
@@ -94,9 +105,20 @@ public:
 	ArpeggiatorSettings defaultArpSettings;
 };
 
-/// Scheduler task: loads, one at a time, the samples that loadAudioFilesForPreview() left out. First those the
-/// visible audition pads play, then, once the user has stopped changing presets for a moment, the rest.
+/// How much of its samples an Instrument needs loaded: none while it can't be heard soon, the zones its Clips play
+/// while one of them is active or armed, and all of them while it's on screen (audition pads), has MIDI learned to it
+/// or the arranger is in use.
+enum class SampleNeed : uint8_t { NONE, PLAYED_ZONES, ALL };
+SampleNeed getSampleNeed(Song* song, Output* output);
+/// Whether the samples clip plays could start sounding now (see Source::zonesReadyFor()). A Clip launching before they
+/// are would have silent notes until they've loaded.
+bool clipSamplesReady(Clip* clip);
+/// Scheduler task: loads, one at a time, the samples that loadAudioFilesForPreview() or loadAudioFilesLazily() left
+/// out, as the Instruments need them (see SoundInstrument::loadLazyAudioFile()).
 void loadLazyAudioFilesTask();
 /// Lets the start-of-sample Clusters of Instruments that can't be heard soon be stolen (Sound::setSampleStartsIdle()):
 /// in session mode, those with no active or armed Clip that aren't the one on screen and have no MIDI learned to them.
 void idleSampleStartsTask();
+/// What idleSampleStartsTask() does, for song, now: e.g. while loading it, before trying again to load samples that
+/// didn't fit in RAM
+void releaseIdleSampleStarts(Song* song);

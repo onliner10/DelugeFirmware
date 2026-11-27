@@ -32,13 +32,14 @@
 #include "modulation/params/param_manager.h"
 #include "modulation/params/param_set.h"
 #include "modulation/patch/patch_cable_set.h"
-#include "playback/mode/arrangement.h"
 #include "playback/playback_handler.h"
 #include "processing/engines/audio_engine.h"
 #include "processing/sound/sound_drum.h"
 #include "storage/audio/audio_file_manager.h"
 #include "storage/storage_manager.h"
 #include "util/misc.h"
+#include <algorithm>
+#include <array>
 
 namespace params = deluge::modulation::params;
 
@@ -258,34 +259,137 @@ private:
 	int32_t transpose_;
 };
 
+// Adds the notes that output's Clips play, including any octaves the arpeggiator adds. Returns false if they don't fit.
+bool addPlayedNotes(Song* song, Output* output, PreviewNotes& notes) {
+	for (Clip* clip : AllClips::everywhere(song)) {
+		if (clip->output != output || clip->type != ClipType::INSTRUMENT) {
+			continue;
+		}
+		auto* instrumentClip = static_cast<InstrumentClip*>(clip);
+		int32_t numOctaves =
+		    (instrumentClip->arpSettings.mode == ArpMode::OFF) ? 1 : instrumentClip->arpSettings.numOctaves;
+		for (int32_t i = 0; i < instrumentClip->noteRows.getNumElements(); i++) {
+			NoteRow* noteRow = instrumentClip->noteRows.getElement(i);
+			if (noteRow->hasNoNotes()) {
+				continue;
+			}
+			for (int32_t o = 0; o < numOctaves; o++) {
+				if (!notes.add(noteRow->y + o * 12)) {
+					return false;
+				}
+			}
+		}
+	}
+	return true;
+}
+
+// Sets up loading from song's folders, as loading the Song itself does. Call audioFileManager.thingFinishedLoading()
+// after.
+Error setupSongAudioFileDir(Song* song) {
+	String name;
+	Error error = name.set(song->name.get());
+	if (error != Error::NONE) {
+		return error;
+	}
+	size_t length = name.getLength();
+	if (length > 4 && !strcasecmp(name.get() + length - 4, ".XML")) {
+		error = name.shorten(length - 4);
+		if (error != Error::NONE) {
+			return error;
+		}
+	}
+	error = audioFileManager.setupAlternateAudioFileDir(audioFileManager.alternateAudioFileLoadPath,
+	                                                    song->dirPath.get(), name.get());
+	if (error != Error::NONE) {
+		return error;
+	}
+	audioFileManager.thingBeginningLoading(ThingType::SONG);
+	return Error::NONE;
+}
+
 } // namespace
+
+bool clipSamplesReady(Clip* clip) {
+	if (clip->type != ClipType::INSTRUMENT) {
+		return true;
+	}
+	auto* instrumentClip = static_cast<InstrumentClip*>(clip);
+	if (clip->output->type == OutputType::KIT) {
+		for (int32_t i = 0; i < instrumentClip->noteRows.getNumElements(); i++) {
+			NoteRow* noteRow = instrumentClip->noteRows.getElement(i);
+			if (noteRow->drum != nullptr && noteRow->drum->type == DrumType::SOUND && !noteRow->hasNoNotes()
+			    && !static_cast<SoundDrum*>(noteRow->drum)->sampleZonesReadyFor({}, true)) {
+				return false;
+			}
+		}
+		return true;
+	}
+	if (clip->output->type != OutputType::SYNTH) {
+		return true;
+	}
+	auto* synth = static_cast<SoundInstrument*>(clip->output);
+	PreviewNotes notes(synth->transpose);
+	int32_t numOctaves =
+	    (instrumentClip->arpSettings.mode == ArpMode::OFF) ? 1 : instrumentClip->arpSettings.numOctaves;
+	bool fits = true;
+	for (int32_t i = 0; fits && i < instrumentClip->noteRows.getNumElements(); i++) {
+		NoteRow* noteRow = instrumentClip->noteRows.getElement(i);
+		if (noteRow->hasNoNotes()) {
+			continue;
+		}
+		for (int32_t o = 0; fits && o < numOctaves; o++) {
+			fits = notes.add(noteRow->y + o * 12);
+		}
+	}
+	if (fits && notes.span().empty()) {
+		return true;
+	}
+	return synth->sampleZonesReadyFor(notes.span(), !fits);
+}
+
+namespace {
+
+// The SampleNeed::ALL cases, which don't need to look at every Clip
+bool needsAllSamples(Song* song, Output* output) {
+	// The arrangement can start any of its Clips with no arming beforehand to give us time to load, so anything in it
+	// is always kept loaded. It plays nothing else, so being in the arranger needs nothing more - except the row being
+	// auditioned there.
+	if (output->clipInstances.getNumElements()
+	    || (getRootUI() == &arrangerView && output == arrangerView.lastAuditionedOutput)) {
+		return true;
+	}
+	// The one shown or last shown, whose audition pads may be played, and anything MIDI may play any time
+	Clip* currentClip = song->getCurrentClip();
+	return (currentClip != nullptr && currentClip->output == output)
+	       || static_cast<Instrument*>(output)->midiInput.containsSomething();
+}
+
+bool clipActiveOrArmed(Song* song, Clip* clip, bool anySoloing) {
+	return clip->soloingInSessionMode || (clip->activeIfNoSolo && !anySoloing) || clip->armState != ArmState::OFF;
+}
+
+} // namespace
+
+SampleNeed getSampleNeed(Song* song, Output* output) {
+	if (needsAllSamples(song, output)) {
+		return SampleNeed::ALL;
+	}
+	bool anySoloing = song->getAnyClipsSoloing();
+	for (int32_t c = 0; c < song->sessionClips.getNumElements(); c++) {
+		Clip* clip = song->sessionClips.getClipAtIndex(c);
+		if (clip->output == output && clipActiveOrArmed(song, clip, anySoloing)) {
+			return SampleNeed::PLAYED_ZONES;
+		}
+	}
+	return SampleNeed::NONE;
+}
 
 Error SoundInstrument::loadAudioFilesForPreview(Song* song, Output* notesFrom) {
 	lastPreviewTime = AudioEngine::audioSampleTimer;
 
 	// The notes that the Clips will play, including any octaves the arpeggiator adds
 	PreviewNotes notes(transpose);
-	bool fits = (notesFrom != nullptr);
-	for (Clip* clip : AllClips::everywhere(song)) {
-		if (!fits) {
-			break;
-		}
-		if (clip->output != notesFrom || clip->type != ClipType::INSTRUMENT) {
-			continue;
-		}
-		auto* instrumentClip = static_cast<InstrumentClip*>(clip);
-		int32_t numOctaves =
-		    (instrumentClip->arpSettings.mode == ArpMode::OFF) ? 1 : instrumentClip->arpSettings.numOctaves;
-		for (int32_t i = 0; fits && i < instrumentClip->noteRows.getNumElements(); i++) {
-			NoteRow* noteRow = instrumentClip->noteRows.getElement(i);
-			if (noteRow->hasNoNotes()) {
-				continue;
-			}
-			for (int32_t o = 0; o < numOctaves; o++) {
-				fits = fits && notes.add(noteRow->y + o * 12);
-			}
-		}
-	}
+	bool fits = (notesFrom != nullptr) && addPlayedNotes(song, notesFrom, notes);
 	if (!fits) {
 		return loadAllAudioFiles(true);
 	}
@@ -311,30 +415,99 @@ Error SoundInstrument::loadAudioFilesForPreview(Song* song, Output* notesFrom) {
 	return error;
 }
 
-bool SoundInstrument::loadLazyAudioFile(bool anyOther) {
+Error SoundInstrument::loadAudioFilesLazily(Song* song, bool mayActuallyReadFiles) {
+	SampleNeed need = getSampleNeed(song, this);
+	if (!mayActuallyReadFiles || need == SampleNeed::ALL) {
+		return loadAllAudioFiles(mayActuallyReadFiles);
+	}
+	// Even if its Clips aren't playing, the zones they play are loaded, so starting one straight away (or exporting it
+	// as a stem) has them ready. Only zones that none of them play are left out.
+	PreviewNotes notes(transpose);
+	if (!addPlayedNotes(song, this, notes)) {
+		return loadAllAudioFiles(true);
+	}
+
+	bool doingAlternatePath = (audioFileManager.alternateLoadDirStatus == AlternateLoadDirStatus::NONE_SET);
+	if (doingAlternatePath) {
+		Error error = setupSongAudioFileDir(song);
+		if (error != Error::NONE) {
+			return error;
+		}
+	}
+
+	Error error = Error::NONE;
+	for (int32_t s = 0; s < kNumSources && error == Error::NONE; s++) {
+		if (sources[s].oscType == OscType::SAMPLE || sources[s].oscType == OscType::WAVETABLE) {
+			error = sources[s].loadSamplesForNotes(notes.span());
+		}
+	}
+	if (hasLazyAudioFiles()) {
+		lazyFromSong = true;
+	}
+
+	if (doingAlternatePath) {
+		audioFileManager.thingFinishedLoading();
+	}
+	return error;
+}
+
+void SoundInstrument::loadZonesForNoteNow(Song* song, int32_t note) {
+	PreviewNotes notes(transpose);
+	notes.add(note);
+	if (hasLazyAudioFiles()
+	    && (sources[0].hasLazySampleFor(notes.span()) || sources[1].hasLazySampleFor(notes.span()))) {
+		Error error = lazyFromSong ? setupSongAudioFileDir(song) : setupDefaultAudioFileDir();
+		if (error == Error::NONE) {
+			for (Source& source : sources) {
+				while (source.loadLazySample(notes.span(), false)) {}
+			}
+			audioFileManager.thingFinishedLoading();
+		}
+	}
+	for (Source& source : sources) {
+		source.loadZoneStartsNowFor(notes.span());
+	}
+}
+
+bool SoundInstrument::loadLazyAudioFile(Song* song, bool mayLoadTheRest) {
 	if (!hasLazyAudioFiles()) {
 		return false;
 	}
+	if (!needsAllSamples(song, this) && playedZonesLoadedAt != 0
+	    && AudioEngine::audioSampleTimer - playedZonesLoadedAt < kSampleRate) {
+		return false; // Checked lately
+	}
+	SampleNeed need = getSampleNeed(song, this);
+	if (need == SampleNeed::ALL) {
+		playedZonesLoadedAt = 0;
+	}
 
-	// The notes the audition pads play, if one of this Instrument's Clips is on screen
-	PreviewNotes visibleNotes(transpose);
-	Clip* clip = getCurrentClip();
-	if (clip && clip->output == this && clip->type == ClipType::INSTRUMENT) {
-		for (int32_t yDisplay = 0; yDisplay < kDisplayHeight; yDisplay++) {
-			visibleNotes.add(static_cast<InstrumentClip*>(clip)->getYNoteFromYDisplay(yDisplay, currentSong));
+	// The notes its Clips play, then the notes the audition pads play, if one of its Clips is on screen
+	PreviewNotes notes(transpose);
+	bool fits = addPlayedNotes(song, this, notes);
+	Clip* clip = song->getCurrentClip();
+	if (fits && clip && clip->output == this && clip->type == ClipType::INSTRUMENT) {
+		for (int32_t yDisplay = 0; fits && yDisplay < kDisplayHeight; yDisplay++) {
+			fits = notes.add(static_cast<InstrumentClip*>(clip)->getYNoteFromYDisplay(yDisplay, song));
 		}
 	}
-	if (!anyOther && visibleNotes.span().empty()) {
-		return false;
+	// The rest: if left from loading the Song, as soon as they're needed; if left from previewing presets, once the
+	// user has stopped changing presets. Either way, not while the card has Clusters to read, most likely for Voices
+	// that are playing: those mustn't be held up by lots of zones that nothing is about to play.
+	bool anyOther = (!fits || (need == SampleNeed::ALL && (lazyFromSong || mayLoadTheRest)))
+	                && !audioFileManager.anyClusterLoadsPending();
+	if (!anyOther && !sources[0].hasLazySampleFor(notes.span()) && !sources[1].hasLazySampleFor(notes.span())) {
+		playedZonesLoadedAt = (need != SampleNeed::ALL && fits) ? (AudioEngine::audioSampleTimer | 1) : 0;
+		return true; // Nothing it needs is left. That check was work enough for this run of the task, though
 	}
 
-	Error error = setupDefaultAudioFileDir();
+	Error error = lazyFromSong ? setupSongAudioFileDir(song) : setupDefaultAudioFileDir();
 	if (error != Error::NONE) {
 		return false;
 	}
 	bool loaded = false;
 	for (int32_t s = 0; s < kNumSources && !loaded; s++) {
-		loaded = sources[s].loadLazySample(visibleNotes.span(), anyOther);
+		loaded = sources[s].loadLazySample(notes.span(), anyOther);
 	}
 	audioFileManager.thingFinishedLoading();
 	return loaded;
@@ -348,11 +521,29 @@ void loadLazyAudioFilesTask() {
 	}
 	bool loadTheRest = (AudioEngine::audioSampleTimer - lastPreviewTime) >= kLazyLoadRestDelay;
 
-	// Only Instruments in the Song: one the user has scrolled past has been deleted or hibernated, so its loading stops
+	// Only Instruments in the Song: one the user has scrolled past has been deleted or hibernated, so its loading
+	// stops. Round and round, starting after the last one that did something, so none waits on another
+	static int32_t lastIndex = -1;
+	int32_t numOutputs = 0;
 	for (Output* output = currentSong->firstOutput; output; output = output->next) {
+		numOutputs++;
+	}
+	if (numOutputs == 0) {
+		return;
+	}
+	int32_t index = (lastIndex + 1) % numOutputs;
+	Output* output = currentSong->getOutputFromIndex(index);
+	for (int32_t i = 0; i < numOutputs && output != nullptr; i++) {
 		if (output->type == OutputType::SYNTH
-		    && static_cast<SoundInstrument*>(output)->loadLazyAudioFile(loadTheRest)) {
-			return; // One file at a time
+		    && static_cast<SoundInstrument*>(output)->loadLazyAudioFile(currentSong, loadTheRest)) {
+			lastIndex = index;
+			return; // One file, or one Instrument checked, at a time: each can take a while
+		}
+		index++;
+		output = output->next;
+		if (output == nullptr) {
+			index = 0;
+			output = currentSong->firstOutput;
 		}
 	}
 }
@@ -377,60 +568,50 @@ bool drumIsPlayed(Song* song, Kit* kit, Drum* drum) {
 }
 
 void setSynthIdle(Song* song, SoundInstrument* synth, bool idle) {
-	if (!idle || synth->sampleStartsIdle) {
-		synth->setSampleStartsIdle(idle);
+	if (idle == synth->sampleStartsIdle) {
 		return;
 	}
-	// The notes its Clips play, including any octaves the arpeggiator adds, as in loadAudioFilesForPreview()
 	PreviewNotes notes(synth->transpose);
-	bool fits = true;
-	for (Clip* clip : AllClips::everywhere(song)) {
-		if (clip->output != synth || clip->type != ClipType::INSTRUMENT) {
-			continue;
-		}
-		auto* instrumentClip = static_cast<InstrumentClip*>(clip);
-		int32_t numOctaves =
-		    (instrumentClip->arpSettings.mode == ArpMode::OFF) ? 1 : instrumentClip->arpSettings.numOctaves;
-		for (int32_t i = 0; fits && i < instrumentClip->noteRows.getNumElements(); i++) {
-			NoteRow* noteRow = instrumentClip->noteRows.getElement(i);
-			if (noteRow->hasNoNotes()) {
-				continue;
-			}
-			for (int32_t o = 0; o < numOctaves; o++) {
-				fits = fits && notes.add(noteRow->y + o * 12);
-			}
-		}
-	}
-	synth->setSampleStartsIdle(true, notes.span(), !fits);
+	bool fits = addPlayedNotes(song, synth, notes);
+	synth->setSampleStartsIdle(idle, notes.span(), !fits);
 }
 
 } // namespace
 
 void idleSampleStartsTask() {
-	Song* song = currentSong;
-	if (song == nullptr || audioFileManager.thingTypeBeingLoaded != ThingType::NONE) {
+	if (currentSong == nullptr || audioFileManager.thingTypeBeingLoaded != ThingType::NONE) {
 		return;
 	}
-	// The arrangement can start any Clip, with no arming beforehand to give us time to reload
-	bool everythingWanted =
-	    getRootUI() == &arrangerView || (playbackHandler.isEitherClockActive() && currentPlaybackMode == &arrangement);
+	releaseIdleSampleStarts(currentSong);
+}
+
+void releaseIdleSampleStarts(Song* song) {
+	// The Outputs with a Clip active or armed, in one pass over the Clips rather than one per Output
+	constexpr size_t kMaxPlaying = 64;
+	std::array<Output*, kMaxPlaying> playing;
+	size_t numPlaying = 0;
+	bool tooMany = false;
 	bool anySoloing = song->getAnyClipsSoloing();
-	Clip* currentClip = song->getCurrentClip(); // The one shown or last shown: its audition pads may be played
-	Output* onScreen = currentClip != nullptr ? currentClip->output : nullptr;
+	for (int32_t c = 0; c < song->sessionClips.getNumElements() && !tooMany; c++) {
+		Clip* clip = song->sessionClips.getClipAtIndex(c);
+		if (clipActiveOrArmed(song, clip, anySoloing)
+		    && std::find(playing.begin(), playing.begin() + numPlaying, clip->output) == playing.begin() + numPlaying) {
+			tooMany = (numPlaying == kMaxPlaying);
+			if (!tooMany) {
+				playing[numPlaying++] = clip->output;
+			}
+		}
+	}
 
 	for (Output* output = song->firstOutput; output; output = output->next) {
 		if (output->type != OutputType::SYNTH && output->type != OutputType::KIT) {
 			continue;
 		}
-		// Also anything that MIDI is learned to, as notes may come in any time
 		bool wanted =
-		    everythingWanted || output == onScreen || static_cast<Instrument*>(output)->midiInput.containsSomething();
-		for (int32_t c = 0; !wanted && c < song->sessionClips.getNumElements(); c++) {
-			Clip* clip = song->sessionClips.getClipAtIndex(c);
-			wanted = clip->output == output
-			         && (clip->soloingInSessionMode || (clip->activeIfNoSolo && !anySoloing)
-			             || clip->armState != ArmState::OFF);
-		}
+		    tooMany
+		        ? (getSampleNeed(song, output) != SampleNeed::NONE)
+		        : (needsAllSamples(song, output)
+		           || std::find(playing.begin(), playing.begin() + numPlaying, output) != playing.begin() + numPlaying);
 		if (output->type == OutputType::SYNTH) {
 			setSynthIdle(song, static_cast<SoundInstrument*>(output), !wanted);
 			continue;
