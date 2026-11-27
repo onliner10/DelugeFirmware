@@ -46,7 +46,7 @@ Error ConsequenceClipMoveToSession::revert(TimeType time, ModelStack* model_stac
 
 		section_ = clip_->section;
 		clip_->section = 255;
-		clip_->activeIfNoSolo = false; // Always the case for arrangement-only clips
+		clip_->activeIfNoSolo = false; // Like a new arrangement-only clip. Arrangement playback re-syncs it after undo
 	}
 	else {
 		// Redo

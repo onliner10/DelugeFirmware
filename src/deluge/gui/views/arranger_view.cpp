@@ -1487,8 +1487,10 @@ void ArrangerView::cloneClipInstanceToWhite(Output* output, int32_t x, int32_t y
 	if (clipInstance && clipInstance->pos + clipInstance->length >= squareStart) {
 		Clip* oldClip = clipInstance->clip;
 
-		// The pad is held after this. Don't let a stale flag from an earlier press delete or enter the instance when
-		// it's released.
+		// The pad is held after this, so Select, a length press or Song act on this instance: point at it, and don't
+		// let a stale flag from an earlier press delete or enter it when it's released.
+		pressedClipInstanceIndex = i;
+		pressedHead = (clipInstance->pos >= squareStart);
 		actionOnDepress = false;
 
 		// A white clip goes the other way: it becomes a section clip

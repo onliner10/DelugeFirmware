@@ -25,10 +25,12 @@
 #include "gui/views/view.h"
 #include "hid/display/display.h"
 #include "hid/led/pad_leds.h"
+#include "memory/general_memory_allocator.h"
 #include "model/action/action.h"
 #include "model/action/action_logger.h"
 #include "model/clip/clip_instance.h"
 #include "model/clip/instrument_clip.h"
+#include "model/consequence/consequence_clip_instance_change.h"
 #include "model/instrument/instrument.h"
 #include "model/model_stack.h"
 #include "model/song/song.h"
@@ -544,13 +546,22 @@ Error Arrangement::doUniqueCloneOnClipInstance(ClipInstance* clipInstance, int32
 	rowEdited(oldClip->output, clipInstance->pos, clipInstance->pos + clipInstance->length, clipInstance->clip,
 	          nullptr);
 
-	if (action
+	// Both undo records or neither: an instance left pointing at a clip whose creation gets undone would dangle
+	void* changeMemory =
+	    action ? GeneralMemoryAllocator::get().allocLowSpeed(sizeof(ConsequenceClipInstanceChange)) : nullptr;
+	if (changeMemory
 	    && action->recordClipExistenceChange(currentSong, &currentSong->arrangementOnlyClips, newClip,
 	                                         ExistenceChangeType::CREATE)) {
-		clipInstance->change(action, oldClip->output, clipInstance->pos,
-		                     (newLength != -1) ? newLength : clipInstance->length, newClip);
+		int32_t lengthAfter = (newLength != -1) ? newLength : clipInstance->length;
+		action->addConsequence(new (changeMemory) ConsequenceClipInstanceChange(
+		    oldClip->output, clipInstance, clipInstance->pos, lengthAfter, newClip));
+		clipInstance->clip = newClip;
+		clipInstance->length = lengthAfter;
 	}
 	else {
+		if (changeMemory) {
+			delugeDealloc(changeMemory);
+		}
 		if (action) {
 			actionLogger.deleteAllLogs(); // Out of RAM for the undo step - earlier ones would no longer match
 		}
