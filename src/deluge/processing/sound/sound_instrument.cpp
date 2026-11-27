@@ -38,6 +38,8 @@
 #include "storage/audio/audio_file_manager.h"
 #include "storage/storage_manager.h"
 #include "util/misc.h"
+#include <algorithm>
+#include <array>
 
 namespace params = deluge::modulation::params;
 
@@ -345,26 +347,37 @@ bool clipSamplesReady(Clip* clip) {
 	return synth->sampleZonesReadyFor(notes.span(), !fits);
 }
 
-SampleNeed getSampleNeed(Song* song, Output* output) {
+namespace {
+
+// The SampleNeed::ALL cases, which don't need to look at every Clip
+bool needsAllSamples(Song* song, Output* output) {
 	// The arrangement can start any of its Clips with no arming beforehand to give us time to load, so anything in it
 	// is always kept loaded. It plays nothing else, so being in the arranger needs nothing more - except the row being
 	// auditioned there.
 	if (output->clipInstances.getNumElements()
 	    || (getRootUI() == &arrangerView && output == arrangerView.lastAuditionedOutput)) {
-		return SampleNeed::ALL;
+		return true;
 	}
 	// The one shown or last shown, whose audition pads may be played, and anything MIDI may play any time
 	Clip* currentClip = song->getCurrentClip();
-	if ((currentClip != nullptr && currentClip->output == output)
-	    || static_cast<Instrument*>(output)->midiInput.containsSomething()) {
+	return (currentClip != nullptr && currentClip->output == output)
+	       || static_cast<Instrument*>(output)->midiInput.containsSomething();
+}
+
+bool clipActiveOrArmed(Song* song, Clip* clip, bool anySoloing) {
+	return clip->soloingInSessionMode || (clip->activeIfNoSolo && !anySoloing) || clip->armState != ArmState::OFF;
+}
+
+} // namespace
+
+SampleNeed getSampleNeed(Song* song, Output* output) {
+	if (needsAllSamples(song, output)) {
 		return SampleNeed::ALL;
 	}
 	bool anySoloing = song->getAnyClipsSoloing();
 	for (int32_t c = 0; c < song->sessionClips.getNumElements(); c++) {
 		Clip* clip = song->sessionClips.getClipAtIndex(c);
-		if (clip->output == output
-		    && (clip->soloingInSessionMode || (clip->activeIfNoSolo && !anySoloing)
-		        || clip->armState != ArmState::OFF)) {
+		if (clip->output == output && clipActiveOrArmed(song, clip, anySoloing)) {
 			return SampleNeed::PLAYED_ZONES;
 		}
 	}
@@ -460,12 +473,13 @@ bool SoundInstrument::loadLazyAudioFile(Song* song, bool mayLoadTheRest) {
 	if (!hasLazyAudioFiles()) {
 		return false;
 	}
+	if (!needsAllSamples(song, this) && playedZonesLoadedAt != 0
+	    && AudioEngine::audioSampleTimer - playedZonesLoadedAt < kSampleRate) {
+		return false; // Checked lately
+	}
 	SampleNeed need = getSampleNeed(song, this);
 	if (need == SampleNeed::ALL) {
 		playedZonesLoadedAt = 0;
-	}
-	else if (playedZonesLoadedAt != 0 && AudioEngine::audioSampleTimer - playedZonesLoadedAt < kSampleRate) {
-		return false; // Checked lately
 	}
 
 	// The notes its Clips play, then the notes the audition pads play, if one of its Clips is on screen
@@ -484,7 +498,7 @@ bool SoundInstrument::loadLazyAudioFile(Song* song, bool mayLoadTheRest) {
 	                && !audioFileManager.anyClusterLoadsPending();
 	if (!anyOther && !sources[0].hasLazySampleFor(notes.span()) && !sources[1].hasLazySampleFor(notes.span())) {
 		playedZonesLoadedAt = (need != SampleNeed::ALL && fits) ? (AudioEngine::audioSampleTimer | 1) : 0;
-		return false; // Nothing it needs is left: don't set up for loading again and again
+		return true; // Nothing it needs is left. That check was work enough for this run of the task, though
 	}
 
 	Error error = lazyFromSong ? setupSongAudioFileDir(song) : setupDefaultAudioFileDir();
@@ -507,11 +521,29 @@ void loadLazyAudioFilesTask() {
 	}
 	bool loadTheRest = (AudioEngine::audioSampleTimer - lastPreviewTime) >= kLazyLoadRestDelay;
 
-	// Only Instruments in the Song: one the user has scrolled past has been deleted or hibernated, so its loading stops
+	// Only Instruments in the Song: one the user has scrolled past has been deleted or hibernated, so its loading
+	// stops. Round and round, starting after the last one that did something, so none waits on another
+	static int32_t lastIndex = -1;
+	int32_t numOutputs = 0;
 	for (Output* output = currentSong->firstOutput; output; output = output->next) {
+		numOutputs++;
+	}
+	if (numOutputs == 0) {
+		return;
+	}
+	int32_t index = (lastIndex + 1) % numOutputs;
+	Output* output = currentSong->getOutputFromIndex(index);
+	for (int32_t i = 0; i < numOutputs && output != nullptr; i++) {
 		if (output->type == OutputType::SYNTH
 		    && static_cast<SoundInstrument*>(output)->loadLazyAudioFile(currentSong, loadTheRest)) {
-			return; // One file at a time
+			lastIndex = index;
+			return; // One file, or one Instrument checked, at a time: each can take a while
+		}
+		index++;
+		output = output->next;
+		if (output == nullptr) {
+			index = 0;
+			output = currentSong->firstOutput;
 		}
 	}
 }
@@ -547,15 +579,39 @@ void setSynthIdle(Song* song, SoundInstrument* synth, bool idle) {
 } // namespace
 
 void idleSampleStartsTask() {
-	Song* song = currentSong;
-	if (song == nullptr || audioFileManager.thingTypeBeingLoaded != ThingType::NONE) {
+	if (currentSong == nullptr || audioFileManager.thingTypeBeingLoaded != ThingType::NONE) {
 		return;
 	}
+	releaseIdleSampleStarts(currentSong);
+}
+
+void releaseIdleSampleStarts(Song* song) {
+	// The Outputs with a Clip active or armed, in one pass over the Clips rather than one per Output
+	constexpr size_t kMaxPlaying = 64;
+	std::array<Output*, kMaxPlaying> playing;
+	size_t numPlaying = 0;
+	bool tooMany = false;
+	bool anySoloing = song->getAnyClipsSoloing();
+	for (int32_t c = 0; c < song->sessionClips.getNumElements() && !tooMany; c++) {
+		Clip* clip = song->sessionClips.getClipAtIndex(c);
+		if (clipActiveOrArmed(song, clip, anySoloing)
+		    && std::find(playing.begin(), playing.begin() + numPlaying, clip->output) == playing.begin() + numPlaying) {
+			tooMany = (numPlaying == kMaxPlaying);
+			if (!tooMany) {
+				playing[numPlaying++] = clip->output;
+			}
+		}
+	}
+
 	for (Output* output = song->firstOutput; output; output = output->next) {
 		if (output->type != OutputType::SYNTH && output->type != OutputType::KIT) {
 			continue;
 		}
-		bool wanted = getSampleNeed(song, output) != SampleNeed::NONE;
+		bool wanted =
+		    tooMany
+		        ? (getSampleNeed(song, output) != SampleNeed::NONE)
+		        : (needsAllSamples(song, output)
+		           || std::find(playing.begin(), playing.begin() + numPlaying, output) != playing.begin() + numPlaying);
 		if (output->type == OutputType::SYNTH) {
 			setSynthIdle(song, static_cast<SoundInstrument*>(output), !wanted);
 			continue;

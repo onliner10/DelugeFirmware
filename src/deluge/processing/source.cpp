@@ -132,6 +132,17 @@ Error Source::loadAllSamples(bool mayActuallyReadFiles) {
 // Multisamples with at least this many zones get loaded lazily when previewing presets
 constexpr int32_t kMinRangesToLoadLazily = 8;
 
+std::bitset<Source::kMaxLazyRanges> Source::zonesPlayedBy(std::span<const int16_t> notes) {
+	std::bitset<kMaxLazyRanges> played;
+	for (int16_t note : notes) {
+		int32_t e = getRangeIndex(note);
+		if (e < kMaxLazyRanges) {
+			played[e] = true;
+		}
+	}
+	return played;
+}
+
 bool Source::rangePlaysAnyOf(int32_t e, std::span<const int16_t> notes) {
 	for (int16_t note : notes) {
 		if (getRangeIndex(note) == e) {
@@ -155,13 +166,14 @@ Error Source::loadSamplesForNotes(std::span<const int16_t> notes) {
 	lazyTried.reset();
 	lazyNumRanges = numRanges;
 	lazyPending = false;
+	std::bitset<kMaxLazyRanges> played = zonesPlayedBy(notes);
 	int32_t numLoaded = 0;
 	for (int32_t e = 0; e < numRanges; e++) {
 		if (ranges.getElement(e)->getAudioFileHolder()->audioFile) {
 			lazyTried[e] = true; // Was already in memory
 			continue;
 		}
-		if (!rangePlaysAnyOf(e, notes)) {
+		if (!played[e]) {
 			lazyPending = true;
 			continue;
 		}
@@ -188,6 +200,7 @@ bool Source::loadLazySample(std::span<const int16_t> notes, bool anyOther) {
 		lazyNumRanges = std::min(numRanges, kMaxLazyRanges);
 	}
 
+	std::bitset<kMaxLazyRanges> played = zonesPlayedBy(notes);
 	int32_t toLoad = -1;
 	bool anyLeft = false;
 	for (int32_t e = 0; e < lazyNumRanges; e++) {
@@ -199,7 +212,7 @@ bool Source::loadLazySample(std::span<const int16_t> notes, bool anyOther) {
 			continue;
 		}
 		anyLeft = true;
-		if (rangePlaysAnyOf(e, notes)) {
+		if (played[e]) {
 			toLoad = e; // These first
 			break;
 		}
@@ -285,9 +298,15 @@ MultiRange* Source::getOrCreateFirstRange() {
 
 namespace {
 template <typename Range, auto holder>
-bool anyRangeHasAudioFile(MultiRangeArray& ranges) {
-	for (int32_t e = 0; e < ranges.getNumElements(); e++) {
+bool anyRangeHasAudioFile(MultiRangeArray& ranges, int16_t& hint) {
+	int32_t numRanges = ranges.getNumElements();
+	// The one found last time first: with zones left unloaded (see loadSamplesForNotes()), the first few often aren't
+	if (hint < numRanges && (static_cast<Range*>(ranges.getElementAddress(hint))->*holder).audioFile) {
+		return true;
+	}
+	for (int32_t e = 0; e < numRanges; e++) {
 		if ((static_cast<Range*>(ranges.getElementAddress(e))->*holder).audioFile) {
+			hint = static_cast<int16_t>(e);
 			return true;
 		}
 	}
@@ -309,9 +328,9 @@ bool Source::hasAtLeastOneAudioFileLoaded() {
 	// range. The element size gives the range type, as in MultiRangeArray::insertMultiRange().
 	static_assert(sizeof(MultisampleRange) != sizeof(MultiWaveTableRange));
 	if (ranges.elementSize == sizeof(MultisampleRange)) {
-		return anyRangeHasAudioFile<MultisampleRange, &MultisampleRange::sampleHolder>(ranges);
+		return anyRangeHasAudioFile<MultisampleRange, &MultisampleRange::sampleHolder>(ranges, loadedRangeHint);
 	}
-	return anyRangeHasAudioFile<MultiWaveTableRange, &MultiWaveTableRange::waveTableHolder>(ranges);
+	return anyRangeHasAudioFile<MultiWaveTableRange, &MultiWaveTableRange::waveTableHolder>(ranges, loadedRangeHint);
 }
 
 void Source::doneReadingFromFile(Sound* sound) {
@@ -434,32 +453,37 @@ DxPatch* Source::ensureDxPatch() {
 
  */
 
+bool Source::zoneReady(int32_t e) {
+	auto* holder = static_cast<SampleHolder*>(ranges.getElement(e)->getAudioFileHolder());
+	if (holder->audioFile == nullptr) {
+		// Still to be loaded lazily? Otherwise the file is missing, and there's nothing to wait for
+		return !(lazyPending && e < kMaxLazyRanges && ranges.getNumElements() == lazyNumRanges && !lazyTried[e]
+		         && !holder->filePath.isEmpty());
+	}
+	auto* sample = static_cast<Sample*>(holder->audioFile);
+	int32_t firstIndex = holder->startPlaybackAtByte >> Cluster::size_magnitude;
+	if (firstIndex < 0 || firstIndex >= sample->clusters.getNumElements()) {
+		return true; // Nothing to play there anyway
+	}
+	// Whether or not it's claimed: an idle instrument's starts are released, but usually still in RAM
+	Cluster* first = sample->clusters.getElement(firstIndex)->cluster;
+	return first != nullptr && first->loaded;
+}
+
 bool Source::zonesReadyFor(std::span<const int16_t> notes, bool allZones) {
-	if (oscType != OscType::SAMPLE) {
+	if (oscType != OscType::SAMPLE || ranges.getNumElements() == 0) {
 		return true;
 	}
-	int32_t numRanges = ranges.getNumElements();
-	for (int32_t e = 0; e < numRanges; e++) {
-		if (!allZones && !rangePlaysAnyOf(e, notes)) {
-			continue;
-		}
-		auto* holder = static_cast<SampleHolder*>(ranges.getElement(e)->getAudioFileHolder());
-		if (holder->audioFile == nullptr) {
-			// Still to be loaded lazily? Otherwise the file is missing
-			if (lazyPending && e < kMaxLazyRanges && numRanges == lazyNumRanges && !lazyTried[e]
-			    && !holder->filePath.isEmpty()) {
+	if (allZones) {
+		for (int32_t e = 0; e < ranges.getNumElements(); e++) {
+			if (!zoneReady(e)) {
 				return false;
 			}
-			continue;
 		}
-		auto* sample = static_cast<Sample*>(holder->audioFile);
-		int32_t firstIndex = holder->startPlaybackAtByte >> Cluster::size_magnitude;
-		if (firstIndex < 0 || firstIndex >= sample->clusters.getNumElements()) {
-			continue; // Nothing to play there anyway
-		}
-		// Whether or not it's claimed: an idle instrument's starts are released, but usually still in RAM
-		Cluster* first = sample->clusters.getElement(firstIndex)->cluster;
-		if (first == nullptr || !first->loaded) {
+		return true;
+	}
+	for (int16_t note : notes) {
+		if (!zoneReady(getRangeIndex(note))) {
 			return false;
 		}
 	}
@@ -470,8 +494,9 @@ bool Source::hasLazySampleFor(std::span<const int16_t> notes) {
 	if (!lazyPending || ranges.getNumElements() != lazyNumRanges) {
 		return lazyPending; // Zones changed since: let loadLazySample() sort it out
 	}
-	for (int32_t e = 0; e < lazyNumRanges; e++) {
-		if (!lazyTried[e] && !ranges.getElement(e)->getAudioFileHolder()->audioFile && rangePlaysAnyOf(e, notes)) {
+	for (int16_t note : notes) {
+		int32_t e = getRangeIndex(note);
+		if (e < lazyNumRanges && !lazyTried[e] && !ranges.getElement(e)->getAudioFileHolder()->audioFile) {
 			return true;
 		}
 	}

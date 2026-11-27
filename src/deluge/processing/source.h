@@ -92,10 +92,14 @@ private:
 	void destructAllMultiRanges();
 	bool rangePlaysAnyOf(int32_t e, std::span<const int16_t> notes);
 	void loadRange(int32_t e);
+	bool zoneReady(int32_t e);
 
 	// Lazy loading. Multisamples with more zones than this are just loaded in full.
 	static constexpr int32_t kMaxLazyRanges = 256;
-	bool lazyPending = false;              ///< Some zones skipped by loadSamplesForNotes() may still need loading
-	int16_t lazyNumRanges = 0;             ///< How many zones there were when lazyTried was set up
+	bool lazyPending = false;    ///< Some zones skipped by loadSamplesForNotes() may still need loading
+	int16_t loadedRangeHint = 0; ///< A zone hasAtLeastOneAudioFileLoaded() last found loaded, to look at first
+	int16_t lazyNumRanges = 0;   ///< How many zones there were when lazyTried was set up
 	std::bitset<kMaxLazyRanges> lazyTried; ///< Zones already loaded or tried, so a missing file isn't retried forever
+	/// Which zones notes fall in: one lookup per note, rather than every zone against every note
+	std::bitset<kMaxLazyRanges> zonesPlayedBy(std::span<const int16_t> notes);
 };

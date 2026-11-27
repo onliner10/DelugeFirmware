@@ -40,6 +40,7 @@
 #include "playback/mode/session.h"
 #include "playback/playback_handler.h"
 #include "processing/engines/audio_engine.h"
+#include "processing/sound/sound_instrument.h"
 #include "scheduler_api.h"
 #include "storage/audio/audio_file_manager.h"
 #include "storage/file_item.h"
@@ -540,7 +541,10 @@ swapDone:
 
 	audioFileManager.deleteAnyTempRecordedSamplesFromMemory();
 
-	// Try one more time to load all AudioFiles - there might be more RAM free now
+	// Try one more time to load all AudioFiles - there might be more RAM free now. More still once the start of the
+	// samples of Instruments that can't be heard yet has been let go: loading them all may have filled RAM before the
+	// last Instruments' samples could load, and those would stay silent
+	releaseIdleSampleStarts(currentSong);
 	currentSong->loadAllSamples();
 	AudioEngine::logAction("done loading new song");
 	currentSong->markAllInstrumentsAsEdited();

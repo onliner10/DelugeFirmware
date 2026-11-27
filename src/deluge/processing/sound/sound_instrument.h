@@ -58,7 +58,7 @@ public:
 	Error loadAudioFilesLazily(Song* song, bool mayActuallyReadFiles);
 	/// Loads one sample left out by loadAudioFilesForPreview() or loadAudioFilesLazily(): first one its Clips or the
 	/// visible audition pads play, then, if it needs all of them (see getSampleNeed()) and mayLoadTheRest, any.
-	/// Returns whether it loaded one.
+	/// Returns whether it loaded one, or took the time to find there's none it needs.
 	bool loadLazyAudioFile(Song* song, bool mayLoadTheRest);
 	/// Loads the zone note plays, if left out, and gets its start into RAM, so it can be played straight away
 	void loadZonesForNoteNow(Song* song, int32_t note);
@@ -119,3 +119,6 @@ void loadLazyAudioFilesTask();
 /// Lets the start-of-sample Clusters of Instruments that can't be heard soon be stolen (Sound::setSampleStartsIdle()):
 /// in session mode, those with no active or armed Clip that aren't the one on screen and have no MIDI learned to them.
 void idleSampleStartsTask();
+/// What idleSampleStartsTask() does, for song, now: e.g. while loading it, before trying again to load samples that
+/// didn't fit in RAM
+void releaseIdleSampleStarts(Song* song);
