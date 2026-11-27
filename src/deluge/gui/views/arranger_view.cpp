@@ -54,6 +54,7 @@
 #include "model/consequence/consequence_arranger_params_time_inserted.h"
 #include "model/consequence/consequence_clip_existence.h"
 #include "model/consequence/consequence_clip_instance_change.h"
+#include "model/consequence/consequence_clip_move_to_session.h"
 #include "model/drum/drum.h"
 #include "model/instrument/instrument.h"
 #include "model/instrument/kit.h"
@@ -79,6 +80,7 @@
 #include "util/functions.h"
 #include "util/try.h"
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <new>
 
@@ -110,6 +112,7 @@ PLACE_SDRAM_RODATA constexpr deluge::gui::combos::Gesture const* kGestures[] = {
     &deluge::gui::combos::gesture::arranger::SoloTrack,
     &deluge::gui::combos::gesture::arranger::MuteTrack,
     &deluge::gui::combos::gesture::arranger::MakeUnique,
+    &deluge::gui::combos::gesture::arranger::MakeSection,
     &deluge::gui::combos::gesture::arranger::InstanceLength,
     &deluge::gui::combos::gesture::arranger::InstanceClip,
     &deluge::gui::combos::gesture::arranger::DragInstance,
@@ -192,17 +195,11 @@ void ArrangerView::moveClipToSession() {
 				intendedIndex = currentSong->sessionClips.getNumElements();
 			}
 
-			clip->section = currentSong->getLowestSectionWithNoSessionClipForOutput(output);
-			Error error = currentSong->sessionClips.insertClipAtIndex(clip, intendedIndex);
+			Error error = moveArrangementOnlyClipToSession(
+			    clip, intendedIndex, currentSong->getLowestSectionWithNoSessionClipForOutput(output));
 			if (error != Error::NONE) {
 				display->displayError(error);
 				return;
-			}
-			actionLogger.deleteAllLogs();
-
-			int32_t oldIndex = currentSong->arrangementOnlyClips.getIndexForClip(clip);
-			if (oldIndex != -1) {
-				currentSong->arrangementOnlyClips.deleteAtIndex(oldIndex);
 			}
 		}
 
@@ -221,6 +218,80 @@ void ArrangerView::moveClipToSession() {
 		sessionView.performActionOnPadRelease = false;
 		view.setActiveModControllableTimelineCounter(clip);
 	}
+}
+
+/// Turns an arrangement-only (white) clip into a session clip in the first section where this output has no clip,
+/// staying in the arranger. Returns false, with a popup, if it couldn't.
+bool ArrangerView::makeClipIntoSectionClip(Output* output, Clip* clip) {
+	if (playbackHandler.recording == RecordingMode::ARRANGEMENT) {
+		display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_RECORDING_TO_ARRANGEMENT));
+		return false;
+	}
+
+	// Not getLowestSectionWithNoSessionClipForOutput(): that returns section 1 when there's no free one
+	std::array<bool, kMaxNumSections> section_used{};
+	int32_t insert_index = currentSong->sessionClips.getNumElements();
+	for (int32_t c = 0; c < currentSong->sessionClips.getNumElements(); c++) {
+		Clip* session_clip = currentSong->sessionClips.getClipAtIndex(c);
+		if (session_clip->output == output) {
+			if (session_clip->section < kMaxNumSections) {
+				section_used[session_clip->section] = true;
+			}
+			insert_index = c + 1; // Keep this output's clips together in rows layout
+		}
+	}
+
+	int32_t section = 0;
+	while (section < kMaxNumSections && section_used[section]) {
+		section++;
+	}
+	if (section == kMaxNumSections) {
+		display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_NO_FREE_SECTION));
+		return false;
+	}
+
+	Error error = moveArrangementOnlyClipToSession(clip, insert_index, section);
+	if (error != Error::NONE) {
+		display->displayError(error);
+		return false;
+	}
+	return true;
+}
+
+/// Moves an arrangement-only clip into sessionClips, giving it a section, as one undoable step
+Error ArrangerView::moveArrangementOnlyClipToSession(Clip* clip, int32_t session_index, uint8_t section) {
+	int32_t arrangement_only_index = currentSong->arrangementOnlyClips.getIndexForClip(clip);
+	if (arrangement_only_index == -1) {
+		return Error::BUG;
+	}
+
+	Action* action = actionLogger.getNewAction(ActionType::CLIP_INSTANCE_EDIT, ActionAddition::NOT_ALLOWED);
+
+	Error error = currentSong->sessionClips.insertClipAtIndex(clip, session_index);
+	if (error != Error::NONE) {
+		return error;
+	}
+	currentSong->arrangementOnlyClips.deleteAtIndex(arrangement_only_index);
+	clip->section = section;
+
+	void* cons_memory = (action != nullptr)
+	                        ? GeneralMemoryAllocator::get().allocLowSpeed(sizeof(ConsequenceClipMoveToSession))
+	                        : nullptr;
+	if (cons_memory == nullptr) {
+		// Earlier undo steps would no longer match the song
+		actionLogger.deleteAllLogs();
+		return Error::NONE;
+	}
+	action->addConsequence(new (cons_memory) ConsequenceClipMoveToSession(clip, arrangement_only_index, session_index));
+
+	// The clip moved within the "all clips" order that the action's per-clip view states are indexed by
+	if (action->clipStates != nullptr) {
+		delugeDealloc(action->clipStates);
+		action->clipStates = nullptr;
+	}
+	action->numClipStates = 0;
+
+	return Error::NONE;
 }
 
 void ArrangerView::goToSongView() {
@@ -1367,11 +1438,8 @@ void ArrangerView::editPadAction(int32_t x, int32_t y, bool on) {
 				}
 
 				if (x == xPressed && y == yPressedEffective) {
-					// if a section clip instance was changed to an arrangement only clip instance,
-					// the clip itself is created on pad release
-					if (lastInteractedSection == 255 && !lastInteractedClipInstance->clip) {
-						createNewClipForClipInstance(output, lastInteractedClipInstance);
-					}
+					// An instance without a clip stays that way until the user enters it, so
+					// that Select can still switch it to a section clip after the pad is released.
 
 					// If no action to perform...
 					if (!actionOnDepress || (int32_t)(AudioEngine::audioSampleTimer - pressTime) >= kShortPressTime) {
@@ -1421,10 +1489,30 @@ void ArrangerView::cloneClipInstanceToWhite(Output* output, int32_t x, int32_t y
 	if (clipInstance && clipInstance->pos + clipInstance->length >= squareStart) {
 		Clip* oldClip = clipInstance->clip;
 
-		if (oldClip && !oldClip->isArrangementOnlyClip() && !oldClip->getCurrentlyRecordingLinearly()) {
-			actionLogger.deleteAllLogs();
+		// The pad is held after this, so Select, a length press or Song act on this instance: point at it, and don't
+		// let a stale flag from an earlier press delete or enter it when it's released.
+		pressedClipInstanceIndex = i;
+		pressedHead = (clipInstance->pos >= squareStart);
+		actionOnDepress = false;
 
-			Error error = arrangement.doUniqueCloneOnClipInstance(clipInstance, clipInstance->length, true);
+		// A white clip goes the other way: it becomes a section clip
+		if (oldClip != nullptr && oldClip->isArrangementOnlyClip() && !oldClip->getCurrentlyRecordingLinearly()) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::MakeSection);
+			if (makeClipIntoSectionClip(output, oldClip)) {
+				recordEditPadPress(output, clipInstance, x, y, xScroll);
+				// Every instance of this clip changes colour
+				uiNeedsRendering(this);
+			}
+			return;
+		}
+
+		if (oldClip && !oldClip->isArrangementOnlyClip() && !oldClip->getCurrentlyRecordingLinearly()) {
+			Action* action = actionLogger.getNewAction(ActionType::CLIP_INSTANCE_EDIT, ActionAddition::NOT_ALLOWED);
+			if (action == nullptr) {
+				actionLogger.deleteAllLogs(); // Can't record it, and earlier steps would no longer match
+			}
+
+			Error error = arrangement.doUniqueCloneOnClipInstance(clipInstance, clipInstance->length, true, action);
 			if (error != Error::NONE) {
 				display->displayError(error);
 			}
@@ -2568,8 +2656,9 @@ void ArrangerView::selectEncoderAction(int8_t offset) {
 
 		ClipInstance* clipInstance = output->clipInstances.getElement(pressedClipInstanceIndex);
 
-		// If an arrangement-only Clip, can't do anything
+		// If an arrangement-only Clip, can't do anything - its content would be lost. Point at the way out.
 		if (clipInstance->clip && clipInstance->clip->section == 255) {
+			display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_WHITE_CLIP_SHIFT_TO_SECTION));
 			return;
 		}
 

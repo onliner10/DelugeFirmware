@@ -328,6 +328,7 @@ extern Gesture const RenameTrack;
 extern Gesture const SoloTrack;
 extern Gesture const MuteTrack;
 extern Gesture const MakeUnique;
+extern Gesture const MakeSection;
 extern Gesture const InstanceLength;
 extern Gesture const InstanceClip;
 extern Gesture const DragInstance;

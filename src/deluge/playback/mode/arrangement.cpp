@@ -25,8 +25,12 @@
 #include "gui/views/view.h"
 #include "hid/display/display.h"
 #include "hid/led/pad_leds.h"
+#include "memory/general_memory_allocator.h"
+#include "model/action/action.h"
+#include "model/action/action_logger.h"
 #include "model/clip/clip_instance.h"
 #include "model/clip/instrument_clip.h"
+#include "model/consequence/consequence_clip_instance_change.h"
 #include "model/instrument/instrument.h"
 #include "model/model_stack.h"
 #include "model/song/song.h"
@@ -508,7 +512,9 @@ void Arrangement::rowEdited(Output* output, int32_t startPos, int32_t endPos, Cl
 }
 
 // First, be sure the clipInstance has a Clip
-Error Arrangement::doUniqueCloneOnClipInstance(ClipInstance* clipInstance, int32_t newLength, bool shouldCloneRepeats) {
+// With an action, the clone and the instance change are recorded so they can be undone
+Error Arrangement::doUniqueCloneOnClipInstance(ClipInstance* clipInstance, int32_t newLength, bool shouldCloneRepeats,
+                                               Action* action) {
 	if (!currentSong->arrangementOnlyClips.ensureEnoughSpaceAllocated(1)) {
 		return Error::INSUFFICIENT_RAM;
 	}
@@ -540,9 +546,30 @@ Error Arrangement::doUniqueCloneOnClipInstance(ClipInstance* clipInstance, int32
 	rowEdited(oldClip->output, clipInstance->pos, clipInstance->pos + clipInstance->length, clipInstance->clip,
 	          nullptr);
 
-	clipInstance->clip = newClip;
-	if (newLength != -1) {
-		clipInstance->length = newLength;
+	// Both undo records or neither: an instance left pointing at a clip whose creation gets undone would dangle
+	void* change_memory = (action != nullptr)
+	                          ? GeneralMemoryAllocator::get().allocLowSpeed(sizeof(ConsequenceClipInstanceChange))
+	                          : nullptr;
+	if (change_memory != nullptr
+	    && action->recordClipExistenceChange(currentSong, &currentSong->arrangementOnlyClips, newClip,
+	                                         ExistenceChangeType::CREATE)) {
+		int32_t length_after = (newLength != -1) ? newLength : clipInstance->length;
+		action->addConsequence(new (change_memory) ConsequenceClipInstanceChange(
+		    oldClip->output, clipInstance, clipInstance->pos, length_after, newClip));
+		clipInstance->clip = newClip;
+		clipInstance->length = length_after;
+	}
+	else {
+		if (change_memory != nullptr) {
+			delugeDealloc(change_memory);
+		}
+		if (action != nullptr) {
+			actionLogger.deleteAllLogs(); // Out of RAM for the undo step - earlier ones would no longer match
+		}
+		clipInstance->clip = newClip;
+		if (newLength != -1) {
+			clipInstance->length = newLength;
+		}
 	}
 
 	rowEdited(oldClip->output, clipInstance->pos, clipInstance->pos + clipInstance->length, nullptr, clipInstance);

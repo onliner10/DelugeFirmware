@@ -415,6 +415,7 @@ PLACE_SDRAM_RODATA constexpr Gesture RenameTrack{.hold = pad::AUDITION, .input =
 PLACE_SDRAM_RODATA constexpr Gesture SoloTrack{.hold = gbtn::X_ENC, .input = pad::MUTE, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_SOLO_TRACK};
 PLACE_SDRAM_RODATA constexpr Gesture MuteTrack{.input = pad::MUTE, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_MUTE_TRACK};
 PLACE_SDRAM_RODATA constexpr Gesture MakeUnique{.hold = gbtn::SHIFT, .input = pad::CLIP, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_MAKE_CLIP_UNIQUE, .keywords = "white clone instance"};
+PLACE_SDRAM_RODATA constexpr Gesture MakeSection{.hold = gbtn::SHIFT, .input = pad::CLIP, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_MAKE_CLIP_SECTION, .keywords = "white unique colour session"};
 PLACE_SDRAM_RODATA constexpr Gesture InstanceLength{.hold = pad::CLIP, .input = pad::GRID, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_CLIP_INSTANCE_LENGTH, .keywords = "stretch"};
 PLACE_SDRAM_RODATA constexpr Gesture InstanceClip{.hold = pad::CLIP, .input = gbtn::SELECT_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_CHANGE_INSTANCE_CLIP};
 PLACE_SDRAM_RODATA constexpr Gesture DragInstance{.hold = pad::CLIP, .input = gbtn::X_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_DRAG_CLIP_INSTANCE, .keywords = "move position time"};
@@ -666,6 +667,7 @@ constexpr Gesture const* kAll[] = {
     &arranger::SoloTrack,
     &arranger::MuteTrack,
     &arranger::MakeUnique,
+    &arranger::MakeSection,
     &arranger::InstanceLength,
     &arranger::InstanceClip,
     &arranger::DragInstance,

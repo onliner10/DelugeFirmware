@@ -20,6 +20,7 @@
 #include "definitions_cxx.hpp"
 #include "playback/mode/playback_mode.h"
 
+class Action;
 class ClipInstance;
 class Output;
 class Song;
@@ -49,7 +50,7 @@ public:
 	void rowEdited(Output* output, int32_t startPos, int32_t endPos, Clip* clipRemoved,
 	               ClipInstance* clipInstanceAdded);
 	Error doUniqueCloneOnClipInstance(ClipInstance* clipInstance, int32_t newLength = -1,
-	                                  bool shouldCloneRepeats = false);
+	                                  bool shouldCloneRepeats = false, Action* action = nullptr);
 	int32_t getLivePos(uint32_t* timeRemainder = nullptr);
 	void endAnyLinearRecording();
 
