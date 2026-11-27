@@ -213,7 +213,8 @@ ClipNoteSelection::Result ClipNoteSelection::apply(ModelStackWithTimelineCounter
 
 	Vec<std::pair<Note, bool>> notes; // bool: is a placed (floating) note, which wins over one at the same tick
 	for (Snapshot& snapshot : snapshots_) {
-		ModelStackWithNoteRow* modelStackWithNoteRow = rowForKey(modelStack, snapshot.key, false);
+		// Created if need be: something may have deleted the row since, if it was empty
+		ModelStackWithNoteRow* modelStackWithNoteRow = rowForKey(modelStack, snapshot.key, true);
 		NoteRow* noteRow = modelStackWithNoteRow->getNoteRowAllowNull();
 		if (!noteRow) {
 			continue;
@@ -467,6 +468,7 @@ ClipNoteSelection::Result ClipNoteSelection::copyInto(ModelStackWithTimelineCoun
 
 int32_t ClipNoteSelection::copy(ModelStackWithTimelineCounter* modelStack) {
 	clipboardValid_ = (copyInto(modelStack, clipboard_, clipboardWidth_, clipboardRowLo_) == Result::DONE);
+	clipboardSong_ = currentSong;
 	return clipboardValid_ ? static_cast<int32_t>(clipboard_.size()) : 0;
 }
 
@@ -479,11 +481,13 @@ ClipNoteSelection::Result ClipNoteSelection::paste(ModelStackWithTimelineCounter
 		return Result::BLOCKED;
 	}
 	range_.end = range_.start + width;
-	return pasteFrom(modelStack, clipboard_, clipboardWidth_, clipboardRowLo_);
+	// Parameter locks are indices into the song's pool: from another song they'd point at unrelated locks
+	return pasteFrom(modelStack, clipboard_, clipboardWidth_, clipboardRowLo_, clipboardSong_ != currentSong);
 }
 
 ClipNoteSelection::Result ClipNoteSelection::pasteFrom(ModelStackWithTimelineCounter* modelStack,
-                                                       const Vec<Copied>& from, int32_t width, int32_t rowLo) {
+                                                       const Vec<Copied>& from, int32_t width, int32_t rowLo,
+                                                       bool dropLocks) {
 	Result result = beginSession(modelStack, false);
 	if (result != Result::DONE) {
 		return result;
@@ -505,6 +509,9 @@ ClipNoteSelection::Result ClipNoteSelection::pasteFrom(ModelStackWithTimelineCou
 			}
 			Note note = copied.note;
 			note.pos = pos;
+			if (dropLocks) {
+				note.lockSet = 0;
+			}
 			if (!keepRows) {
 				note.anchorMarker = AnchorMarker::derived();
 			}

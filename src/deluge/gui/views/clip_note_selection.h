@@ -27,6 +27,7 @@ class InstrumentClip;
 class ModelStackWithTimelineCounter;
 class ModelStackWithNoteRow;
 class NoteRow;
+class Song;
 
 /// A range of notes selected in instrument clip view (Learn + two pads), and the edits done to it: move, transpose,
 /// duplicate, delete, velocity, copy and paste.
@@ -132,7 +133,8 @@ private:
 	int32_t visualToKey(int32_t visualRow, int32_t accidentalOffset) const;
 	void fitRowsToFloatingNotes();
 	Result copyInto(ModelStackWithTimelineCounter* modelStack, Vec<Copied>& into, int32_t& width, int32_t& rowLo);
-	Result pasteFrom(ModelStackWithTimelineCounter* modelStack, const Vec<Copied>& from, int32_t width, int32_t rowLo);
+	Result pasteFrom(ModelStackWithTimelineCounter* modelStack, const Vec<Copied>& from, int32_t width, int32_t rowLo,
+	                 bool dropLocks = false);
 
 	InstrumentClip* clip_ = nullptr;
 	Range range_;
@@ -152,4 +154,5 @@ private:
 	int32_t clipboardWidth_ = 0;
 	int32_t clipboardRowLo_ = 0;
 	bool clipboardValid_ = false;
+	Song* clipboardSong_ = nullptr;
 };

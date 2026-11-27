@@ -140,6 +140,7 @@ void InstrumentClipView::openedInBackground() {
 	bool rendering_to_store = (currentUIMode == UI_MODE_ANIMATION_FADE);
 
 	noteSelection.clear();
+	std::fill(std::begin(selectionPadsHeld), std::end(selectionPadsHeld), 0);
 
 	recalculateColours();
 
@@ -6700,7 +6701,11 @@ ActionResult InstrumentClipView::verticalEncoderAction(int32_t offset, bool inCa
 		Step step = Buttons::isShiftButtonPressed()                        ? Step::SEMITONE
 		            : Buttons::isButtonPressed(deluge::hid::button::Y_ENC) ? Step::OCTAVE
 		                                                                   : Step::ROW;
-		ClipNoteSelection::Result result = noteSelection.transpose(modelStack, step, (offset > 0) ? 1 : -1);
+		// Several detents may arrive at once: one step each, stopping at the first that can't go
+		ClipNoteSelection::Result result = ClipNoteSelection::Result::DONE;
+		for (int32_t i = 0; i < std::abs(offset) && result == ClipNoteSelection::Result::DONE; i++) {
+			result = noteSelection.transpose(modelStack, step, (offset > 0) ? 1 : -1);
+		}
 		noteSelectionFollow(inCardRoutine);
 		noteSelectionEdited(result);
 		return ActionResult::DEALT_WITH;
@@ -7142,7 +7147,7 @@ ActionResult InstrumentClipView::horizontalEncoderAction(int32_t offset) {
 		ClipNoteSelection::Result result =
 		    Buttons::isShiftButtonPressed()
 		        ? noteSelection.duplicate(modelStack, direction)
-		        : noteSelection.move(modelStack, direction * (getPosFromSquare(1) - getPosFromSquare(0)));
+		        : noteSelection.move(modelStack, offset * (getPosFromSquare(1) - getPosFromSquare(0)));
 		noteSelectionFollow(false);
 		noteSelectionEdited(result);
 		return ActionResult::DEALT_WITH;
@@ -8911,6 +8916,9 @@ std::optional<ActionResult> InstrumentClipView::noteSelectionPadAction(int32_t x
 		}
 		return std::nullopt;
 	}
+
+	// A press the selection doesn't take must not have its release swallowed
+	selectionPadsHeld[y] &= ~(1u << x);
 
 	if (getCurrentUI() != this) {
 		return std::nullopt;
