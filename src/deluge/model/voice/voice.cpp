@@ -729,7 +729,7 @@ uint32_t Voice::getLocalLFOPhaseIncrement(LFO_ID lfoId, deluge::modulation::para
 // Returns false if became inactive and needs unassigning
 [[gnu::hot]] bool Voice::render(ModelStackWithSoundFlags* modelStack, int32_t* soundBuffer, int32_t numSamples,
                                 bool soundRenderingInStereo, bool applyingPanAtVoiceLevel, uint32_t sourcesChanged,
-                                bool doLPF, bool doHPF, int32_t externalPitchAdjust) {
+                                bool doLPF, bool doHPF, int32_t externalPitchAdjust, int32_t sharedFilterGain) {
 	// we spread out over a render cycle - allocating and starting the voice takes more time than rendering it so this
 	// avoids the cpu spike at note on
 	if (justCreated == false) {
@@ -1021,6 +1021,11 @@ skipAutoRelease: {}
 	    (paramFinalValues[params::LOCAL_HPF_RESONANCE]), // >> StorageManager::devVarA) << StorageManager::devVarA,
 	    hpfMode, paramFinalValues[params::LOCAL_HPF_MORPH], sound.volumeNeutralValueForUnison << 1, sound.filterRoute,
 	    false, nullptr); // Level adjustment for unison now happens *before* the filter!
+	// With a shared filter, the Sound's filter does the filtering (doLPF and doHPF are false here), and its gain is
+	// what the sources get
+	if (sharedFilterGain != 0) {
+		filterGain = sharedFilterGain;
+	}
 
 	SynthMode synthMode = sound.getSynthMode();
 
@@ -1535,6 +1540,9 @@ carriersDone: {}
 skipUnisonPart: {}
 	}
 
+	// The drive (clipping) comes after the filter. With a shared filter, the Sound applies it to the filtered mix
+	bool const clipHere = sound.saturation && sharedFilterGain == 0;
+
 	if (didStereoTempBuffer) {
 		int32_t* const oscBufferEnd = oscBuffer + (numSamples << 1);
 		// fold
@@ -1545,7 +1553,7 @@ skipUnisonPart: {}
 		filterSet.renderLongStereo(oscBuffer, oscBufferEnd);
 
 		// No clipping
-		if (!sound.saturation) {
+		if (!clipHere) {
 
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			StereoSample* __restrict__ outputSample = (StereoSample*)soundBuffer;
@@ -1630,13 +1638,13 @@ skipUnisonPart: {}
 		filterSet.renderLong(oscBuffer, oscBufferEnd, numSamples);
 
 		// No clipping, mono, not FM: the common case, the amplitude ramp and a mix into the sound's buffer
-		if (!sound.saturation && !soundRenderingInStereo && synthMode != SynthMode::FM) {
+		if (!clipHere && !soundRenderingInStereo && synthMode != SynthMode::FM) {
 			dsp::addMonoWithAmplitudeRamp(soundBuffer, oscBuffer, numSamples, overallOscAmplitudeLastTime,
 			                              overallOscillatorAmplitudeIncrement);
 		}
 
 		// No clipping
-		else if (!sound.saturation) {
+		else if (!clipHere) {
 			int32_t const* __restrict__ oscBufferPos = oscBuffer; // For traversal
 			int32_t* __restrict__ outputSample = soundBuffer;
 			int32_t overallOscAmplitudeNow = overallOscAmplitudeLastTime;

@@ -18,6 +18,7 @@
 #include "processing/sound/sound.h"
 #include "definitions_cxx.hpp"
 #include "dsp/dx/engine.h"
+#include "dsp/filter/filter_set.h"
 #include "gui/l10n/l10n.h"
 #include "gui/ui/root_ui.h"
 #include "gui/ui/sound_editor.h"
@@ -1299,6 +1300,11 @@ Error Sound::readTagFromFileOrError(Deserializer& reader, char const* tagName, P
 	else if (!strcmp(tagName, "maxVoices")) {
 		maxVoiceCount = reader.readTagOrAttributeValueInt();
 		reader.exitTag("maxVoices");
+	}
+
+	else if (!strcmp(tagName, "sharedFilter")) {
+		setSharedFilter(reader.readTagOrAttributeValueInt() != 0);
+		reader.exitTag("sharedFilter");
 	}
 
 	else if (!strcmp(tagName, "voicePriority")) {
@@ -2607,11 +2613,22 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 		    thisHasFilters
 		    && (paramManager->getPatchCableSet()->doesParamHaveSomethingPatchedToIt(params::LOCAL_HPF_FREQ)
 		        || (hpfFreq != std::numeric_limits<q31_t>::min()) || (hpfMorph > std::numeric_limits<q31_t>::min()));
+		// With a shared filter, the voices are mixed unfiltered and the mix goes through sharedFilterSet_ below. Not
+		// while a note locks a filter param: that voice needs its own filter, so they all get their own for now
+		bool const shareFilter = (sharedFilterSet_ != nullptr) && thisHasFilters
+		                         && !(lockedParams & (VoiceNoteLocks::kLPF | VoiceNoteLocks::kHPF));
+		int32_t const sharedFilterGain =
+		    !shareFilter ? 0 : (sharedFilterGain_ != 0 ? sharedFilterGain_ : volumeNeutralValueForUnison << 1);
+		// The newest voice's filter params, after its patching this render: the shared filter follows that note
+		uint32_t newestOrder = 0;
+		bool haveNewest = false;
+		std::array<q31_t, 6> newestFilterParams{};
+
 		for (auto it = voices_.begin(); it != voices_.end();) {
 			ActiveVoice& voice = *it;
 
-			bool voiceLPF = doLPF;
-			bool voiceHPF = doHPF;
+			bool voiceLPF = doLPF && !shareFilter;
+			bool voiceHPF = doHPF && !shareFilter;
 			if (lockedParams) [[unlikely]] {
 				// A voice whose note locks a filter param runs that filter even if the knob value has it off
 				// (the same params the Sound-level decision above looks at)
@@ -2619,9 +2636,19 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 				voiceHPF = voiceHPF || (thisHasFilters && voice->noteLocks.hasAnyOf(VoiceNoteLocks::kHPF));
 			}
 
-			bool stillGoing =
-			    voice->render(modelStackWithSoundFlags, sound_mono.data(), sound_mono.size(), voice_rendered_in_stereo,
-			                  applyingPanAtVoiceLevel, sourcesChanged, voiceLPF, voiceHPF, pitchAdjust);
+			bool stillGoing = voice->render(modelStackWithSoundFlags, sound_mono.data(), sound_mono.size(),
+			                                voice_rendered_in_stereo, applyingPanAtVoiceLevel, sourcesChanged, voiceLPF,
+			                                voiceHPF, pitchAdjust, sharedFilterGain);
+			if (shareFilter && (!haveNewest || (int32_t)(voice->orderSounded - newestOrder) > 0)) {
+				haveNewest = true;
+				newestOrder = voice->orderSounded;
+				newestFilterParams = {voice->paramFinalValues[params::LOCAL_LPF_FREQ],
+				                      voice->paramFinalValues[params::LOCAL_LPF_RESONANCE],
+				                      voice->paramFinalValues[params::LOCAL_LPF_MORPH],
+				                      voice->paramFinalValues[params::LOCAL_HPF_FREQ],
+				                      voice->paramFinalValues[params::LOCAL_HPF_RESONANCE],
+				                      voice->paramFinalValues[params::LOCAL_HPF_MORPH]};
+			}
 			if (!stillGoing) {
 				this->checkVoiceExists(voice, "E201");
 				this->freeActiveVoice(voice, modelStackWithSoundFlags, false);
@@ -2629,6 +2656,26 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 			++it;
 		}
 		std::erase_if(voices_, [](const ActiveVoice& voice) { return voice->shouldBeDeleted(); });
+
+		if (shareFilter && haveNewest) {
+			sharedFilterGain_ = sharedFilterSet_->setConfig(
+			    newestFilterParams[0], newestFilterParams[1], doLPF ? lpfMode : FilterMode::OFF, newestFilterParams[2],
+			    newestFilterParams[3], newestFilterParams[4], doHPF ? hpfMode : FilterMode::OFF, newestFilterParams[5],
+			    volumeNeutralValueForUnison << 1, filterRoute, false, nullptr);
+			if (voice_rendered_in_stereo) {
+				sharedFilterSet_->renderLongStereo(sound_memory, sound_memory + (sound_stereo.size() << 1));
+				if (saturation) {
+					saturateBlock<2>(sound_memory, sound_stereo.size() << 1, sharedSaturationState_.data());
+				}
+			}
+			else {
+				sharedFilterSet_->renderLong(sound_mono.data(), sound_mono.data() + sound_mono.size(),
+				                             sound_mono.size());
+				if (saturation) {
+					saturateBlock<1>(sound_mono.data(), sound_mono.size(), sharedSaturationState_.data());
+				}
+			}
+		}
 
 		// We know that nothing's patched to pan, so can read it in this very basic way.
 		int32_t pan = paramManager->getPatchedParamSet()->getValue(params::LOCAL_PAN) >> 1;
@@ -2662,6 +2709,12 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 		}
 	}
 	else {
+		// Nothing left to filter: the next note starts the shared filter from silence, as a voice's own filter would
+		if (sharedFilterSet_ != nullptr && sharedFilterGain_ != 0) {
+			sharedFilterSet_->reset();
+			sharedFilterGain_ = 0;
+			sharedSaturationState_ = {};
+		}
 		if (!delayWorkingState.doDelay) {
 			reassessRenderSkippingStatus(modelStackWithSoundFlags);
 		}
@@ -3295,6 +3348,26 @@ bool Sound::anyNoteIsOn() {
 
 bool Sound::hasFilters() {
 	return (lpfMode != FilterMode::OFF || hpfMode != FilterMode::OFF);
+}
+
+bool Sound::setSharedFilter(bool on) {
+	if (on == hasSharedFilter()) {
+		return true;
+	}
+	if (on) {
+		void* memory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(deluge::dsp::filter::FilterSet));
+		if (memory == nullptr) {
+			return false;
+		}
+		sharedFilterSet_ = new (memory) deluge::dsp::filter::FilterSet;
+	}
+	else {
+		sharedFilterSet_->~FilterSet();
+		delugeDealloc(sharedFilterSet_);
+		sharedFilterSet_ = nullptr;
+	}
+	sharedFilterGain_ = 0;
+	return true;
 }
 
 void Sound::readParamsFromFile(Deserializer& reader, ParamManagerForTimeline* paramManager,
@@ -4304,6 +4377,9 @@ void Sound::writeToFile(Serializer& writer, bool savingSong, ParamManager* param
 		writer.writeAttribute("path", pathAttribute);
 	}
 	writer.writeAttribute("maxVoices", maxVoiceCount);
+	if (hasSharedFilter()) {
+		writer.writeAttribute("sharedFilter", 1);
+	}
 
 	writer.writeOpeningTagEnd();
 
