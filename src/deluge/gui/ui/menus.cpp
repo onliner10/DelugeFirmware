@@ -75,6 +75,7 @@
 #include "gui/menu_item/filter/filter_container.h"
 #include "gui/menu_item/filter/mode.h"
 #include "gui/menu_item/filter/param.h"
+#include "gui/menu_item/filter/shared.h"
 #include "gui/menu_item/filter_route.h"
 #include "gui/menu_item/firmware/version.h"
 #include "gui/menu_item/flash/status.h"
@@ -632,7 +633,8 @@ PLACE_SDRAM_BSS HorizontalMenuGroup reverbMenuGroup{{&reverbMenuWithoutSidechain
 
 // Filters ------------------------------------------------------------------------------------
 PLACE_SDRAM_BSS HorizontalMenu routingHorizontal{STRING_FOR_FILTER_ROUTE, {&filterRoutingMenu}};
-PLACE_SDRAM_BSS HorizontalMenuGroup filtersMenuGroup{{&lpfMenu, &hpfMenu, &routingHorizontal}};
+PLACE_SDRAM_BSS HorizontalMenu sharedFilterHorizontal{STRING_FOR_SHARED_FILTER, {&sharedFilterMenu}};
+PLACE_SDRAM_BSS HorizontalMenuGroup filtersMenuGroup{{&lpfMenu, &hpfMenu, &routingHorizontal, &sharedFilterHorizontal}};
 
 // FX ----------------------------------------------------------------------------------------
 PLACE_SDRAM_BSS fx::Clipping clippingMenu{STRING_FOR_DRIVE};

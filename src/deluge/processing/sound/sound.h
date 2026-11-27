@@ -50,6 +50,9 @@ class Clip;
 class GlobalEffectableForClip;
 class ModelStackWithThreeMainThings;
 class ModelStackWithSoundFlags;
+namespace deluge::dsp::filter {
+class FilterSet;
+}
 class ModelStackWithModControllable;
 
 #define PARAM_LPF_OFF (-1)
@@ -83,10 +86,22 @@ public:
 	using ActiveVoice = AudioEngine::VoicePool::pointer_type;
 
 	Sound();
+	// Owns sharedFilterSet_, so it can't be copied as it is (it never has been)
+	Sound(const Sound&) = delete;
+	Sound& operator=(const Sound&) = delete;
 	~Sound() override {
 		DeferredNoteOns::forgetSound(this);
 		std::erase(AudioEngine::sounds, this);
+		setSharedFilter(false);
 	}
+
+	/// Shared ("paraphonic") filter: the voices are mixed first, and the mix goes through one filter, set from the
+	/// newest voice, rather than each voice through its own. Far cheaper with several voices sounding. It sounds a bit
+	/// different: each voice's amplitude envelope (and drive) now comes before the filter, a filter envelope or
+	/// anything else per voice on the filter follows the newest note, and the resonance rings on across notes. Returns
+	/// false if it couldn't be turned on (no memory for the filter)
+	bool setSharedFilter(bool on);
+	[[nodiscard]] bool hasSharedFilter() const { return sharedFilterSet_ != nullptr; }
 
 	Patcher patcher;
 
@@ -371,6 +386,13 @@ public:
 	virtual const char* getName() { return nullptr; }
 
 private:
+	/// The shared filter, while it's on (see setSharedFilter()). Allocated only then: most Sounds never have one
+	deluge::dsp::filter::FilterSet* sharedFilterSet_ = nullptr;
+	/// The gain sharedFilterSet_'s last setConfig() gave, for the voices' sources. 0 until the first one
+	int32_t sharedFilterGain_ = 0;
+	/// The drive's working values for the shared filter's mix (each voice has its own otherwise)
+	std::array<uint32_t, 2> sharedSaturationState_{};
+
 	uint32_t getGlobalLFOPhaseIncrement(LFO_ID lfoId, deluge::modulation::params::Global param);
 	void recalculateFineTuner();
 	void recalculateModulatorTransposer(uint8_t m, ModelStackWithSoundFlags* modelStack);

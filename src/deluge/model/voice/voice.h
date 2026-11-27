@@ -96,9 +96,11 @@ public:
 
 	uint32_t getLocalLFOPhaseIncrement(LFO_ID lfoId, deluge::modulation::params::Local param);
 	void setAsUnassigned(ModelStackWithSoundFlags* modelStack, bool deletingSong = false);
+	/// sharedFilterGain: 0 normally. Otherwise the Sound filters the mix of its voices itself (Sound::sharedFilter), so
+	/// this voice runs no filter, and scales its sources by this, the gain the Sound's filter wants, instead
 	bool render(ModelStackWithSoundFlags* modelStack, int32_t* soundBuffer, int32_t numSamples,
 	            bool soundRenderingInStereo, bool applyingPanAtVoiceLevel, uint32_t sourcesChanged, bool doLPF,
-	            bool doHPF, int32_t externalPitchAdjust);
+	            bool doHPF, int32_t externalPitchAdjust, int32_t sharedFilterGain = 0);
 
 	void calculatePhaseIncrements(ModelStackWithSoundFlags* modelStack);
 	bool sampleZoneChanged(ModelStackWithSoundFlags* modelStack, int32_t s, MarkerType markerType);

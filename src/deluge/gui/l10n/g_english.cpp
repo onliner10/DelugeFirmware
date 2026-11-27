@@ -511,6 +511,7 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_MASTER_TRANSPOSE, "Master transpose"},
         {STRING_FOR_SYNTH_MODE, "Synth Mode"},
         {STRING_FOR_FILTER_ROUTE, "Filter Route"},
+        {STRING_FOR_SHARED_FILTER, "Shared Filter"},
         {STRING_FOR_COLUMN_VELOCITY, "Velocity"},
         {STRING_FOR_COLUMN_MOD, "Modwheel"},
         {STRING_FOR_COLUMN_CHORD, "Chords"},

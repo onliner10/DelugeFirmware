@@ -22,10 +22,12 @@ PLACE_SDRAM_DATA std::array<MenuItem*, 4> child1 = {
 };
 PLACE_SDRAM_BSS HorizontalMenu hpfMenu{STRING_FOR_HPF, child1};
 PLACE_SDRAM_BSS FilterRouting filterRoutingMenu{STRING_FOR_FILTER_ROUTE};
-PLACE_SDRAM_DATA std::array<MenuItem*, 3> child2 = {
+PLACE_SDRAM_BSS filter::SharedFilter sharedFilterMenu{STRING_FOR_SHARED_FILTER, STRING_FOR_SHARED_FILTER};
+PLACE_SDRAM_DATA std::array<MenuItem*, 4> child2 = {
     &lpfMenu,
     &hpfMenu,
     &filterRoutingMenu,
+    &sharedFilterMenu,
 };
 PLACE_SDRAM_BSS Submenu soundFiltersMenu{STRING_FOR_FILTERS, child2};
 PLACE_SDRAM_BSS audio_compressor::CompParam threshold{STRING_FOR_THRESHOLD, STRING_FOR_COMP_THRESHOLD_MENU_TITLE, params::UNPATCHED_COMPRESSOR_THRESHOLD, BAR};
