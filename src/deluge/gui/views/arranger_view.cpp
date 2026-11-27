@@ -1383,7 +1383,11 @@ void ArrangerView::interactWithClipInstance(Output* output, int32_t yDisplay, Cl
 void ArrangerView::rememberInteractionWithClipInstance(int32_t yDisplay, ClipInstance* clipInstance) {
 	lastInteractedOutputIndex = yDisplay + currentSong->arrangementYScroll;
 	lastInteractedPos = clipInstance->pos;
-	lastInteractedSection = clipInstance->clip ? clipInstance->clip->section : 255;
+	// Only section clips set the section new instances get. A white or empty instance would otherwise make every
+	// following new instance, on any track, empty and white too.
+	if (clipInstance->clip != nullptr && !clipInstance->clip->isArrangementOnlyClip()) {
+		lastInteractedSection = clipInstance->clip->section;
+	}
 	lastInteractedClipInstance = clipInstance;
 }
 
@@ -1675,30 +1679,21 @@ ClipInstance* ArrangerView::createClipInstance(Output* output, int32_t y, int32_
 /// will not create a new clip, only retrieves existing clips
 Clip* ArrangerView::getClipForNewClipInstance(Output* output, Output* lastOutputInteractedWith,
                                               ClipInstance* lastClipInstance) {
-	Clip* newClip = nullptr;
-	if (lastClipInstance && lastClipInstance->pos == lastInteractedPos) {
+	bool last_was_section_clip = lastClipInstance != nullptr && lastClipInstance->pos == lastInteractedPos
+	                             && lastClipInstance->clip != nullptr
+	                             && !lastClipInstance->clip->isArrangementOnlyClip();
 
-		// If same Output...
-		if (lastOutputInteractedWith == output) {
-			if (lastClipInstance->clip && !lastClipInstance->clip->isArrangementOnlyClip()) {
-				newClip = lastClipInstance->clip;
-			}
-		}
-
-		// Or if different Output...
-		else {
-			// If yes Clip, look for another one with that section
-			if (lastClipInstance->clip) {
-				lastInteractedSection = lastClipInstance->clip->section;
-				newClip = getClipFromSection(output);
-			}
-		}
-	}
-	else {
-		newClip = getClipFromSection(output);
+	// Same track as the last section clip touched: repeat that clip
+	if (last_was_section_clip && lastOutputInteractedWith == output) {
+		return lastClipInstance->clip;
 	}
 
-	return newClip;
+	// Otherwise this track's clip in the last section touched, or any of its section clips. A white or empty last
+	// instance doesn't count (rememberInteractionWithClipInstance() keeps the section from before it).
+	if (last_was_section_clip) {
+		lastInteractedSection = lastClipInstance->clip->section;
+	}
+	return getClipFromSection(output);
 }
 
 /// called from ArrangerView::getClipForNewClipInstance
