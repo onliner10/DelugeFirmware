@@ -1299,6 +1299,16 @@
     "STRING_FOR_GESTURE_CHANGE_CLIP_SECTION": "Change clip section",
     "STRING_FOR_GESTURE_TRACK_COLOUR": "Track colour",
     "STRING_FOR_GESTURE_DRAG_CLIP_INSTANCE": "Drag clip instance",
+    "STRING_FOR_GESTURE_SELECT_NOTES": "Select notes",
+    "STRING_FOR_GESTURE_NARROW_SELECTED_ROWS": "Narrow selected rows",
+    "STRING_FOR_GESTURE_MOVE_SELECTION": "Move selection",
+    "STRING_FOR_GESTURE_DUPLICATE_SELECTION": "Duplicate selection",
+    "STRING_FOR_GESTURE_TRANSPOSE_SELECTION": "Transpose selection",
+    "STRING_FOR_GESTURE_SELECTION_BY_SEMITONE": "Selection by semitone",
+    "STRING_FOR_GESTURE_SELECTION_BY_OCTAVE": "Selection by octave",
+    "STRING_FOR_GESTURE_SELECTION_VELOCITY": "Selection velocity",
+    "STRING_FOR_GESTURE_DELETE_SELECTED_NOTES": "Delete selected notes",
+    "STRING_FOR_GESTURE_END_SELECTION": "End selection",
     "STRING_FOR_COMMAND_SEARCH_HINT": "type to search",
     "STRING_FOR_COMMAND_SEARCH_NO_MATCH": "No match"
   }

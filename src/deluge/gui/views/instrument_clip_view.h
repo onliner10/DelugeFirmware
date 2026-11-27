@@ -462,6 +462,12 @@ private:
 	void noteSelectionRowPress(int32_t yDisplay);
 	/// Whether the selection is there and still belongs to the clip on screen (forgets it if not)
 	bool noteSelectionUsable();
+
+public:
+	/// For command search: whether the note selection gestures apply now
+	bool hasNoteSelection() { return noteSelectionUsable(); }
+
+private:
 	void clearNoteSelection();
 	void noteSelectionEdited(ClipNoteSelection::Result result);
 	void noteSelectionFollow(bool inCardRoutine);

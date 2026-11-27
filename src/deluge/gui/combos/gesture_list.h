@@ -59,6 +59,8 @@ bool applies_restartcross();
 bool applies_fromscreenx();
 bool applies_fromstartx();
 bool applies_fromscreencross();
+bool applies_selection();
+bool applies_noselection();
 bool applies_fromstartcross();
 
 namespace global { // Mostly handled in hid/buttons.cpp
@@ -178,6 +180,16 @@ extern Gesture const DrumParam;
 extern Gesture const ClearClip;
 extern Gesture const SoundMenu;
 extern Gesture const AffectEntire;
+extern Gesture const SelectNotes;
+extern Gesture const SelectRows;
+extern Gesture const MoveSelection;
+extern Gesture const DuplicateSelection;
+extern Gesture const TransposeSelection;
+extern Gesture const SelectionSemitone;
+extern Gesture const SelectionOctave;
+extern Gesture const SelectionVelocity;
+extern Gesture const DeleteSelection;
+extern Gesture const EndSelection;
 } // namespace instrumentClip
 
 namespace automation { // Mostly handled in gui/views/automation_view.cpp

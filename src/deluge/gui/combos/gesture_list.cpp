@@ -22,6 +22,7 @@
 #include "gui/ui/root_ui.h"
 #include "gui/ui/ui.h"
 #include "gui/views/arranger_view.h"
+#include "gui/views/instrument_clip_view.h"
 #include "gui/views/session_view.h"
 #include "model/clip/clip.h"
 #include "model/clip/instrument_clip.h"
@@ -147,6 +148,12 @@ bool applies_fromstartx() {
 bool applies_fromscreencross() {
 	return !playbackHandler.playbackState && FlashStorage::accessibilityShortcuts && !playStartsFromScreen();
 }
+bool applies_selection() {
+	return getRootUI() == &instrumentClipView && instrumentClipView.hasNoteSelection();
+}
+bool applies_noselection() {
+	return !(getRootUI() == &instrumentClipView && instrumentClipView.hasNoteSelection());
+}
 bool applies_fromstartcross() {
 	return !playbackHandler.playbackState && FlashStorage::accessibilityShortcuts && playStartsFromScreen();
 }
@@ -197,10 +204,10 @@ namespace timeline {
 PLACE_SDRAM_RODATA constexpr Gesture ShowZoom{.input = gbtn::X_ENC, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_SHOW_ZOOM_LEVEL};
 PLACE_SDRAM_RODATA constexpr Gesture Triplets{.input = gbtn::TRIPLETS, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_TRIPLETS_VIEW, .keywords = "swing 3"};
 PLACE_SDRAM_RODATA constexpr Gesture Zoom{.hold = gbtn::X_ENC, .input = gbtn::X_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_ZOOM, .keywords = "horizontal"};
-PLACE_SDRAM_RODATA constexpr Gesture Scroll{.input = gbtn::X_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_SCROLL, .keywords = "horizontal"};
+PLACE_SDRAM_RODATA constexpr Gesture Scroll{.input = gbtn::X_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_SCROLL, .applies = applies_noselection, .keywords = "horizontal"};
 } // namespace timeline
 namespace clip {
-PLACE_SDRAM_RODATA constexpr Gesture ClipLength{.hold = gbtn::SHIFT, .input = gbtn::X_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_CLIP_LENGTH, .keywords = "bars loop"};
+PLACE_SDRAM_RODATA constexpr Gesture ClipLength{.hold = gbtn::SHIFT, .input = gbtn::X_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_CLIP_LENGTH, .applies = applies_noselection, .keywords = "bars loop"};
 PLACE_SDRAM_RODATA constexpr Gesture ShiftContents{.hold = gbtn::Y_ENC, .input = gbtn::X_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_SHIFT_CLIP_CONTENTS, .keywords = "move rotate notes"};
 PLACE_SDRAM_RODATA constexpr Gesture ShortcutOverview{.input = gbtn::SHIFT, .action = Action::HOLD, .name = l10n::String::STRING_FOR_GESTURE_SHORTCUT_OVERVIEW, .applies = applies_overlay, .keywords = "help map"};
 } // namespace clip
@@ -243,7 +250,7 @@ PLACE_SDRAM_RODATA constexpr Gesture NoteLength{.hold = pad::NOTE, .input = pad:
 PLACE_SDRAM_RODATA constexpr Gesture RowPitch{.hold = pad::AUDITION, .hold2 = gbtn::SELECT_ENC, .input = gbtn::SELECT_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_ROW_NOTE_PITCH, .keywords = "drum note"};
 PLACE_SDRAM_RODATA constexpr Gesture RowProbability{.hold = pad::AUDITION, .input = gbtn::SELECT_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_ROW_PROBABILITY, .keywords = "iterance chance"};
 PLACE_SDRAM_RODATA constexpr Gesture NoteProbability{.hold = pad::NOTE, .input = gbtn::SELECT_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_NOTE_PROBABILITY, .keywords = "iterance chance"};
-PLACE_SDRAM_RODATA constexpr Gesture BrowsePresets{.input = gbtn::SELECT_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_BROWSE_PRESETS, .keywords = "sound patch instrument"};
+PLACE_SDRAM_RODATA constexpr Gesture BrowsePresets{.input = gbtn::SELECT_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_BROWSE_PRESETS, .applies = applies_noselection, .keywords = "sound patch instrument"};
 PLACE_SDRAM_RODATA constexpr Gesture KnobMidiCc{.hold = gbtn::MOD_ENCODER_0, .input = gbtn::SELECT_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_KNOB_MIDI_CC, .applies = applies_midi, .keywords = "gold controller"};
 PLACE_SDRAM_RODATA constexpr Gesture MoveCcAutomation{.hold = gbtn::MOD_ENCODER_0, .hold2 = gbtn::SELECT_ENC, .input = gbtn::SELECT_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_MOVE_CC_AUTOMATION, .applies = applies_midi, .keywords = "gold controller"};
 PLACE_SDRAM_RODATA constexpr Gesture TransposeScreen{.hold = gbtn::X_ENC, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_TRANSPOSE_SCREEN, .applies = applies_notkit, .keywords = "scale step"};
@@ -253,7 +260,7 @@ PLACE_SDRAM_RODATA constexpr Gesture NoteRepeat{.hold = pad::NOTE, .hold2 = gbtn
 PLACE_SDRAM_RODATA constexpr Gesture TransposeOctave{.hold = gbtn::Y_ENC, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_TRANSPOSE_OCTAVE, .applies = applies_notkit, .keywords = "pitch"};
 PLACE_SDRAM_RODATA constexpr Gesture TransposeClip{.hold = gbtn::SHIFT, .hold2 = gbtn::Y_ENC, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_TRANSPOSE_CLIP, .applies = applies_notkit, .keywords = "semitone pitch key"};
 PLACE_SDRAM_RODATA constexpr Gesture NudgeSemitone{.hold = pad::NOTE, .hold2 = gbtn::SHIFT, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_MOVE_NOTES_BY_SEMITONE, .applies = applies_notkit, .keywords = "accidental pitch"};
-PLACE_SDRAM_RODATA constexpr Gesture ClipColour{.hold = gbtn::SHIFT, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_CLIP_COLOUR, .keywords = "color hue"};
+PLACE_SDRAM_RODATA constexpr Gesture ClipColour{.hold = gbtn::SHIFT, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_CLIP_COLOUR, .applies = applies_noselection, .keywords = "color hue"};
 PLACE_SDRAM_RODATA constexpr Gesture RowColour{.hold = pad::AUDITION, .hold2 = gbtn::SHIFT, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_ROW_COLOUR, .applies = applies_kit, .keywords = "color hue"};
 PLACE_SDRAM_RODATA constexpr Gesture MoveNotes{.hold = pad::NOTE, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_MOVE_NOTES_UP_DOWN, .keywords = "pitch"};
 PLACE_SDRAM_RODATA constexpr Gesture NoteVelocity{.hold = pad::NOTE, .input = gbtn::X_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_NOTE_VELOCITY, .keywords = "loudness"};
@@ -265,6 +272,16 @@ PLACE_SDRAM_RODATA constexpr Gesture DrumParam{.hold = pad::AUDITION, .input = g
 PLACE_SDRAM_RODATA constexpr Gesture ClearClip{.hold = gbtn::X_ENC, .input = gbtn::BACK, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_CLEAR_CLIP, .keywords = "delete notes erase"};
 PLACE_SDRAM_RODATA constexpr Gesture SoundMenu{.input = gbtn::SELECT_ENC, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_SOUND_MENU, .keywords = "editor settings"};
 PLACE_SDRAM_RODATA constexpr Gesture AffectEntire{.input = gbtn::AFFECT_ENTIRE, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_AFFECT_ENTIRE, .applies = applies_kit, .keywords = "whole kit"};
+PLACE_SDRAM_RODATA constexpr Gesture SelectNotes{.hold = gbtn::LEARN, .input = pad::GRID, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_SELECT_NOTES, .keywords = "range region area two pads"};
+PLACE_SDRAM_RODATA constexpr Gesture SelectRows{.hold = gbtn::LEARN, .input = pad::AUDITION, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_NARROW_SELECTED_ROWS, .keywords = "range selection"};
+PLACE_SDRAM_RODATA constexpr Gesture MoveSelection{.input = gbtn::X_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_MOVE_SELECTION, .applies = applies_selection, .keywords = "notes range shift"};
+PLACE_SDRAM_RODATA constexpr Gesture DuplicateSelection{.hold = gbtn::SHIFT, .input = gbtn::X_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_DUPLICATE_SELECTION, .applies = applies_selection, .keywords = "notes range copy"};
+PLACE_SDRAM_RODATA constexpr Gesture TransposeSelection{.input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_TRANSPOSE_SELECTION, .applies = applies_selection, .keywords = "notes range scale step"};
+PLACE_SDRAM_RODATA constexpr Gesture SelectionSemitone{.hold = gbtn::SHIFT, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_SELECTION_BY_SEMITONE, .applies = applies_selection, .keywords = "transpose notes range"};
+PLACE_SDRAM_RODATA constexpr Gesture SelectionOctave{.hold = gbtn::Y_ENC, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_SELECTION_BY_OCTAVE, .applies = applies_selection, .keywords = "transpose notes range"};
+PLACE_SDRAM_RODATA constexpr Gesture SelectionVelocity{.input = gbtn::SELECT_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_SELECTION_VELOCITY, .applies = applies_selection, .keywords = "notes range loudness"};
+PLACE_SDRAM_RODATA constexpr Gesture DeleteSelection{.hold = gbtn::SHIFT, .input = gbtn::SAVE, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_DELETE_SELECTED_NOTES, .applies = applies_selection, .keywords = "range erase"};
+PLACE_SDRAM_RODATA constexpr Gesture EndSelection{.input = gbtn::LEARN, .action = Action::TAP, .name = l10n::String::STRING_FOR_GESTURE_END_SELECTION, .applies = applies_selection, .keywords = "deselect range"};
 } // namespace instrumentClip
 namespace automation {
 PLACE_SDRAM_RODATA constexpr Gesture Overview{.hold = gbtn::SHIFT, .input = gbtn::CLIP_VIEW, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_AUTOMATION_OVERVIEW, .keywords = "params"};
@@ -515,6 +532,16 @@ constexpr Gesture const* kAll[] = {
     &instrumentClip::ClearClip,
     &instrumentClip::SoundMenu,
     &instrumentClip::AffectEntire,
+    &instrumentClip::SelectNotes,
+    &instrumentClip::SelectRows,
+    &instrumentClip::MoveSelection,
+    &instrumentClip::DuplicateSelection,
+    &instrumentClip::TransposeSelection,
+    &instrumentClip::SelectionSemitone,
+    &instrumentClip::SelectionOctave,
+    &instrumentClip::SelectionVelocity,
+    &instrumentClip::DeleteSelection,
+    &instrumentClip::EndSelection,
     &automation::Overview,
     &automation::SongView,
     &automation::KeyboardView,

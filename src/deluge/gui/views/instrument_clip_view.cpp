@@ -167,6 +167,16 @@ PLACE_SDRAM_RODATA constexpr deluge::gui::combos::Gesture const* kGestures[] = {
     &deluge::gui::combos::gesture::instrumentClip::ClearClip,
     &deluge::gui::combos::gesture::instrumentClip::SoundMenu,
     &deluge::gui::combos::gesture::instrumentClip::AffectEntire,
+    &deluge::gui::combos::gesture::instrumentClip::SelectNotes,
+    &deluge::gui::combos::gesture::instrumentClip::SelectRows,
+    &deluge::gui::combos::gesture::instrumentClip::MoveSelection,
+    &deluge::gui::combos::gesture::instrumentClip::DuplicateSelection,
+    &deluge::gui::combos::gesture::instrumentClip::TransposeSelection,
+    &deluge::gui::combos::gesture::instrumentClip::SelectionSemitone,
+    &deluge::gui::combos::gesture::instrumentClip::SelectionOctave,
+    &deluge::gui::combos::gesture::instrumentClip::SelectionVelocity,
+    &deluge::gui::combos::gesture::instrumentClip::DeleteSelection,
+    &deluge::gui::combos::gesture::instrumentClip::EndSelection,
 };
 } // namespace
 
@@ -583,6 +593,9 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 			selectionGesture.rowsStarted = false;
 		}
 		else if (!selectionGesture.used && currentUIMode == UI_MODE_MIDI_LEARN) {
+			if (noteSelectionUsable()) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::EndSelection);
+			}
 			clearNoteSelection();
 		}
 		ActionResult result = InstrumentClipMinder::buttonAction(b, on, inCardRoutine);
@@ -612,6 +625,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 		}
 		char modelStackMemory[MODEL_STACK_MAX_SIZE];
 		ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::DeleteSelection);
 		int32_t count = noteSelection.countNotes(modelStack);
 		noteSelectionEdited(noteSelection.deleteNotes(modelStack));
 		char buffer[24];
@@ -2113,6 +2127,7 @@ void InstrumentClipView::selectEncoderAction(int8_t offset) {
 	if (getCurrentUI() == this && isNoUIModeActive() && noteSelectionUsable()) {
 		char modelStackMemory[MODEL_STACK_MAX_SIZE];
 		ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::SelectionVelocity);
 		int32_t velocity;
 		noteSelectionEdited(noteSelection.changeVelocity(modelStack, offset, &velocity));
 		if (velocity >= 0) {
@@ -6894,6 +6909,10 @@ ActionResult InstrumentClipView::verticalEncoderAction(int32_t offset, bool inCa
 		Step step = Buttons::isShiftButtonPressed()                        ? Step::SEMITONE
 		            : Buttons::isButtonPressed(deluge::hid::button::Y_ENC) ? Step::OCTAVE
 		                                                                   : Step::ROW;
+		deluge::gui::combos::used(
+		    (step == Step::SEMITONE ? deluge::gui::combos::gesture::instrumentClip::SelectionSemitone
+		     : step == Step::OCTAVE ? deluge::gui::combos::gesture::instrumentClip::SelectionOctave
+		                            : deluge::gui::combos::gesture::instrumentClip::TransposeSelection));
 		// Several detents may arrive at once: one step each, stopping at the first that can't go
 		ClipNoteSelection::Result result = ClipNoteSelection::Result::DONE;
 		for (int32_t i = 0; i < std::abs(offset) && result == ClipNoteSelection::Result::DONE; i++) {
@@ -7354,6 +7373,9 @@ ActionResult InstrumentClipView::horizontalEncoderAction(int32_t offset) {
 		char modelStackMemory[MODEL_STACK_MAX_SIZE];
 		ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
 		int32_t direction = (offset > 0) ? 1 : -1;
+		deluge::gui::combos::used(Buttons::isShiftButtonPressed()
+		                              ? deluge::gui::combos::gesture::instrumentClip::DuplicateSelection
+		                              : deluge::gui::combos::gesture::instrumentClip::MoveSelection);
 		ClipNoteSelection::Result result =
 		    Buttons::isShiftButtonPressed()
 		        ? noteSelection.duplicate(modelStack, direction)
@@ -9180,6 +9202,7 @@ void InstrumentClipView::noteSelectionCornerPress(int32_t x, int32_t yDisplay) {
 	if (squareStart >= loopLength) {
 		return; // Past the end of the clip
 	}
+	deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::SelectNotes);
 	int32_t row = yDisplay + clip->yScroll;
 
 	selectionGesture.used = true;
@@ -9208,6 +9231,7 @@ void InstrumentClipView::noteSelectionCornerPress(int32_t x, int32_t yDisplay) {
 }
 
 void InstrumentClipView::noteSelectionRowPress(int32_t yDisplay) {
+	deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::SelectRows);
 	int32_t row = yDisplay + getCurrentInstrumentClip()->yScroll;
 	selectionGesture.used = true;
 	selectionGesture.hasCorner = false;
