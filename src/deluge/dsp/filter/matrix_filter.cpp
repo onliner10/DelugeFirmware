@@ -29,8 +29,8 @@ q31_t MatrixFilter::setConfig(q31_t frequency, q31_t resonance, FilterMode mode,
 	// Resonance comes in as 0 to 2^29
 	float const r = std::clamp(static_cast<float>(resonance) * (1.f / 536870912.f), 0.f, 1.f);
 
-	MatrixLadder::Topology topology;
-	float k;
+	MatrixLadder::Topology topology = MatrixLadder::Topology::LP4;
+	float k = 0.f;
 	switch (mode) {
 	case FilterMode::TRANSISTOR_12DB:
 		topology = MatrixLadder::Topology::SVF_LP;

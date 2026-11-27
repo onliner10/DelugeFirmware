@@ -1575,8 +1575,8 @@ skipUnisonPart: {}
 
 	// The saturation (clipping) comes after the filter and the amplitude envelope, unless the sound wants it before
 	// the filter. With a shared filter and the saturation after it, the Sound applies it to the filtered mix
-	bool const clipPre = sound.saturation && sound.saturationPreFilter;
-	bool const clipHere = sound.saturation && !sound.saturationPreFilter && sharedFilterGain == 0;
+	bool const clipPre = sound.saturation != 0 && sound.saturationPreFilter;
+	bool const clipHere = sound.saturation != 0 && !sound.saturationPreFilter && sharedFilterGain == 0;
 
 	if (didStereoTempBuffer) {
 		int32_t* const oscBufferEnd = oscBuffer + (numSamples << 1);

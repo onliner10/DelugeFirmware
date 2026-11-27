@@ -2623,9 +2623,12 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 		// With a shared filter, the voices are mixed unfiltered and the mix goes through sharedFilterSet_ below. Not
 		// while a note locks a filter param: that voice needs its own filter, so they all get their own for now
 		bool const shareFilter = (sharedFilterSet_ != nullptr) && thisHasFilters
-		                         && !(lockedParams & (VoiceNoteLocks::kLPF | VoiceNoteLocks::kHPF));
-		int32_t const sharedFilterGain =
-		    !shareFilter ? 0 : (sharedFilterGain_ != 0 ? sharedFilterGain_ : volumeNeutralValueForUnison << 1);
+		                         && (lockedParams & (VoiceNoteLocks::kLPF | VoiceNoteLocks::kHPF)) == 0;
+		// Before the shared filter's first configuration, its gain is the neutral one
+		int32_t sharedFilterGain = 0;
+		if (shareFilter) {
+			sharedFilterGain = (sharedFilterGain_ != 0) ? sharedFilterGain_ : (volumeNeutralValueForUnison << 1);
+		}
 		// The newest voice's filter params, after its patching this render: the shared filter follows that note
 		uint32_t newestOrder = 0;
 		bool haveNewest = false;
@@ -2643,9 +2646,10 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 				voiceHPF = voiceHPF || (thisHasFilters && voice->noteLocks.hasAnyOf(VoiceNoteLocks::kHPF));
 			}
 
-			bool stillGoing = voice->render(modelStackWithSoundFlags, sound_mono.data(), sound_mono.size(),
-			                                voice_rendered_in_stereo, applyingPanAtVoiceLevel, sourcesChanged, voiceLPF,
-			                                voiceHPF, pitchAdjust, sharedFilterGain);
+			bool stillGoing =
+			    voice->render(modelStackWithSoundFlags, sound_mono.data(), static_cast<int32_t>(sound_mono.size()),
+			                  voice_rendered_in_stereo, applyingPanAtVoiceLevel, sourcesChanged, voiceLPF, voiceHPF,
+			                  pitchAdjust, sharedFilterGain);
 			if (shareFilter && (!haveNewest || (int32_t)(voice->orderSounded - newestOrder) > 0)) {
 				haveNewest = true;
 				newestOrder = voice->orderSounded;
@@ -2671,14 +2675,14 @@ void Sound::render(ModelStackWithThreeMainThings* modelStack, std::span<StereoSa
 			    volumeNeutralValueForUnison << 1, filterRoute, false, nullptr);
 			if (voice_rendered_in_stereo) {
 				sharedFilterSet_->renderLongStereo(sound_memory, sound_memory + (sound_stereo.size() << 1));
-				if (saturation && !saturationPreFilter) {
+				if (saturation != 0 && !saturationPreFilter) {
 					saturateBlock<2>(sound_memory, sound_stereo.size() << 1, sharedSaturationState_.data());
 				}
 			}
 			else {
 				sharedFilterSet_->renderLong(sound_mono.data(), sound_mono.data() + sound_mono.size(),
-				                             sound_mono.size());
-				if (saturation && !saturationPreFilter) {
+				                             static_cast<int32_t>(sound_mono.size()));
+				if (saturation != 0 && !saturationPreFilter) {
 					saturateBlock<1>(sound_mono.data(), sound_mono.size(), sharedSaturationState_.data());
 				}
 			}
@@ -3366,7 +3370,7 @@ bool Sound::setSharedFilter(bool on) {
 		if (memory == nullptr) {
 			return false;
 		}
-		sharedFilterSet_ = new (memory) deluge::dsp::filter::FilterSet;
+		sharedFilterSet_ = new (memory) deluge::dsp::filter::FilterSet; // NOLINT(cppcoreguidelines-owning-memory)
 	}
 	else {
 		sharedFilterSet_->~FilterSet();

@@ -20,6 +20,12 @@
 namespace deluge::dsp::filter {
 
 namespace {
+/// Four floats into a vector. f4(a, b, c, d) is a GCC extension, which clang reads as a cast
+[[gnu::always_inline]] inline float32x4_t f4(float a, float b, float c, float d) {
+	std::array<float, 4> const v{a, b, c, d};
+	return vld1q_f32(v.data());
+}
+
 [[gnu::always_inline]] inline float32x4_t matVec(float32x4_t const (&m)[4], float32x4_t v) {
 	float32x4_t t0 = vmulq_lane_f32(m[0], vget_low_f32(v), 0);
 	float32x4_t t1 = vmulq_lane_f32(m[1], vget_low_f32(v), 1);
@@ -51,27 +57,27 @@ namespace {
 // The 2-pole state-variable filter (trapezoidal): hp = (x - (2R + g) s1 - s2) / (1 + 2Rg + g^2), bp = g hp + s1,
 // lp = g bp + s2, s1' = 2 bp - s1, s2' = 2 lp - s2. All linear in x and the memories, so its matrices come straight out
 void svfMatrices(bool highpass, float g, float R, float32x4_t (&a)[4], float32x4_t& b, float32x4_t& c, float& d) {
-	float const h = 1.f / (1.f + 2.f * R * g + g * g);
+	float const h = 1.f / (1.f + (2.f * R * g) + (g * g));
 	// hp = h x + hp1 s1 + hp2 s2
-	float const hp1 = -h * (2.f * R + g);
+	float const hp1 = -h * ((2.f * R) + g);
 	float const hp2 = -h;
 	// bp = g h x + (g hp1 + 1) s1 + g hp2 s2
-	float const bp1 = g * hp1 + 1.f;
+	float const bp1 = (g * hp1) + 1.f;
 	float const bp2 = g * hp2;
 	// lp = g^2 h x + g bp1 s1 + (g bp2 + 1) s2
 	float const lp1 = g * bp1;
-	float const lp2 = g * bp2 + 1.f;
-	a[0] = (float32x4_t){2.f * bp1 - 1.f, 2.f * lp1, 0.f, 0.f}; // column for s1
-	a[1] = (float32x4_t){2.f * bp2, 2.f * lp2 - 1.f, 0.f, 0.f}; // column for s2
+	float const lp2 = (g * bp2) + 1.f;
+	a[0] = f4((2.f * bp1) - 1.f, 2.f * lp1, 0.f, 0.f); // column for s1
+	a[1] = f4(2.f * bp2, (2.f * lp2) - 1.f, 0.f, 0.f); // column for s2
 	a[2] = vdupq_n_f32(0.f);
 	a[3] = vdupq_n_f32(0.f);
-	b = (float32x4_t){2.f * g * h, 2.f * g * g * h, 0.f, 0.f};
+	b = f4(2.f * g * h, 2.f * g * g * h, 0.f, 0.f);
 	if (highpass) {
-		c = (float32x4_t){hp1, hp2, 0.f, 0.f};
+		c = f4(hp1, hp2, 0.f, 0.f);
 		d = h;
 	}
 	else {
-		c = (float32x4_t){lp1, lp2, 0.f, 0.f};
+		c = f4(lp1, lp2, 0.f, 0.f);
 		d = g * g * h;
 	}
 }
@@ -114,7 +120,7 @@ void MatrixLadder::configureReference(Topology topology, float g, float k) {
 	std::array<std::array<float, 4>, 4> A{}; // A[row j][column i]
 	std::array<float, 4> B{};
 	std::array<float, 4> C{};
-	float D;
+	float D = 0.f;
 
 	if (!highpass) {
 		std::array<float, 5> Gp{1.f, G, G * G, G * G * G, G * G * G * G}; // G^j
@@ -132,13 +138,13 @@ void MatrixLadder::configureReference(Topology topology, float g, float k) {
 		// y_j = G^j u + sum_{i <= j} G^(j-i) beta s_i (stages and memories 1-based in the maths, 0-based here)
 		for (int32_t j = 0; j < n; j++) {
 			for (int32_t i = 0; i < n; i++) {
-				float y = Gp[j + 1] * r[i] + ((i <= j) ? Gp[j - i] * beta : 0.f);
+				float y = (Gp[j + 1] * r[i]) + ((i <= j) ? Gp[j - i] * beta : 0.f);
 				A[j][i] = 2.f * y - ((i == j) ? 1.f : 0.f);
 			}
 			B[j] = 2.f * Gp[j + 1] * a;
 		}
 		for (int32_t i = 0; i < n; i++) {
-			C[i] = Gp[n] * r[i] + w[i];
+			C[i] = (Gp[n] * r[i]) + w[i];
 		}
 		D = Gp[n] * a;
 	}
@@ -158,13 +164,13 @@ void MatrixLadder::configureReference(Topology topology, float g, float k) {
 		// s_j' = 2 G in_j + (2 beta - 1) s_j
 		for (int32_t j = 0; j < n; j++) {
 			for (int32_t i = 0; i < n; i++) {
-				float in = Bp[j] * r[i] - ((i < j) ? Bp[j - i] : 0.f);
-				A[j][i] = 2.f * G * in + ((i == j) ? (2.f * beta - 1.f) : 0.f);
+				float in = (Bp[j] * r[i]) - ((i < j) ? Bp[j - i] : 0.f);
+				A[j][i] = (2.f * G * in) + ((i == j) ? ((2.f * beta) - 1.f) : 0.f);
 			}
 			B[j] = 2.f * G * Bp[j] * a;
 		}
 		for (int32_t i = 0; i < n; i++) {
-			C[i] = Bp[n] * r[i] + v[i];
+			C[i] = (Bp[n] * r[i]) + v[i];
 		}
 		D = Bp[n] * a;
 	}
@@ -199,20 +205,20 @@ void MatrixLadder::configure(Topology topology, float g, float k) {
 	float const c = 1.f + k;
 	float32x4_t const zero = vdupq_n_f32(0.f);
 	// Lanes 2 and 3 of the 2-pole ladders stay 0
-	float32x4_t const live = four ? vdupq_n_f32(1.f) : (float32x4_t){1.f, 1.f, 0.f, 0.f};
-	float32x4_t const e0 = {1.f, 0.f, 0.f, 0.f};
-	float32x4_t const e1 = {0.f, 1.f, 0.f, 0.f};
-	float32x4_t const e2 = {0.f, 0.f, 1.f, 0.f};
-	float32x4_t const e3 = {0.f, 0.f, 0.f, 1.f};
+	float32x4_t const live = four ? vdupq_n_f32(1.f) : f4(1.f, 1.f, 0.f, 0.f);
+	float32x4_t const e0 = f4(1.f, 0.f, 0.f, 0.f);
+	float32x4_t const e1 = f4(0.f, 1.f, 0.f, 0.f);
+	float32x4_t const e2 = f4(0.f, 0.f, 1.f, 0.f);
+	float32x4_t const e3 = f4(0.f, 0.f, 0.f, 1.f);
 	if (!highpass) {
 		float const G2 = G * G;
 		float const G3 = G2 * G;
 		float const G4 = G2 * G2;
 		float const Gn = four ? G4 : G2;
-		float32x4_t const gv = vmulq_f32((float32x4_t){G, G2, G3, G4}, live);  // G^(j+1)
-		float32x4_t const pv = vmulq_f32((float32x4_t){1.f, G, G2, G3}, live); // G^j
+		float32x4_t const gv = vmulq_f32(f4(G, G2, G3, G4), live);  // G^(j+1)
+		float32x4_t const pv = vmulq_f32(f4(1.f, G, G2, G3), live); // G^j
 		// w_i = G^(n-1-i) beta
-		float32x4_t const w = vmulq_n_f32(four ? (float32x4_t){G3, G2, G, 1.f} : (float32x4_t){G, 1.f, 0.f, 0.f}, beta);
+		float32x4_t const w = vmulq_n_f32(four ? f4(G3, G2, G, 1.f) : f4(G, 1.f, 0.f, 0.f), beta);
 		float const d0 = 1.f / (1.f + k * Gn);
 		float const a = d0 * c;
 		float32x4_t const r = vmulq_n_f32(w, -d0 * k);
@@ -235,17 +241,17 @@ void MatrixLadder::configure(Topology topology, float g, float k) {
 		float const B3 = B2 * beta;
 		float const B4 = B2 * B2;
 		float const Bn = four ? B4 : B2;
-		float32x4_t const bv = vmulq_f32((float32x4_t){1.f, beta, B2, B3}, live); // beta^j
+		float32x4_t const bv = vmulq_f32(f4(1.f, beta, B2, B3), live); // beta^j
 		// v_i = -beta^(n-i)
-		float32x4_t const v = four ? (float32x4_t){-B4, -B3, -B2, -beta} : (float32x4_t){-B2, -beta, 0.f, 0.f};
+		float32x4_t const v = four ? f4(-B4, -B3, -B2, -beta) : f4(-B2, -beta, 0.f, 0.f);
 		float const d0 = 1.f / (1.f + k * Bn);
 		float const a = d0 * c;
 		float32x4_t const r = vmulq_n_f32(v, -d0 * k);
 		// Column i: 2G (beta^j r_i - [j > i] beta^(j-i)) + [j == i] (2 beta - 1)
 		float32x4_t const twoGbv = vmulq_n_f32(bv, 2.f * G);
 		// [0, 2G beta, 2G beta^2, 2G beta^3]: shifted down by i lanes, the [j > i] terms of column i
-		float32x4_t const sub = vmulq_n_f32(vextq_f32(zero, (float32x4_t){beta, B2, B3, 0.f}, 3), 2.f * G);
-		float const diag = 2.f * beta - 1.f;
+		float32x4_t const sub = vmulq_n_f32(vextq_f32(zero, f4(beta, B2, B3, 0.f), 3), 2.f * G);
+		float const diag = (2.f * beta) - 1.f;
 		a_[0] = vmulq_f32(vmlaq_n_f32(vsubq_f32(vmulq_lane_f32(twoGbv, vget_low_f32(r), 0), sub), e0, diag), live);
 		a_[1] = vmulq_f32(
 		    vmlaq_n_f32(vsubq_f32(vmulq_lane_f32(twoGbv, vget_low_f32(r), 1), vextq_f32(zero, sub, 3)), e1, diag),
@@ -368,9 +374,9 @@ void MatrixLadder::process(q31_t* buffer, int32_t numSamples, int32_t stride) {
 	float32x4_t s = state_;
 	int32_t i = 0;
 	for (; i + 4 <= numSamples; i += 4) {
-		q31_t* p = buffer + i * stride;
-		int32x4_t in;
-		int32x4x2_t pair;
+		q31_t* p = buffer + (i * stride);
+		int32x4_t in = vdupq_n_s32(0);
+		int32x4x2_t pair{};
 		if (stride == 1) {
 			in = vld1q_s32(p);
 		}
@@ -388,7 +394,7 @@ void MatrixLadder::process(q31_t* buffer, int32_t numSamples, int32_t stride) {
 		}
 	}
 	if (i < numSamples) {
-		singleSteps(a_, b_, c_, d_, s, buffer + i * stride, numSamples - i, stride);
+		singleSteps(a_, b_, c_, d_, s, buffer + (i * stride), numSamples - i, stride);
 	}
 	state_ = sane(s);
 }
@@ -412,7 +418,7 @@ void MatrixLadder::processStereo(q31_t* buffer, int32_t numFrames) {
 	float32x4_t sr = stateR_;
 	int32_t i = 0;
 	for (; i + 4 <= numFrames; i += 4) {
-		q31_t* p = buffer + i * 2;
+		q31_t* p = buffer + (i * 2);
 		int32x4x2_t lr = vld2q_s32(p);
 		// The two channels' recursions side by side: each one's work fills the other's waits
 		float32x4_t const yl = k.run(sl, vcvtq_n_f32_s32(lr.val[0], 31));
@@ -422,8 +428,8 @@ void MatrixLadder::processStereo(q31_t* buffer, int32_t numFrames) {
 		vst2q_s32(p, lr);
 	}
 	if (i < numFrames) {
-		singleSteps(a_, b_, c_, d_, sl, buffer + i * 2, numFrames - i, 2);
-		singleSteps(a_, b_, c_, d_, sr, buffer + i * 2 + 1, numFrames - i, 2);
+		singleSteps(a_, b_, c_, d_, sl, buffer + (i * 2), numFrames - i, 2);
+		singleSteps(a_, b_, c_, d_, sr, buffer + (i * 2) + 1, numFrames - i, 2);
 	}
 	state_ = sane(sl);
 	stateR_ = sane(sr);

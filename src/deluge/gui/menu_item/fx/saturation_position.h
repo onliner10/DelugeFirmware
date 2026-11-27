@@ -49,7 +49,7 @@ public:
 		}
 	}
 
-	deluge::vector<std::string_view> getOptions(OptType optType) override {
+	deluge::vector<std::string_view> getOptions([[maybe_unused]] OptType optType) override {
 		return {l10n::getView(l10n::String::STRING_FOR_BEFORE_FILTER),
 		        l10n::getView(l10n::String::STRING_FOR_AFTER_FILTER)};
 	}

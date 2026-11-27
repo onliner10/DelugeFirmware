@@ -33,9 +33,9 @@ public:
 	// returns a compensatory gain value
 	q31_t setConfig(q31_t frequency, q31_t resonance, FilterMode mode, q31_t morph, q31_t filterGain);
 	void doFilter(q31_t* startSample, q31_t* endSample, int32_t sampleIncrement) {
-		int32_t const numSamples =
+		auto const num_samples =
 		    static_cast<int32_t>((endSample - startSample + sampleIncrement - 1) / sampleIncrement);
-		core_.process(startSample, numSamples, sampleIncrement);
+		core_.process(startSample, num_samples, sampleIncrement);
 	}
 	void doFilterStereo(q31_t* startSample, q31_t* endSample) {
 		core_.processStereo(startSample, static_cast<int32_t>((endSample - startSample) >> 1));
@@ -43,7 +43,7 @@ public:
 	void resetFilter() { core_.reset(); }
 
 private:
-	MatrixLadder core_;
+	MatrixLadder core_{};
 };
 
 } // namespace deluge::dsp::filter

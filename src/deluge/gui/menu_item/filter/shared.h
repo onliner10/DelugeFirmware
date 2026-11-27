@@ -40,7 +40,7 @@ public:
 	}
 
 	// Only does anything with more than one voice sounding at once
-	bool isRelevant(ModControllableAudio* modControllable, int32_t whichThing) const override {
+	bool isRelevant(ModControllableAudio* modControllable, [[maybe_unused]] int32_t whichThing) const override {
 		auto* sound = static_cast<Sound*>(modControllable);
 		return sound->polyphonic == PolyphonyMode::POLY;
 	}
