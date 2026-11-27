@@ -547,22 +547,23 @@ Error Arrangement::doUniqueCloneOnClipInstance(ClipInstance* clipInstance, int32
 	          nullptr);
 
 	// Both undo records or neither: an instance left pointing at a clip whose creation gets undone would dangle
-	void* changeMemory =
-	    action ? GeneralMemoryAllocator::get().allocLowSpeed(sizeof(ConsequenceClipInstanceChange)) : nullptr;
-	if (changeMemory
+	void* change_memory = (action != nullptr)
+	                          ? GeneralMemoryAllocator::get().allocLowSpeed(sizeof(ConsequenceClipInstanceChange))
+	                          : nullptr;
+	if (change_memory != nullptr
 	    && action->recordClipExistenceChange(currentSong, &currentSong->arrangementOnlyClips, newClip,
 	                                         ExistenceChangeType::CREATE)) {
-		int32_t lengthAfter = (newLength != -1) ? newLength : clipInstance->length;
-		action->addConsequence(new (changeMemory) ConsequenceClipInstanceChange(
-		    oldClip->output, clipInstance, clipInstance->pos, lengthAfter, newClip));
+		int32_t length_after = (newLength != -1) ? newLength : clipInstance->length;
+		action->addConsequence(new (change_memory) ConsequenceClipInstanceChange(
+		    oldClip->output, clipInstance, clipInstance->pos, length_after, newClip));
 		clipInstance->clip = newClip;
-		clipInstance->length = lengthAfter;
+		clipInstance->length = length_after;
 	}
 	else {
-		if (changeMemory) {
-			delugeDealloc(changeMemory);
+		if (change_memory != nullptr) {
+			delugeDealloc(change_memory);
 		}
-		if (action) {
+		if (action != nullptr) {
 			actionLogger.deleteAllLogs(); // Out of RAM for the undo step - earlier ones would no longer match
 		}
 		clipInstance->clip = newClip;

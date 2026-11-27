@@ -80,6 +80,7 @@
 #include "util/functions.h"
 #include "util/try.h"
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <new>
 
@@ -228,20 +229,20 @@ bool ArrangerView::makeClipIntoSectionClip(Output* output, Clip* clip) {
 	}
 
 	// Not getLowestSectionWithNoSessionClipForOutput(): that returns section 1 when there's no free one
-	bool sectionUsed[kMaxNumSections] = {};
-	int32_t insertIndex = currentSong->sessionClips.getNumElements();
+	std::array<bool, kMaxNumSections> section_used{};
+	int32_t insert_index = currentSong->sessionClips.getNumElements();
 	for (int32_t c = 0; c < currentSong->sessionClips.getNumElements(); c++) {
-		Clip* sessionClip = currentSong->sessionClips.getClipAtIndex(c);
-		if (sessionClip->output == output) {
-			if (sessionClip->section < kMaxNumSections) {
-				sectionUsed[sessionClip->section] = true;
+		Clip* session_clip = currentSong->sessionClips.getClipAtIndex(c);
+		if (session_clip->output == output) {
+			if (session_clip->section < kMaxNumSections) {
+				section_used[session_clip->section] = true;
 			}
-			insertIndex = c + 1; // Keep this output's clips together in rows layout
+			insert_index = c + 1; // Keep this output's clips together in rows layout
 		}
 	}
 
 	int32_t section = 0;
-	while (section < kMaxNumSections && sectionUsed[section]) {
+	while (section < kMaxNumSections && section_used[section]) {
 		section++;
 	}
 	if (section == kMaxNumSections) {
@@ -249,7 +250,7 @@ bool ArrangerView::makeClipIntoSectionClip(Output* output, Clip* clip) {
 		return false;
 	}
 
-	Error error = moveArrangementOnlyClipToSession(clip, insertIndex, section);
+	Error error = moveArrangementOnlyClipToSession(clip, insert_index, section);
 	if (error != Error::NONE) {
 		display->displayError(error);
 		return false;
@@ -258,32 +259,33 @@ bool ArrangerView::makeClipIntoSectionClip(Output* output, Clip* clip) {
 }
 
 /// Moves an arrangement-only clip into sessionClips, giving it a section, as one undoable step
-Error ArrangerView::moveArrangementOnlyClipToSession(Clip* clip, int32_t sessionIndex, uint8_t section) {
-	int32_t arrangementOnlyIndex = currentSong->arrangementOnlyClips.getIndexForClip(clip);
-	if (arrangementOnlyIndex == -1) {
+Error ArrangerView::moveArrangementOnlyClipToSession(Clip* clip, int32_t session_index, uint8_t section) {
+	int32_t arrangement_only_index = currentSong->arrangementOnlyClips.getIndexForClip(clip);
+	if (arrangement_only_index == -1) {
 		return Error::BUG;
 	}
 
 	Action* action = actionLogger.getNewAction(ActionType::CLIP_INSTANCE_EDIT, ActionAddition::NOT_ALLOWED);
 
-	Error error = currentSong->sessionClips.insertClipAtIndex(clip, sessionIndex);
+	Error error = currentSong->sessionClips.insertClipAtIndex(clip, session_index);
 	if (error != Error::NONE) {
 		return error;
 	}
-	currentSong->arrangementOnlyClips.deleteAtIndex(arrangementOnlyIndex);
+	currentSong->arrangementOnlyClips.deleteAtIndex(arrangement_only_index);
 	clip->section = section;
 
-	void* consMemory =
-	    action ? GeneralMemoryAllocator::get().allocLowSpeed(sizeof(ConsequenceClipMoveToSession)) : nullptr;
-	if (!consMemory) {
+	void* cons_memory = (action != nullptr)
+	                        ? GeneralMemoryAllocator::get().allocLowSpeed(sizeof(ConsequenceClipMoveToSession))
+	                        : nullptr;
+	if (cons_memory == nullptr) {
 		// Earlier undo steps would no longer match the song
 		actionLogger.deleteAllLogs();
 		return Error::NONE;
 	}
-	action->addConsequence(new (consMemory) ConsequenceClipMoveToSession(clip, arrangementOnlyIndex, sessionIndex));
+	action->addConsequence(new (cons_memory) ConsequenceClipMoveToSession(clip, arrangement_only_index, session_index));
 
 	// The clip moved within the "all clips" order that the action's per-clip view states are indexed by
-	if (action->clipStates) {
+	if (action->clipStates != nullptr) {
 		delugeDealloc(action->clipStates);
 		action->clipStates = nullptr;
 	}
@@ -1494,7 +1496,7 @@ void ArrangerView::cloneClipInstanceToWhite(Output* output, int32_t x, int32_t y
 		actionOnDepress = false;
 
 		// A white clip goes the other way: it becomes a section clip
-		if (oldClip && oldClip->isArrangementOnlyClip() && !oldClip->getCurrentlyRecordingLinearly()) {
+		if (oldClip != nullptr && oldClip->isArrangementOnlyClip() && !oldClip->getCurrentlyRecordingLinearly()) {
 			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::MakeSection);
 			if (makeClipIntoSectionClip(output, oldClip)) {
 				recordEditPadPress(output, clipInstance, x, y, xScroll);
@@ -1506,7 +1508,7 @@ void ArrangerView::cloneClipInstanceToWhite(Output* output, int32_t x, int32_t y
 
 		if (oldClip && !oldClip->isArrangementOnlyClip() && !oldClip->getCurrentlyRecordingLinearly()) {
 			Action* action = actionLogger.getNewAction(ActionType::CLIP_INSTANCE_EDIT, ActionAddition::NOT_ALLOWED);
-			if (!action) {
+			if (action == nullptr) {
 				actionLogger.deleteAllLogs(); // Can't record it, and earlier steps would no longer match
 			}
 
