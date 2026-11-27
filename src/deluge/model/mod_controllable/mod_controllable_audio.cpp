@@ -1655,11 +1655,17 @@ char const* ModControllableAudio::getFilterTypeDisplayName(FilterType currentFil
 
 void ModControllableAudio::switchLPFMode() {
 	lpfMode = static_cast<FilterMode>((util::to_underlying(lpfMode) + 1) % kNumLPFModes);
+	if (lpfMode == FilterMode::TRANSISTOR_24DB_DRIVE) { // Not a mode any more
+		lpfMode = static_cast<FilterMode>(util::to_underlying(lpfMode) + 1);
+	}
 }
 
 // for future use with FM
 void ModControllableAudio::switchLPFModeWithOff() {
 	lpfMode = static_cast<FilterMode>((util::to_underlying(lpfMode) + 1) % kNumLPFModes);
+	if (lpfMode == FilterMode::TRANSISTOR_24DB_DRIVE) { // Not a mode any more
+		lpfMode = static_cast<FilterMode>(util::to_underlying(lpfMode) + 1);
+	}
 	switch (lpfMode) {
 	case FilterMode::OFF:
 		lpfMode = FilterMode::TRANSISTOR_12DB;

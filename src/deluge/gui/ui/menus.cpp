@@ -80,6 +80,7 @@
 #include "gui/menu_item/firmware/version.h"
 #include "gui/menu_item/flash/status.h"
 #include "gui/menu_item/fx/clipping.h"
+#include "gui/menu_item/fx/saturation_position.h"
 #include "gui/menu_item/fx/saturation_type.h"
 #include "gui/menu_item/gate/mode.h"
 #include "gui/menu_item/gate/off_time.h"
@@ -639,6 +640,7 @@ PLACE_SDRAM_BSS HorizontalMenuGroup filtersMenuGroup{{&lpfMenu, &hpfMenu, &routi
 // FX ----------------------------------------------------------------------------------------
 PLACE_SDRAM_BSS fx::Clipping clippingMenu{STRING_FOR_DRIVE};
 PLACE_SDRAM_BSS fx::SaturationTypeMenu saturationTypeMenu{STRING_FOR_SATURATION_TYPE};
+PLACE_SDRAM_BSS fx::SaturationPosition saturationPositionMenu{STRING_FOR_SATURATION_POSITION};
 PLACE_SDRAM_BSS UnpatchedParam srrMenu{STRING_FOR_DECIMATION, params::UNPATCHED_SAMPLE_RATE_REDUCTION,
                                        RenderingStyle::BAR};
 PLACE_SDRAM_BSS UnpatchedParam bitcrushMenu{STRING_FOR_BITCRUSH, params::UNPATCHED_BITCRUSHING, RenderingStyle::BAR};
@@ -650,6 +652,7 @@ PLACE_SDRAM_BSS HorizontalMenu soundDistortionMenu{
     {
         &saturationTypeMenu,
         &clippingMenu,
+        &saturationPositionMenu,
         &bitcrushMenu,
         &srrMenu,
         &foldMenu,

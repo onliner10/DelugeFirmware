@@ -778,11 +778,13 @@ void GlobalEffectable::setupFilterSetConfig(int32_t* postFXVolume, ParamManager*
 		return getFinalParameterValueLinear(paramNeutralValues[params::LOCAL_HPF_MORPH], cableToExpParamShortcut(v));
 	});
 
-	bool doLPF = (lpfMode == FilterMode::TRANSISTOR_24DB_DRIVE
-	              || unpatchedParams->getValue(params::UNPATCHED_LPF_FREQ) < 2147483602
-	              || unpatchedParams->getValue(params::UNPATCHED_LPF_MORPH) > NEGATIVE_ONE_Q31);
+	// Morph only means something to the SVF modes
+	bool const lpfMorphs = (lpfMode == FilterMode::SVF_BAND || lpfMode == FilterMode::SVF_NOTCH);
+	bool const hpfMorphs = (hpfMode == FilterMode::SVF_BAND || hpfMode == FilterMode::SVF_NOTCH);
+	bool doLPF = (unpatchedParams->getValue(params::UNPATCHED_LPF_FREQ) < 2147483602
+	              || (lpfMorphs && unpatchedParams->getValue(params::UNPATCHED_LPF_MORPH) > NEGATIVE_ONE_Q31));
 	bool doHPF = unpatchedParams->getValue(params::UNPATCHED_HPF_FREQ) > NEGATIVE_ONE_Q31
-	             || unpatchedParams->getValue(params::UNPATCHED_HPF_MORPH) > NEGATIVE_ONE_Q31;
+	             || (hpfMorphs && unpatchedParams->getValue(params::UNPATCHED_HPF_MORPH) > NEGATIVE_ONE_Q31);
 	FilterMode lpfModeForRender = doLPF ? lpfMode : FilterMode::OFF;
 	FilterMode hpfModeForRender = doHPF ? hpfMode : FilterMode::OFF;
 	*postFXVolume =

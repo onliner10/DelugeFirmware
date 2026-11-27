@@ -30,7 +30,9 @@ FilterRoute stringToFilterRoute(char const* string) {
 }
 
 FilterMode stringToLPFType(char const* string) {
-	return deluge::dsp::filter::filterMap(string);
+	FilterMode mode = deluge::dsp::filter::filterMap(string);
+	// The drive is the sound's saturation now (before or after the filter), not a filter mode
+	return (mode == FilterMode::TRANSISTOR_24DB_DRIVE) ? FilterMode::TRANSISTOR_24DB : mode;
 }
 char const* lpfTypeToString(FilterMode mode) {
 	return deluge::dsp::filter::filterMap(mode);

@@ -65,6 +65,39 @@ extern "C" {
 using namespace deluge;
 namespace params = deluge::modulation::params;
 
+namespace {
+/// The saturation before the filter: the same saturation as after the filter and the amplitude, just moved in front of
+/// the filter. The saturator is set up for the level after the amplitude (volume and envelope), and the oscillators
+/// come out much hotter than that, so bring the block down to that level, saturate, and bring it back up for the filter
+/// and the amplitude to come. FM has the amplitude in its oscillators already
+template <size_t kNumChannels>
+void saturatePreFilter(Sound& sound, int32_t* buffer, size_t count, uint32_t* workingValues, int32_t amplitude,
+                       bool amplitudeInOscillators) {
+	if (amplitudeInOscillators) {
+		sound.saturateBlock<kNumChannels>(buffer, count, workingValues);
+		return;
+	}
+	// As the post-filter path, where the samples get (x * amplitude >> 32) << 1, i.e. x * amplitude / 2^31. Not below
+	// 2^-19, where the saturator is linear anyway, so bringing the block back up can't run away
+	amplitude = std::max<q31_t>(amplitude, 1 << 12);
+	size_t const vectorCount = count & ~size_t{3};
+	for (size_t i = 0; i < vectorCount; i += 4) {
+		vst1q_s32(&buffer[i], vqdmulhq_n_s32(vld1q_s32(&buffer[i]), amplitude));
+	}
+	for (size_t i = vectorCount; i < count; i++) {
+		buffer[i] = static_cast<int32_t>((static_cast<int64_t>(buffer[i]) * amplitude) >> 31);
+	}
+	sound.saturateBlock<kNumChannels>(buffer, count, workingValues);
+	float const up = 2147483648.f / static_cast<float>(amplitude);
+	for (size_t i = 0; i < vectorCount; i += 4) {
+		vst1q_s32(&buffer[i], vcvtq_s32_f32(vmulq_n_f32(vcvtq_f32_s32(vld1q_s32(&buffer[i])), up))); // saturates
+	}
+	for (size_t i = vectorCount; i < count; i++) {
+		buffer[i] = static_cast<int32_t>(std::clamp(static_cast<float>(buffer[i]) * up, -2147483648.f, 2147483520.f));
+	}
+}
+} // namespace
+
 PLACE_INTERNAL_FRUNK int32_t spareRenderingBuffer[4][SSI_TX_BUFFER_NUM_SAMPLES]
     __attribute__((aligned(CACHE_LINE_SIZE)));
 
@@ -1540,14 +1573,20 @@ carriersDone: {}
 skipUnisonPart: {}
 	}
 
-	// The drive (clipping) comes after the filter. With a shared filter, the Sound applies it to the filtered mix
-	bool const clipHere = sound.saturation && sharedFilterGain == 0;
+	// The saturation (clipping) comes after the filter and the amplitude envelope, unless the sound wants it before
+	// the filter. With a shared filter and the saturation after it, the Sound applies it to the filtered mix
+	bool const clipPre = sound.saturation && sound.saturationPreFilter;
+	bool const clipHere = sound.saturation && !sound.saturationPreFilter && sharedFilterGain == 0;
 
 	if (didStereoTempBuffer) {
 		int32_t* const oscBufferEnd = oscBuffer + (numSamples << 1);
 		// fold
 		if (paramFinalValues[params::LOCAL_FOLD] > 0) {
 			dsp::foldBufferPolyApproximation(oscBuffer, oscBufferEnd, paramFinalValues[params::LOCAL_FOLD]);
+		}
+		if (clipPre) {
+			saturatePreFilter<2>(sound, oscBuffer, numSamples << 1, lastSaturationTanHWorkingValue.data(),
+			                     overallOscAmplitude, synthMode == SynthMode::FM);
 		}
 		// Filters
 		filterSet.renderLongStereo(oscBuffer, oscBufferEnd);
@@ -1635,6 +1674,10 @@ skipUnisonPart: {}
 			dsp::foldBufferPolyApproximation(oscBuffer, oscBufferEnd, foldAmount);
 		}
 
+		if (clipPre) {
+			saturatePreFilter<1>(sound, oscBuffer, numSamples, lastSaturationTanHWorkingValue.data(),
+			                     overallOscAmplitude, synthMode == SynthMode::FM);
+		}
 		filterSet.renderLong(oscBuffer, oscBufferEnd, numSamples);
 
 		// No clipping, mono, not FM: the common case, the amplitude ramp and a mix into the sound's buffer

@@ -52,9 +52,14 @@ public:
 			return util::to_underlying(soundEditor.currentModControllable->hpfMode) - kFirstHPFMode;
 		}
 		else {
-			// Off is located past the HPFLadder, which isn't an option for the low pass filter (should it be?)
+			// Off is located past the HPFLadder, which isn't an option for the low pass filter (should it be?).
+			// 24dB Drive isn't in the list any more (it loads as 24dB): the modes after it are one place earlier
 			int32_t selection = util::to_underlying(soundEditor.currentModControllable->lpfMode);
-			return std::min(selection, kNumLPFModes);
+			int32_t const drive = util::to_underlying(::FilterMode::TRANSISTOR_24DB_DRIVE);
+			if (selection >= drive) {
+				selection = std::max(selection - 1, drive - 1);
+			}
+			return std::min(selection, kNumLPFModes - 1);
 		}
 	}
 	void setMode(int32_t value) const { setModeForModControllable(value, soundEditor.currentModControllable); }
@@ -63,6 +68,10 @@ public:
 			modControllable->hpfMode = static_cast<FilterMode>(value + kFirstHPFMode);
 		}
 		else {
+			// The menu's list skips 24dB Drive
+			if (value >= util::to_underlying(::FilterMode::TRANSISTOR_24DB_DRIVE)) {
+				value++;
+			}
 			// num lpf modes counts off but there's HPF modes in the middle
 			if (value >= kNumLPFModes) {
 				modControllable->lpfMode = FilterMode::OFF;

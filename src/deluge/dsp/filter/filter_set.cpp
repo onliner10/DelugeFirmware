@@ -186,19 +186,19 @@ int32_t FilterSet::setConfig(q31_t lpfFrequency, q31_t lpfResonance, FilterMode 
 	// HPF
 	if (HPFOn) {
 		if (hpfMode_ == FilterMode::HPLADDER) {
-			filterGain = hpfilter.ladder.configure(hpfFrequency, hpfResonance, hpfmode, hpfMorph, filterGain);
 			if (lastHPFMode_ != hpfMode_) {
 				hpfilter.ladder.reset(lastHPFMode_ == FilterMode::OFF);
 			}
+			filterGain = hpfilter.ladder.configure(hpfFrequency, hpfResonance, hpfmode, hpfMorph, filterGain);
 		}
 		// otherwise it's an SVF ((lpfmode == FilterMode::SVF_BAND) || (lpfmode == FilterMode::SVF_NOTCH))
 		else {
 			// invert the morph for the HPF so it goes high-band/notch-low
-			filterGain =
-			    hpfilter.svf.configure(hpfFrequency, hpfResonance, hpfmode, ((1 << 29) - 1) - hpfMorph, filterGain);
 			if (lastHPFMode_ != hpfMode_) {
 				hpfilter.svf.reset(lastHPFMode_ == FilterMode::OFF);
 			}
+			filterGain =
+			    hpfilter.svf.configure(hpfFrequency, hpfResonance, hpfmode, ((1 << 29) - 1) - hpfMorph, filterGain);
 		}
 		lastHPFMode_ = hpfMode_;
 	}
