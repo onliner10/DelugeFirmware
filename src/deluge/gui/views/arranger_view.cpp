@@ -114,6 +114,7 @@ PLACE_SDRAM_RODATA constexpr deluge::gui::combos::Gesture const* kGestures[] = {
     &deluge::gui::combos::gesture::arranger::MakeUnique,
     &deluge::gui::combos::gesture::arranger::MakeSection,
     &deluge::gui::combos::gesture::arranger::InstanceLength,
+    &deluge::gui::combos::gesture::arranger::CopyInstance,
     &deluge::gui::combos::gesture::arranger::InstanceClip,
     &deluge::gui::combos::gesture::arranger::DragInstance,
     &deluge::gui::combos::gesture::arranger::TrackPresetTurn,
@@ -1422,15 +1423,21 @@ void ArrangerView::editPadAction(int32_t x, int32_t y, bool on) {
 
 			// Already pressing - length edit
 			else if (currentUIMode == UI_MODE_HOLDING_ARRANGEMENT_ROW) {
-				// Only when pressing on the same row. To the right of the held pad sets the end there; to the
-				// left, inside the held instance, makes the pressed pad its last pad.
-				if (y == yPressedEffective && x > xPressed) {
+				// Only when pressing on the same row. With Shift, an empty pad gets a copy of the held instance.
+				// Otherwise, to the right of the held pad sets the end there; to the left, inside the held
+				// instance, makes the pressed pad its last pad, and before it, its first pad.
+				if (y != yPressedEffective || x == xPressed) {}
+				else if (Buttons::isShiftButtonPressed()) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::CopyInstance);
+					copyClipInstanceToSquare(output, y, squareStart);
+				}
+				else if (x > xPressed) {
 					deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::InstanceLength);
 					adjustClipInstanceLength(output, xPressed, y, squareStart, squareEnd);
 				}
-				else if (y == yPressedEffective && x < xPressed) {
+				else {
 					deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::InstanceLength);
-					shortenClipInstanceToSquare(output, y, squareEnd);
+					moveClipInstanceEdgeToSquare(output, y, squareStart, squareEnd);
 				}
 			}
 		}
@@ -1463,6 +1470,8 @@ void ArrangerView::editPadAction(int32_t x, int32_t y, bool on) {
 						// If pressed head, delete
 						if (pressedHead) {
 							deleteClipInstance(output, clipInstance);
+							display->displayPopup(
+							    deluge::l10n::get(deluge::l10n::String::STRING_FOR_ARRANGER_CLIP_DELETED));
 						}
 
 						// Otherwise, go into Clip
@@ -1766,6 +1775,10 @@ void ArrangerView::adjustClipInstanceLength(Output* output, int32_t x, int32_t y
 			newLength = kMaxSequenceLength - clipInstance->pos;
 		}
 
+		if (newLength < squareEnd - clipInstance->pos) {
+			display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_ARRANGER_NO_SPACE));
+		}
+
 		// If we are in fact able to lengthen it...
 		if (newLength > oldLength) {
 
@@ -1783,9 +1796,9 @@ void ArrangerView::adjustClipInstanceLength(Output* output, int32_t x, int32_t y
 }
 
 /// called from ArrangerView::editPadAction
-/// holding a pad of a clip instance and pressing a pad to its left, inside the same instance, makes that pad the
-/// instance's last pad
-void ArrangerView::shortenClipInstanceToSquare(Output* output, int32_t y, int32_t squareEnd) {
+/// holding a pad of a clip instance and pressing a pad to its left: inside the instance that pad becomes its last
+/// pad, before the instance it becomes its first pad (the end stays put)
+void ArrangerView::moveClipInstanceEdgeToSquare(Output* output, int32_t y, int32_t squareStart, int32_t squareEnd) {
 	actionOnDepress = false;
 
 	if (!pressedClipInstanceIsInValidPosition) {
@@ -1793,25 +1806,145 @@ void ArrangerView::shortenClipInstanceToSquare(Output* output, int32_t y, int32_
 	}
 
 	ClipInstance* clipInstance = output->clipInstances.getElement(pressedClipInstanceIndex);
-	if (!clipInstance) {
+	if (clipInstance == nullptr) {
 		return;
 	}
 
-	int32_t newLength = squareEnd - clipInstance->pos;
+	Clip* clip = clipInstance->clip;
+	int32_t oldPos = clipInstance->pos;
+	int32_t oldEnd = oldPos + clipInstance->length;
 
-	// Pressed pad is left of the instance's start, or already its last pad
-	if (newLength <= 0 || newLength >= clipInstance->length) {
-		return;
+	// Pressed pad is inside the instance: shorten, ending on that pad
+	if (squareEnd > oldPos) {
+		int32_t newLength = squareEnd - oldPos;
+		if (newLength >= clipInstance->length) {
+			return;
+		}
+
+		Action* action = actionLogger.getNewAction(ActionType::CLIP_INSTANCE_EDIT, ActionAddition::ALLOWED);
+		if (clip) {
+			arrangement.rowEdited(output, oldPos + newLength, oldEnd, clip, nullptr);
+		}
+		clipInstance->change(action, output, oldPos, newLength, clip);
 	}
 
-	Action* action = actionLogger.getNewAction(ActionType::CLIP_INSTANCE_EDIT, ActionAddition::ALLOWED);
-	if (clipInstance->clip) {
-		arrangement.rowEdited(output, clipInstance->pos + newLength, clipInstance->pos + clipInstance->length,
-		                      clipInstance->clip, nullptr);
+	// Pressed pad is before the instance: start it there, up to the previous instance
+	else {
+		if (clip != nullptr && clip->getCurrentlyRecordingLinearly()) {
+			return;
+		}
+
+		int32_t newPos = squareStart;
+		ClipInstance* prevInstance = output->clipInstances.getElement(pressedClipInstanceIndex - 1);
+		if (prevInstance != nullptr && prevInstance->pos + prevInstance->length > newPos) {
+			newPos = prevInstance->pos + prevInstance->length;
+			display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_ARRANGER_NO_SPACE));
+		}
+		if (newPos >= oldPos) {
+			return;
+		}
+
+		Action* action = actionLogger.getNewAction(ActionType::CLIP_INSTANCE_EDIT, ActionAddition::ALLOWED);
+		arrangement.rowEdited(output, oldPos, oldEnd, clip, nullptr);
+		clipInstance->change(action, output, newPos, oldEnd - newPos, clip);
+		arrangement.rowEdited(output, newPos, oldEnd, nullptr, clipInstance);
 	}
-	clipInstance->change(action, output, clipInstance->pos, newLength, clipInstance->clip);
 
 	desiredLength = clipInstance->length;
+
+	uiNeedsRendering(this, 1 << y, 0);
+}
+
+/// called from ArrangerView::editPadAction
+/// holding a clip instance with Shift and pressing an empty pad on its row puts a copy of it there. A section clip is
+/// shared like any repeat; a white clip gets its own clone so the two can be edited apart.
+void ArrangerView::copyClipInstanceToSquare(Output* output, int32_t y, int32_t squareStart) {
+	actionOnDepress = false;
+
+	if (!pressedClipInstanceIsInValidPosition) {
+		return;
+	}
+
+	ClipInstance* source = output->clipInstances.getElement(pressedClipInstanceIndex);
+	if (source == nullptr) {
+		return;
+	}
+	// Read everything now: inserting the copy moves the array's elements
+	Clip* sourceClip = source->clip;
+	int32_t length = source->length;
+
+	if (sourceClip != nullptr && sourceClip->getCurrentlyRecordingLinearly()) {
+		return;
+	}
+
+	// Only onto an empty pad
+	ClipInstance* prevInstance = output->clipInstances.getElement(output->clipInstances.search(squareStart + 1, LESS));
+	if (prevInstance != nullptr && prevInstance->pos + prevInstance->length > squareStart) {
+		return;
+	}
+
+	ClipInstance* nextInstance =
+	    output->clipInstances.getElement(output->clipInstances.search(squareStart, GREATER_OR_EQUAL));
+	if (nextInstance != nullptr && length > nextInstance->pos - squareStart) {
+		length = nextInstance->pos - squareStart;
+		display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_ARRANGER_NO_SPACE));
+	}
+	if (length > kMaxSequenceLength - squareStart) {
+		length = kMaxSequenceLength - squareStart;
+	}
+	if (length < 1) {
+		return;
+	}
+
+	Action* action = actionLogger.getNewAction(ActionType::CLIP_INSTANCE_EDIT, ActionAddition::NOT_ALLOWED);
+
+	Clip* newClip = sourceClip;
+	if (sourceClip != nullptr && sourceClip->isArrangementOnlyClip()) {
+		if (!currentSong->arrangementOnlyClips.ensureEnoughSpaceAllocated(1)) {
+			display->displayError(Error::INSUFFICIENT_RAM);
+			return;
+		}
+		char modelStackMemory[MODEL_STACK_MAX_SIZE];
+		ModelStackWithTimelineCounter* modelStack =
+		    setupModelStackWithSong(modelStackMemory, currentSong)->addTimelineCounter(sourceClip);
+		Error error = sourceClip->clone(modelStack, true);
+		if (error != Error::NONE) {
+			display->displayError(error);
+			return;
+		}
+		newClip = (Clip*)modelStack->getTimelineCounter();
+		newClip->section = 255;
+		newClip->activeIfNoSolo = false; // Always need to set arrangement-only Clips like this on create
+		currentSong->arrangementOnlyClips.insertClipAtIndex(newClip, 0);
+
+		// Undo removes the instance first, then this clip
+		if (action != nullptr
+		    && !action->recordClipExistenceChange(currentSong, &currentSong->arrangementOnlyClips, newClip,
+		                                          ExistenceChangeType::CREATE)) {
+			actionLogger.deleteAllLogs();
+			action = nullptr;
+		}
+	}
+
+	int32_t newIndex = output->clipInstances.insertAtKey(squareStart);
+	ClipInstance* copy = output->clipInstances.getElement(newIndex);
+	if (copy == nullptr) {
+		// A white clone stays in the song unused, like an unused session clip; it's saved and can be deleted
+		display->displayError(Error::INSUFFICIENT_RAM);
+		return;
+	}
+	if (newIndex <= pressedClipInstanceIndex) {
+		pressedClipInstanceIndex++;
+	}
+
+	copy->clip = newClip;
+	copy->length = length;
+
+	if (action != nullptr) {
+		action->recordClipInstanceExistenceChange(output, copy, ExistenceChangeType::CREATE);
+	}
+
+	arrangement.rowEdited(output, copy->pos, copy->pos + copy->length, nullptr, copy);
 
 	uiNeedsRendering(this, 1 << y, 0);
 }

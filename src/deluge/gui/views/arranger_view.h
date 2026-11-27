@@ -171,7 +171,8 @@ private:
 	Clip* getClipForNewClipInstance(Output* output, Output* lastOutputInteractedWith, ClipInstance* lastClipInstance);
 	Clip* getClipFromSection(Output* output);
 	void adjustClipInstanceLength(Output* output, int32_t x, int32_t y, int32_t squareStart, int32_t squareEnd);
-	void shortenClipInstanceToSquare(Output* output, int32_t y, int32_t squareEnd);
+	void moveClipInstanceEdgeToSquare(Output* output, int32_t y, int32_t squareStart, int32_t squareEnd);
+	void copyClipInstanceToSquare(Output* output, int32_t y, int32_t squareStart);
 	void deleteClipInstance(Output* output, ClipInstance* clipInstance);
 	void createNewClipForClipInstance(Output* output, ClipInstance* clipInstance);
 	void recordEditPadPress(Output* output, ClipInstance* clipInstance, int32_t x, int32_t y, int32_t xScroll);
