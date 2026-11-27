@@ -109,6 +109,7 @@ add_executable(UnitTests
         tick_interpolation_tests.cpp
         envelope_curve_tests.cpp
         note_locks_tests.cpp
+        sample_folder_index_tests.cpp
 )
 add_test(NAME UnitTests
         COMMAND UnitTests)
@@ -135,3 +136,5 @@ target_link_libraries(UnitTests CppUTestExt etl::etl)
 target_compile_options(UnitTests PUBLIC
         $<$<COMPILE_LANGUAGE:CXX>:-fpermissive>
 )
+
+add_subdirectory(parameters)
