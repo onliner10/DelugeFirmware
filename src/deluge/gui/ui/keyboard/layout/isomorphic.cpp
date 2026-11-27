@@ -16,6 +16,7 @@
  */
 
 #include "gui/ui/keyboard/layout/isomorphic.h"
+#include "gui/combos/gesture_list.h"
 #include "gui/ui/audio_recorder.h"
 #include "gui/ui/browser/sample_browser.h"
 #include "gui/ui/sound_editor.h"
@@ -60,6 +61,7 @@ void KeyboardLayoutIsomorphic::offsetPads(int32_t offset, bool shiftEnabled) {
 	KeyboardStateIsomorphic& state = getState().isomorphic;
 
 	if (shiftEnabled) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::RowInterval);
 		state.rowInterval += offset;
 		state.rowInterval = std::clamp(state.rowInterval, kMinIsomorphicRowInterval, kMaxIsomorphicRowInterval);
 

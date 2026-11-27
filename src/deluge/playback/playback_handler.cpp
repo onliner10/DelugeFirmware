@@ -17,6 +17,7 @@
 
 #include "playback/playback_handler.h"
 #include "definitions_cxx.hpp"
+#include "gui/combos/gesture_list.h"
 #include "gui/l10n/l10n.h"
 #include "gui/menu_item/sync_level.h"
 #include "gui/ui/audio_recorder.h"
@@ -228,11 +229,13 @@ void PlaybackHandler::playButtonPressed(int32_t buttonPressLatency) {
 			// If wanting to switch into arranger...
 			if (currentPlaybackMode == &session && isArrangerView) {
 				if (isArrangementPadPressed) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::PlayFromPad);
 					arrangementPosToStartAtOnSwitch = arrangerView.lastInteractedArrangementPos;
 				}
 				else {
 					arrangementPosToStartAtOnSwitch = currentSong->xScroll[NAVIGATION_ARRANGEMENT];
 				}
+				deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::SwitchToArrangement);
 				session.armForSwitchToArrangement();
 				if (display->haveOLED()) {
 					renderUIsForOled();
@@ -246,6 +249,8 @@ void PlaybackHandler::playButtonPressed(int32_t buttonPressLatency) {
 			// Otherwise, if internal clock, restart playback
 			else {
 				if (isInternalClockActive() && recording != RecordingMode::ARRANGEMENT) {
+					deluge::gui::combos::used(accessibility ? deluge::gui::combos::gesture::global::RestartPlayCross
+					                                        : deluge::gui::combos::gesture::global::RestartPlay);
 					forceResetPlayPos(currentSong);
 				}
 				else {
@@ -379,6 +384,15 @@ void PlaybackHandler::setupPlaybackUsingInternalClock(int32_t buttonPressLatency
 
 				startFromCurrentScreen =
 				    recordingToArranger || (isRestartShortcutPressed != startFromCurrentScreenByDefault);
+				if (isRestartShortcutPressed) {
+					namespace g = deluge::gui::combos::gesture::global;
+					if (startFromCurrentScreen) {
+						deluge::gui::combos::used(accessibility ? g::PlayFromScreenCross : g::PlayFromScreen);
+					}
+					else {
+						deluge::gui::combos::used(accessibility ? g::PlayFromStartCross : g::PlayFromStart);
+					}
+				}
 			}
 		}
 	}
@@ -2285,6 +2299,7 @@ void PlaybackHandler::tempoEncoderAction(int8_t offset, bool encoderButtonPresse
 	if (Buttons::isButtonPressed(deluge::hid::button::TAP_TEMPO)) {
 		if (display->hasPopupOfType(PopupType::SWING)) {
 			// If not yet displaying, don't change the value
+			deluge::gui::combos::used(deluge::gui::combos::gesture::global::SwingInterval);
 			return commandEditSwingInterval(offset);
 		}
 		else {
@@ -2296,12 +2311,14 @@ void PlaybackHandler::tempoEncoderAction(int8_t offset, bool encoderButtonPresse
 
 	// Nudging sync
 	if (Buttons::isButtonPressed(deluge::hid::button::X_ENC)) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::global::NudgeSync);
 		return commandNudgeClock(offset);
 	}
 
 	// Adjust swing
 	else if (shiftButtonPressed) {
 		if (display->hasPopupOfType(PopupType::SWING)) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::global::SwingAmount);
 			return commandEditSwingAmount(offset);
 		}
 		else {
@@ -2311,6 +2328,7 @@ void PlaybackHandler::tempoEncoderAction(int8_t offset, bool encoderButtonPresse
 
 	// If MIDI learn button down, change clock out scale
 	else if (Buttons::isButtonPressed(deluge::hid::button::LEARN)) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::global::ClockOutScale);
 		return commandEditClockOutScale(offset);
 	}
 
@@ -2343,9 +2361,11 @@ void PlaybackHandler::tempoEncoderAction(int8_t offset, bool encoderButtonPresse
 				bool button = Buttons::isButtonPressed(deluge::hid::button::TEMPO_ENC);
 
 				if (feature == button) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::global::Tempo);
 					return commandEditTempoCoarse(offset);
 				}
 				else {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::global::FineTempo);
 					return commandEditTempoFine(offset);
 				}
 			}

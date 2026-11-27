@@ -16,6 +16,7 @@
  */
 
 #include "velocity.h"
+#include "gui/combos/gesture_list.h"
 #include "gui/ui/keyboard/layout/column_controls.h"
 #include "storage/flash_storage.h"
 
@@ -41,6 +42,7 @@ void VelocityColumn::renderColumn(RGB image[][kDisplayWidth + kSideBarWidth], in
 
 bool VelocityColumn::handleVerticalEncoder(int8_t pad, int32_t offset) {
 	if (pad == 7) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ColumnSetting);
 		velocityMax += offset << kVelModShift;
 		velocityMax = std::clamp(velocityMax, velocityMin, (uint32_t)127 << kVelModShift);
 		display->displayPopup(velocityMax >> kVelModShift);
@@ -48,6 +50,7 @@ bool VelocityColumn::handleVerticalEncoder(int8_t pad, int32_t offset) {
 		return true;
 	}
 	else if (pad == 0) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ColumnSetting);
 		velocityMin += offset << kVelModShift;
 		velocityMin = std::clamp((int32_t)velocityMin, (int32_t)1, (int32_t)velocityMax);
 		display->displayPopup(velocityMin >> kVelModShift);

@@ -18,6 +18,8 @@
 #include "gui/views/clip_view.h"
 #include "definitions_cxx.hpp"
 #include "extern.h"
+#include "gui/combos/gesture_list.h"
+#include "gui/combos/tables.h"
 #include "gui/l10n/l10n.h"
 #include "gui/views/automation_view.h"
 #include "gui/views/view.h"
@@ -28,10 +30,24 @@
 #include "model/action/action_logger.h"
 #include "model/clip/clip.h"
 #include "model/consequence/consequence_clip_horizontal_shift.h"
+#include "model/settings/runtime_feature_settings.h"
 #include "model/song/song.h"
 #include "playback/mode/playback_mode.h"
 #include "playback/mode/session.h"
 #include "playback/playback_handler.h"
+
+// Gestures handled in this view, for command search (gui/combos/gesture_list.h)
+namespace {
+PLACE_SDRAM_RODATA constexpr deluge::gui::combos::Gesture const* kGestures[] = {
+    &deluge::gui::combos::gesture::clip::ClipLength,
+    &deluge::gui::combos::gesture::clip::ShiftContents,
+    &deluge::gui::combos::gesture::clip::ShortcutOverview,
+};
+} // namespace
+
+deluge::gui::combos::Gestures deluge::gui::combos::clipGestures() {
+	return kGestures;
+}
 
 uint32_t ClipView::getMaxZoom() {
 	return getCurrentClip()->getMaxZoom();
@@ -176,6 +192,7 @@ ActionResult ClipView::horizontalEncoderAction(int32_t offset) {
 			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 		}
 
+		deluge::gui::combos::used(deluge::gui::combos::gesture::clip::ClipLength);
 		Action* action = nullptr;
 
 		uint32_t newLength = changeClipLength(offset, oldLength, action);
@@ -197,6 +214,7 @@ ActionResult ClipView::horizontalEncoderAction(int32_t offset) {
 			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 		}
 
+		deluge::gui::combos::used(deluge::gui::combos::gesture::clip::ShiftContents);
 		int32_t squareSize = getPosFromSquare(1) - getPosFromSquare(0);
 		int32_t shiftAmount = offset * squareSize;
 		Clip* clip = getCurrentClip();
@@ -405,6 +423,9 @@ void ClipView::maybeStartShortcutOverview(deluge::hid::Button b, bool on) {
 	if ((b == hid::button::SHIFT || changingInstrument)
 	    && runtimeFeatureSettings.get(RuntimeFeatureSettingType::ShortcutOverlay)
 	           == static_cast<uint32_t>(RuntimeFeatureStateShortcutOverlay::MenuAndClip)) {
+		if (on) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::clip::ShortcutOverview);
+		}
 		exitedShortcutOverview = false;
 		uiNeedsRendering(this);
 	}

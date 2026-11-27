@@ -17,6 +17,7 @@
 
 #include "gui/ui/keyboard/layout/in_key.h"
 #include "gui/colour/colour.h"
+#include "gui/combos/gesture_list.h"
 #include "hid/display/display.h"
 #include "model/settings/runtime_feature_settings.h"
 #include "util/functions.h"
@@ -56,6 +57,7 @@ void KeyboardLayoutInKey::offsetPads(int32_t offset, bool shiftEnabled) {
 	KeyboardStateInKey& state = getState().inKey;
 
 	if (shiftEnabled) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::RowInterval);
 		state.rowInterval += offset;
 		state.rowInterval = std::clamp(state.rowInterval, kMinInKeyRowInterval, kMaxInKeyRowInterval);
 

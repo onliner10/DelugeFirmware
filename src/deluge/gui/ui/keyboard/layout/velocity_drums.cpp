@@ -16,6 +16,7 @@
  */
 
 #include "gui/ui/keyboard/layout/velocity_drums.h"
+#include "gui/combos/gesture_list.h"
 #include "hid/display/display.h"
 #include "model/instrument/kit.h"
 #include "util/functions.h"
@@ -102,6 +103,8 @@ void KeyboardLayoutVelocityDrums::handleHorizontalEncoder(int32_t offset, bool s
 	KeyboardStateDrums& state = getState().drums;
 	bool zoom_level_changed = false;
 	if (shiftEnabled || Buttons::isButtonPressed(hid::button::X_ENC)) { // zoom control
+		deluge::gui::combos::used(shiftEnabled ? deluge::gui::combos::gesture::keyboard::DrumZoom
+		                                       : deluge::gui::combos::gesture::keyboard::DrumZoomX);
 		if (state.zoom_level + offset >= k_min_zoom_level && state.zoom_level + offset <= k_max_zoom_level) {
 			state.zoom_level += offset;
 			zoom_level_changed = true;

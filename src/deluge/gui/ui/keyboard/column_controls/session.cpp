@@ -16,6 +16,7 @@
  */
 
 #include "session.h"
+#include "gui/combos/gesture_list.h"
 #include "gui/ui/keyboard/layout/column_controls.h"
 #include "gui/views/session_view.h"
 #include "gui/views/view.h"
@@ -37,6 +38,7 @@ void SessionColumn::renderColumn(RGB image[][kDisplayWidth + kSideBarWidth], int
 }
 
 bool SessionColumn::handleVerticalEncoder(int8_t pad, int32_t offset) {
+	deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ColumnSetting);
 	SessionMacro& m = currentSong->sessionMacros[pad];
 	int kindIndex = (int32_t)m.kind + offset;
 	if (kindIndex >= SessionMacroKind::NUM_KINDS) {

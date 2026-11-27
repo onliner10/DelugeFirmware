@@ -18,6 +18,8 @@
 #include "gui/views/timeline_view.h"
 #include "definitions_cxx.hpp"
 #include "extern.h"
+#include "gui/combos/gesture_list.h"
+#include "gui/combos/tables.h"
 #include "gui/ui/load/load_pattern_ui.h"
 #include "gui/views/view.h"
 #include "hid/button.h"
@@ -31,6 +33,20 @@
 #include "processing/engines/audio_engine.h"
 #include <algorithm>
 #include <string.h>
+
+// Gestures handled in this view, for command search (gui/combos/gesture_list.h)
+namespace {
+PLACE_SDRAM_RODATA constexpr deluge::gui::combos::Gesture const* kGestures[] = {
+    &deluge::gui::combos::gesture::timeline::ShowZoom,
+    &deluge::gui::combos::gesture::timeline::Triplets,
+    &deluge::gui::combos::gesture::timeline::Zoom,
+    &deluge::gui::combos::gesture::timeline::Scroll,
+};
+} // namespace
+
+deluge::gui::combos::Gestures deluge::gui::combos::timelineGestures() {
+	return kGestures;
+}
 
 void TimelineView::scrollFinished() {
 	exitUIMode(UI_MODE_HORIZONTAL_SCROLL);
@@ -73,6 +89,7 @@ ActionResult TimelineView::buttonAction(deluge::hid::Button b, bool on, bool inC
 		if (on) {
 			// Show current zoom level
 			if (isNoUIModeActive()) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::timeline::ShowZoom);
 				displayZoomLevel();
 			}
 
@@ -94,6 +111,7 @@ ActionResult TimelineView::buttonAction(deluge::hid::Button b, bool on, bool inC
 			if (inCardRoutine) {
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
+			deluge::gui::combos::used(deluge::gui::combos::gesture::timeline::Triplets);
 			tripletsButtonPressed();
 		}
 	}
@@ -161,6 +179,7 @@ ActionResult TimelineView::horizontalEncoderAction(int32_t offset) {
 
 		// in note row editor we are holding horizontal encoder + auditioning to zoom
 		if (isUIModeActiveExclusively(UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON) || inNoteRowEditor) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::timeline::Zoom);
 			int32_t oldXZoom = currentSong->xZoom[navSysId];
 			int32_t zoomMagnitude = -offset;
 			uint32_t newZoom = zoomMagnitude == -1 ? oldXZoom >> 1 : oldXZoom << 1;
@@ -203,6 +222,7 @@ ActionResult TimelineView::horizontalEncoderAction(int32_t offset) {
 		// If shift button not pressed
 		// or it's pressed and you're in note row editor
 		if (!Buttons::isShiftButtonPressed() || inNoteRowEditor) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::timeline::Scroll);
 
 			int32_t newXScroll = currentSong->xScroll[navSysId] + offset * currentSong->xZoom[navSysId] * kDisplayWidth;
 

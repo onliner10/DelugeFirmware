@@ -85,6 +85,45 @@ extern "C" {
 extern uint8_t currentlyAccessingCard;
 #include "RZA1/uart/sio_char.h"
 }
+#include "gui/combos/gesture_list.h"
+#include "gui/combos/tables.h"
+
+// Gestures handled in this view, for command search (gui/combos/gesture_list.h)
+namespace {
+PLACE_SDRAM_RODATA constexpr deluge::gui::combos::Gesture const* kGestures[] = {
+    &deluge::gui::combos::gesture::arranger::SongView,
+    &deluge::gui::combos::gesture::arranger::ClipToSession,
+    &deluge::gui::combos::gesture::arranger::ArrangerAutomation,
+    &deluge::gui::combos::gesture::arranger::AffectEntire,
+    &deluge::gui::combos::gesture::arranger::FollowPlayhead,
+    &deluge::gui::combos::gesture::arranger::ExportMixdown,
+    &deluge::gui::combos::gesture::arranger::RecordArming,
+    &deluge::gui::combos::gesture::arranger::DeleteTrack,
+    &deluge::gui::combos::gesture::arranger::TrackToAudio,
+    &deluge::gui::combos::gesture::arranger::SongFx,
+    &deluge::gui::combos::gesture::arranger::TrackType,
+    &deluge::gui::combos::gesture::arranger::TrackPreset,
+    &deluge::gui::combos::gesture::arranger::ClearArrangement,
+    &deluge::gui::combos::gesture::arranger::PerformanceView,
+    &deluge::gui::combos::gesture::arranger::RenameTrack,
+    &deluge::gui::combos::gesture::arranger::SoloTrack,
+    &deluge::gui::combos::gesture::arranger::MuteTrack,
+    &deluge::gui::combos::gesture::arranger::MakeUnique,
+    &deluge::gui::combos::gesture::arranger::InstanceLength,
+    &deluge::gui::combos::gesture::arranger::InstanceClip,
+    &deluge::gui::combos::gesture::arranger::DragInstance,
+    &deluge::gui::combos::gesture::arranger::TrackPresetTurn,
+    &deluge::gui::combos::gesture::arranger::InsertTime,
+    &deluge::gui::combos::gesture::arranger::TransposeSong,
+    &deluge::gui::combos::gesture::arranger::MoveTrack,
+    &deluge::gui::combos::gesture::arranger::PlayFromPad,
+    &deluge::gui::combos::gesture::arranger::SwitchToArrangement,
+};
+} // namespace
+
+deluge::gui::combos::Gestures deluge::gui::combos::arrangerGestures() {
+	return kGestures;
+}
 
 using namespace deluge;
 using namespace gui;
@@ -207,9 +246,11 @@ ActionResult ArrangerView::buttonAction(deluge::hid::Button b, bool on, bool inC
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
 			if (currentUIMode == UI_MODE_NONE) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::SongView);
 				goToSongView();
 			}
 			else if (currentUIMode == UI_MODE_HOLDING_ARRANGEMENT_ROW) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::ClipToSession);
 				moveClipToSession();
 			}
 		}
@@ -222,6 +263,7 @@ ActionResult ArrangerView::buttonAction(deluge::hid::Button b, bool on, bool inC
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
 			if (currentUIMode == UI_MODE_NONE) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::ArrangerAutomation);
 				automationView.onArrangerView = true;
 				changeRootUI(&automationView);
 			}
@@ -234,6 +276,7 @@ ActionResult ArrangerView::buttonAction(deluge::hid::Button b, bool on, bool inC
 			if (inCardRoutine) {
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
+			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::AffectEntire);
 			currentSong->affectEntire = !currentSong->affectEntire;
 			// setLedStates();
 			view.setActiveModControllableTimelineCounter(currentSong);
@@ -245,6 +288,7 @@ ActionResult ArrangerView::buttonAction(deluge::hid::Button b, bool on, bool inC
 		if (!on && currentUIMode == UI_MODE_NONE) {
 			// if another button wasn't pressed while cross screen was held
 			if (Buttons::considerCrossScreenReleaseForCrossScreenMode) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::FollowPlayhead);
 				currentSong->arrangerAutoScrollModeActive = !currentSong->arrangerAutoScrollModeActive;
 				indicator_leds::setLedState(IndicatorLED::CROSS_SCREEN_EDIT, currentSong->arrangerAutoScrollModeActive);
 
@@ -270,6 +314,7 @@ ActionResult ArrangerView::buttonAction(deluge::hid::Button b, bool on, bool inC
 					if (inCardRoutine) {
 						return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 					}
+					deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::ExportMixdown);
 					if (stemExport.exportMixdown) {
 						stemExport.startStemExportProcess(StemExportType::MIXDOWN);
 					}
@@ -315,6 +360,7 @@ ActionResult ArrangerView::buttonAction(deluge::hid::Button b, bool on, bool inC
 			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 		}
 		if (on) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::DeleteTrack);
 			deleteOutput();
 		}
 	}
@@ -325,10 +371,12 @@ ActionResult ArrangerView::buttonAction(deluge::hid::Button b, bool on, bool inC
 			if (inCardRoutine) {
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
+			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::TrackToAudio);
 			changeOutputToAudio();
 		}
 		// open Song FX menu
 		else if (on && currentUIMode == UI_MODE_NONE) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::SongFx);
 			display->setNextTransitionDirection(1);
 			soundEditor.setup();
 			openUI(&soundEditor);
@@ -374,6 +422,7 @@ doChangeOutputType:
 						return ActionResult::DEALT_WITH;
 					}
 
+					deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::TrackPreset);
 					actionLogger.deleteAllLogs();
 
 					currentUIMode = UI_MODE_NONE;
@@ -386,6 +435,7 @@ doChangeOutputType:
 				// Otherwise, just change the instrument type
 				else {
 doActualSimpleChange:
+					deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::TrackType);
 					changeOutputType(newOutputType);
 				}
 			}
@@ -413,12 +463,14 @@ doActualSimpleChange:
 			if (inCardRoutine) {
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
+			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::ClearArrangement);
 			clearArrangement();
 		}
 	}
 
 	else if (b == KEYBOARD) {
 		if (on && currentUIMode == UI_MODE_NONE) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::PerformanceView);
 			performanceView.timeKeyboardShortcutPress = AudioEngine::audioSampleTimer;
 			changeRootUI(&performanceView);
 		}
@@ -997,6 +1049,7 @@ ActionResult ArrangerView::handleEditPadAction(int32_t x, int32_t y, int32_t vel
 		if (velocity != 0) {
 			// NAME shortcut
 			if (x == 11 && y == 5) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::RenameTrack);
 				Output* output = outputsOnScreen[yPressedEffective];
 				if (output && output->type != OutputType::CV) {
 					endAudition(output);
@@ -1037,6 +1090,7 @@ ActionResult ArrangerView::handleStatusPadAction(int32_t y, int32_t velocity, UI
 #else
 		case UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON:
 #endif // Soloing
+			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::SoloTrack);
 			if (!output->soloingInArrangementMode) {
 
 				if (arrangement.hasPlaybackActive()) {
@@ -1117,6 +1171,7 @@ doUnsolo:
 
 		case UI_MODE_HOLDING_ARRANGEMENT_ROW:
 regularMutePadPress:
+			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::MuteTrack);
 			// If it's soloing, unsolo.
 			if (output->soloingInArrangementMode) {
 				goto doUnsolo;
@@ -1262,6 +1317,7 @@ void ArrangerView::editPadAction(int32_t x, int32_t y, bool on) {
 	// Shift button pressed - clone ClipInstance to white / unique
 	if (Buttons::isShiftButtonPressed() && (currentUIMode == UI_MODE_NONE)) {
 		if (on) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::MakeUnique);
 			cloneClipInstanceToWhite(output, x, y, xScroll);
 		}
 	}
@@ -1287,6 +1343,7 @@ void ArrangerView::editPadAction(int32_t x, int32_t y, bool on) {
 			else if (currentUIMode == UI_MODE_HOLDING_ARRANGEMENT_ROW) {
 				// Only when pressing on the same row, and to the right of the currently held pad
 				if (y == yPressedEffective && x > xPressed) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::InstanceLength);
 					adjustClipInstanceLength(output, xPressed, y, squareStart, squareEnd);
 				}
 			}
@@ -2473,6 +2530,7 @@ ActionResult ArrangerView::timerCallback() {
 
 	case UI_MODE_NONE:
 		if (Buttons::isButtonPressed(deluge::hid::button::RECORD)) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::RecordArming);
 			currentUIMode = UI_MODE_VIEWING_RECORD_ARMING;
 			PadLEDs::reassessGreyout(false);
 		case UI_MODE_VIEWING_RECORD_ARMING:
@@ -2495,6 +2553,7 @@ void ArrangerView::selectEncoderAction(int8_t offset) {
 
 	if (currentUIMode == UI_MODE_HOLDING_ARRANGEMENT_ROW) {
 
+		deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::InstanceClip);
 		actionOnDepress = false;
 
 		if (!pressedClipInstanceIsInValidPosition) {
@@ -2562,6 +2621,7 @@ void ArrangerView::selectEncoderAction(int8_t offset) {
 	}
 
 	else if (currentUIMode == UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::TrackPresetTurn);
 		navigateThroughPresets(offset);
 	}
 
@@ -2793,6 +2853,7 @@ ActionResult ArrangerView::horizontalEncoderAction(int32_t offset) {
 			}
 			else {
 
+				deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::InsertTime);
 				int32_t scroll_amount = offset * currentSong->xZoom[NAVIGATION_ARRANGEMENT];
 
 				// If expanding, make sure we don't exceed length limit
@@ -2832,6 +2893,7 @@ ActionResult ArrangerView::horizontalEncoderAction(int32_t offset) {
 		bool can_drag_clip_instance = false;
 
 		if (isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW)) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::DragInstance);
 
 			ClipInstance* pressed_instance =
 			    (ClipInstance*)pressedClipInstanceOutput->clipInstances.getElement(pressedClipInstanceIndex);
@@ -3046,6 +3108,7 @@ ActionResult ArrangerView::verticalScrollOneSquare(int32_t direction) {
 			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 		}
 
+		deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::MoveTrack);
 		actionLogger.deleteAllLogs();
 
 		currentSong->arrangementYScroll += direction;
@@ -3095,6 +3158,7 @@ ActionResult ArrangerView::verticalEncoderAction(int32_t offset, bool inCardRout
 
 	if (Buttons::isButtonPressed(deluge::hid::button::Y_ENC)) {
 		if (currentUIMode == UI_MODE_NONE) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::TransposeSong);
 			currentSong->commandTranspose(offset);
 		}
 	}

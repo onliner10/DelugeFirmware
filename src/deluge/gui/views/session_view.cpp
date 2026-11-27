@@ -91,6 +91,55 @@
 extern "C" {
 #include "RZA1/uart/sio_char.h"
 }
+#include "gui/combos/gesture_list.h"
+#include "gui/combos/tables.h"
+
+// Gestures handled in this view, for command search (gui/combos/gesture_list.h)
+namespace {
+PLACE_SDRAM_RODATA constexpr deluge::gui::combos::Gesture const* kGestures[] = {
+    &deluge::gui::combos::gesture::session::EnterClip,
+    &deluge::gui::combos::gesture::session::RecordArrangement,
+    &deluge::gui::combos::gesture::session::ClipToArranger,
+    &deluge::gui::combos::gesture::session::ArrangerView,
+    &deluge::gui::combos::gesture::session::AffectEntire,
+    &deluge::gui::combos::gesture::session::RecordArming,
+    &deluge::gui::combos::gesture::session::ExportStems,
+    &deluge::gui::combos::gesture::session::DeleteClip,
+    &deluge::gui::combos::gesture::session::SectionRepeats,
+    &deluge::gui::combos::gesture::session::ClipSettings,
+    &deluge::gui::combos::gesture::session::ClipSettingsRow,
+    &deluge::gui::combos::gesture::session::ClipToAudio,
+    &deluge::gui::combos::gesture::session::SongFx,
+    &deluge::gui::combos::gesture::session::ClipType,
+    &deluge::gui::combos::gesture::session::ClipPreset,
+    &deluge::gui::combos::gesture::session::PerformanceView,
+    &deluge::gui::combos::gesture::session::ShowScale,
+    &deluge::gui::combos::gesture::session::Overdub,
+    &deluge::gui::combos::gesture::session::GrabTempo,
+    &deluge::gui::combos::gesture::session::NewClip,
+    &deluge::gui::combos::gesture::session::CloneClip,
+    &deluge::gui::combos::gesture::session::LaunchSectionNow,
+    &deluge::gui::combos::gesture::session::ArmSection,
+    &deluge::gui::combos::gesture::session::ChangeSection,
+    &deluge::gui::combos::gesture::session::SectionRepeatsTurn,
+    &deluge::gui::combos::gesture::session::ClipPresetTurn,
+    &deluge::gui::combos::gesture::session::Layout,
+    &deluge::gui::combos::gesture::session::ArmNextSection,
+    &deluge::gui::combos::gesture::session::TransposeSong,
+    &deluge::gui::combos::gesture::session::MoveSection,
+    &deluge::gui::combos::gesture::session::ClipColour,
+    &deluge::gui::combos::gesture::session::TrackColour,
+    &deluge::gui::combos::gesture::session::DragClip,
+    &deluge::gui::combos::gesture::session::ReorderTrack,
+    &deluge::gui::combos::gesture::session::SoloClip,
+    &deluge::gui::combos::gesture::session::LaunchClipNow,
+    &deluge::gui::combos::gesture::session::ArmClipGrid,
+};
+} // namespace
+
+deluge::gui::combos::Gestures deluge::gui::combos::sessionGestures() {
+	return kGestures;
+}
 
 using namespace deluge;
 using namespace gui;
@@ -236,6 +285,7 @@ ActionResult SessionView::buttonAction(deluge::hid::Button b, bool on, bool inCa
 			if (inCardRoutine) {
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
+			deluge::gui::combos::used(deluge::gui::combos::gesture::session::EnterClip);
 			transitionToViewForClip(); // May fail if no currentClip
 		}
 	}
@@ -265,6 +315,7 @@ ActionResult SessionView::buttonAction(deluge::hid::Button b, bool on, bool inCa
 				// Make sure we weren't already playing...
 				if (!playbackHandler.playbackState) {
 
+					deluge::gui::combos::used(deluge::gui::combos::gesture::session::RecordArrangement);
 					Action* action =
 					    actionLogger.getNewAction(ActionType::ARRANGEMENT_RECORD, ActionAddition::NOT_ALLOWED);
 
@@ -308,6 +359,7 @@ ActionResult SessionView::buttonAction(deluge::hid::Button b, bool on, bool inCa
 					return ActionResult::DEALT_WITH;
 				}
 
+				deluge::gui::combos::used(deluge::gui::combos::gesture::session::ClipToArranger);
 				actionLogger.deleteAllLogs();
 
 				Clip* clip = getClipOnScreen(selectedClipYDisplay);
@@ -394,6 +446,7 @@ moveAfterClipInstance:
 					playbackHandler.setLedStates();
 				}
 				else {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::session::ArrangerView);
 					goToArrangementEditor();
 				}
 
@@ -405,6 +458,7 @@ moveAfterClipInstance:
 	// Affect-entire button
 	else if (b == AFFECT_ENTIRE) {
 		if (on && currentUIMode == UI_MODE_NONE) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::session::AffectEntire);
 			currentSong->affectEntire = !currentSong->affectEntire;
 			view.setActiveModControllableTimelineCounter(currentSong);
 		}
@@ -426,6 +480,7 @@ moveAfterClipInstance:
 					if (inCardRoutine) {
 						return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 					}
+					deluge::gui::combos::used(deluge::gui::combos::gesture::session::ExportStems);
 					stemExport.startStemExportProcess(StemExportType::CLIP);
 					return ActionResult::DEALT_WITH;
 				}
@@ -496,6 +551,7 @@ moveAfterClipInstance:
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::session::DeleteClip);
 			Clip* clip = getClipForLayout();
 
 			if (clip != nullptr) {
@@ -514,6 +570,7 @@ moveAfterClipInstance:
 			}
 
 			if (currentUIMode == UI_MODE_HOLDING_SECTION_PAD) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::session::SectionRepeats);
 				if (performActionOnSectionPadRelease) {
 					beginEditingSectionRepeatsNum();
 				}
@@ -523,6 +580,7 @@ moveAfterClipInstance:
 				}
 			}
 			else if (currentUIMode == UI_MODE_HOLDING_STATUS_PAD) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::session::ClipSettingsRow);
 				context_menu::clip_settings::clipSettings.setupAndCheckAvailability();
 				openUI(&context_menu::clip_settings::clipSettings);
 			}
@@ -534,12 +592,14 @@ moveAfterClipInstance:
 				if (currentSong->sessionLayout == SessionLayoutType::SessionLayoutTypeGrid) {
 					requestRendering(this, 0xFFFFFFFF, 0xFFFFFFFF);
 					if (clip != nullptr) {
+						deluge::gui::combos::used(deluge::gui::combos::gesture::session::ClipSettings);
 						context_menu::clip_settings::clipSettings.clip = clip;
 						context_menu::clip_settings::clipSettings.setupAndCheckAvailability();
 						openUI(&context_menu::clip_settings::clipSettings);
 					}
 				}
 				else if (clip != nullptr) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::session::ClipToAudio);
 					replaceInstrumentClipWithAudioClip(clip);
 				}
 			}
@@ -558,6 +618,7 @@ moveAfterClipInstance:
 						requestRendering(this, 0, 0xFFFFFFFF);
 					}
 				}
+				deluge::gui::combos::used(deluge::gui::combos::gesture::session::SongFx);
 				// open Song FX menu
 				display->setNextTransitionDirection(1);
 				soundEditor.setup();
@@ -611,6 +672,7 @@ changeOutputType:
 							goto doActualSimpleChange;
 						}
 
+						deluge::gui::combos::used(deluge::gui::combos::gesture::session::ClipPreset);
 						actionLogger.deleteAllLogs();
 
 						currentUIMode = UI_MODE_NONE;
@@ -624,6 +686,7 @@ changeOutputType:
 					else {
 doActualSimpleChange:
 
+						deluge::gui::combos::used(deluge::gui::combos::gesture::session::ClipType);
 						switch (currentSong->sessionLayout) {
 						case SessionLayoutType::SessionLayoutTypeRows: {
 							char modelStackMemory[MODEL_STACK_MAX_SIZE];
@@ -668,12 +731,14 @@ doActualSimpleChange:
 	}
 	else if (b == KEYBOARD) {
 		if (on && (currentUIMode == UI_MODE_NONE)) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::session::PerformanceView);
 			performanceView.timeKeyboardShortcutPress = AudioEngine::audioSampleTimer;
 			changeRootUI(&performanceView);
 		}
 	}
 	else if (b == Y_ENC) {
 		if (on && !Buttons::isShiftButtonPressed()) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::session::ShowScale);
 			UI* currentUI = getCurrentUI();
 			bool isOLEDSessionView = display->haveOLED() && (currentUI == &sessionView || currentUI == &arrangerView);
 			// only display pop-up if we're using 7SEG or we're not currently in Song / Arranger View
@@ -760,6 +825,7 @@ holdingRecord:
 							return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 						}
 
+						deluge::gui::combos::used(deluge::gui::combos::gesture::session::Overdub);
 						int32_t clipIndex = yDisplay + currentSong->songViewYScroll + 1;
 
 						// If source clip currently recording, arm it to stop (but not if tempoless recording)
@@ -806,6 +872,7 @@ holdingRecord:
 
 					// If holding down tempo knob...
 					if (Buttons::isButtonPressed(deluge::hid::button::TEMPO_ENC)) {
+						deluge::gui::combos::used(deluge::gui::combos::gesture::session::GrabTempo);
 						playbackHandler.grabTempoFromClip(clip);
 					}
 
@@ -852,6 +919,7 @@ startHoldingDown:
 					// if (possiblyCreatePendingNextOverdub(clipIndex, OverdubType::EXTENDING)) return
 					// ActionResult::DEALT_WITH;
 
+					deluge::gui::combos::used(deluge::gui::combos::gesture::session::NewClip);
 					OutputType toCreate;
 					if (FlashStorage::defaultUseLastClipType && lastTypeCreated != OutputType::NONE) {
 						toCreate = lastTypeCreated;
@@ -907,6 +975,7 @@ startHoldingDown:
 						return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 					}
 
+					deluge::gui::combos::used(deluge::gui::combos::gesture::session::CloneClip);
 					actionLogger.deleteAllLogs();
 					cloneClip(selectedClipYDisplay, yDisplay);
 					goto justEndClipPress;
@@ -1165,6 +1234,7 @@ void SessionView::sectionPadAction(uint8_t y, bool on) {
 		if (isNoUIModeActive()) {
 			// If user wanting to change Clip's section
 			if (Buttons::isShiftButtonPressed()) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::session::ChangeSection);
 
 				// Not allowed if recording arrangement
 				if (playbackHandler.recording == RecordingMode::ARRANGEMENT) {
@@ -1221,6 +1291,7 @@ void SessionView::sectionPadAction(uint8_t y, bool on) {
 
 		if (isUIModeActive(UI_MODE_HOLDING_SECTION_PAD)) {
 			if (!Buttons::isShiftButtonPressed() && performActionOnSectionPadRelease) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::session::ArmSection);
 				session.armSection(sectionPressed, kInternalButtonPressLatency);
 			}
 			exitUIMode(UI_MODE_HOLDING_SECTION_PAD);
@@ -1234,6 +1305,7 @@ void SessionView::sectionPadAction(uint8_t y, bool on) {
 		}
 
 		else if (isUIModeActive(UI_MODE_CLIP_PRESSED_IN_SONG_VIEW)) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::session::ArmSection);
 			session.armSection(clip->section, kInternalButtonPressLatency);
 		}
 	}
@@ -1251,6 +1323,7 @@ ActionResult SessionView::timerCallback() {
 			if (currentSong->sessionLayout != SessionLayoutType::SessionLayoutTypeGrid
 			    || (currentSong->sessionLayout == SessionLayoutType::SessionLayoutTypeGrid
 			        && gridModeActive == SessionGridModeLaunch)) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::session::RecordArming);
 				enterUIMode(UI_MODE_VIEWING_RECORD_ARMING);
 				viewingRecordArmingActive = true;
 				PadLEDs::reassessGreyout(false);
@@ -1385,8 +1458,10 @@ void SessionView::commandChangeLayout(int8_t offset) {
 void SessionView::selectEncoderAction(int8_t offset) {
 	switch (currentUIMode) {
 	case UI_MODE_HOLDING_SECTION_PAD:
+		deluge::gui::combos::used(deluge::gui::combos::gesture::session::SectionRepeatsTurn);
 		return commandChangeSectionRepeats(offset);
 	case UI_MODE_CLIP_PRESSED_IN_SONG_VIEW:
+		deluge::gui::combos::used(deluge::gui::combos::gesture::session::ClipPresetTurn);
 		return commandChangeClipPreset(offset);
 	case UI_MODE_NONE:
 		if (sessionButtonActive) {
@@ -1394,9 +1469,11 @@ void SessionView::selectEncoderAction(int8_t offset) {
 			// to be abstracted somehow. Maybe something like Button::consumeButtonPress() which
 			// removes it from buttonState[] and causes the button-up not to trigger an action?
 			sessionButtonUsed = true;
+			deluge::gui::combos::used(deluge::gui::combos::gesture::session::Layout);
 			return commandChangeLayout(offset);
 		}
 		else {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::session::ArmNextSection);
 			return commandChangeCurrentSectionRepeats(offset);
 		}
 	}
@@ -1442,6 +1519,7 @@ ActionResult SessionView::horizontalEncoderAction(int32_t offset) {
 ActionResult SessionView::verticalEncoderAction(int32_t offset, bool inCardRoutine) {
 
 	if (currentUIMode == UI_MODE_NONE && Buttons::isButtonPressed(deluge::hid::button::Y_ENC)) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::session::TransposeSong);
 		currentSong->commandTranspose(offset);
 	}
 	else if (currentUIMode == UI_MODE_HOLDING_SECTION_PAD
@@ -1451,6 +1529,7 @@ ActionResult SessionView::verticalEncoderAction(int32_t offset, bool inCardRouti
 		if (inCardRoutine || sdRoutineLock) {
 			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 		}
+		deluge::gui::combos::used(deluge::gui::combos::gesture::session::MoveSection);
 		return gridMoveSection(offset);
 	}
 	else if (currentUIMode == UI_MODE_NONE || currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW
@@ -1465,6 +1544,7 @@ ActionResult SessionView::verticalEncoderAction(int32_t offset, bool inCardRouti
 		if (currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW
 		    && (Buttons::isShiftButtonPressed() || clipWasSelectedWithShift)) {
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::session::ClipColour);
 			Clip* clip = getClipOnScreen(selectedClipYDisplay);
 			if (!clip)
 				return ActionResult::NOT_DEALT_WITH;
@@ -1532,6 +1612,7 @@ ActionResult SessionView::verticalScrollOneSquare(int32_t direction) {
 			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 		}
 
+		deluge::gui::combos::used(deluge::gui::combos::gesture::session::DragClip);
 		actionLogger.deleteAllLogs();
 
 		int32_t newIndex = oldIndex + direction;
@@ -4250,6 +4331,7 @@ ActionResult SessionView::gridHandlePadsEdit(int32_t x, int32_t y, int32_t on, C
 
 				// Create clip if it does not exist
 				if ((x + currentSong->songGridScrollX) <= track_count) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::session::NewClip);
 					Output* track = gridTrackFromX(x, track_count);
 					clip = gridCreateClip(gridSectionFromY(y), track, nullptr);
 					// Immediately start playing it for new tracks
@@ -4324,6 +4406,7 @@ ActionResult SessionView::gridHandlePadsEdit(int32_t x, int32_t y, int32_t on, C
 
 		// Second finger up, clone clip
 		else if (gridSecondPressedX == x && gridSecondPressedY == y) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::session::CloneClip);
 			gridClonePad(gridFirstPressedX, gridFirstPressedY, gridSecondPressedX, gridSecondPressedY);
 			gridResetPresses(false, true);
 		}
@@ -4391,6 +4474,7 @@ ActionResult SessionView::gridHandlePadsLaunch(int32_t x, int32_t y, int32_t on,
 			}
 			// Immediate launch if shift pressed
 			if (Buttons::isShiftButtonPressed()) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::session::LaunchSectionNow);
 				gridStartSection(section, true);
 			}
 			// With green selection enabled, holding the section pad allows changing repeats (like blue mode),
@@ -4402,6 +4486,7 @@ ActionResult SessionView::gridHandlePadsLaunch(int32_t x, int32_t y, int32_t on,
 				uiTimerManager.setTimer(TimerName::UI_SPECIFIC, 300);
 			}
 			else {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::session::ArmSection);
 				gridStartSection(section, false);
 			}
 		}
@@ -4410,6 +4495,7 @@ ActionResult SessionView::gridHandlePadsLaunch(int32_t x, int32_t y, int32_t on,
 				gridFinishSectionMove(true);
 				// A short press (timer not yet fired) arms the section; a hold just edits repeats
 				if (performActionOnSectionPadRelease) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::session::ArmSection);
 					session.armSection(sectionPressed, kInternalButtonPressLatency);
 				}
 				// A hold edits repeats or moves the section instead of launching it.
@@ -4472,6 +4558,7 @@ ActionResult SessionView::gridHandlePadsLaunch(int32_t x, int32_t y, int32_t on,
 			else if (currentUIMode == UI_MODE_NONE) {
 				gridFirstPressedX = x;
 				gridFirstPressedY = y;
+				deluge::gui::combos::used(deluge::gui::combos::gesture::session::NewClip);
 				// will create the track if it doesn't exist
 				clip = gridCreateClip(gridSectionFromY(y), track, nullptr);
 				// If playing and Rec enabled, selecting an empty clip creates a new clip and starts it playing
@@ -4512,6 +4599,7 @@ ActionResult SessionView::gridHandlePadsLaunch(int32_t x, int32_t y, int32_t on,
 			}
 			// clone clip on release of second pad
 			if (gridSecondPressedX == x && gridSecondPressedY == y) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::session::CloneClip);
 				gridClonePad(gridFirstPressedX, gridFirstPressedY, gridSecondPressedX, gridSecondPressedY);
 				gridResetPresses(false, true);
 				return ActionResult::ACTIONED_AND_CAUSED_CHANGE;
@@ -4596,14 +4684,17 @@ ActionResult SessionView::gridHandlePadsLaunchWithSelection(int32_t x, int32_t y
 void SessionView::gridHandlePadsLaunchToggleArming(Clip* clip, bool immediate) {
 	if (immediate) {
 		if (horizontalEncoderPressed) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::session::SoloClip);
 			session.soloClipAction(clip, immediate, kInternalButtonPressLatency);
 		}
 		else {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::session::LaunchClipNow);
 			gridToggleClipPlay(clip, true);
 		}
 	}
 	else {
 		if (horizontalEncoderPressed) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::session::SoloClip);
 			session.soloClipAction(clip, immediate, kInternalButtonPressLatency);
 		}
 		else if (viewingRecordArmingActive) {
@@ -4612,6 +4703,7 @@ void SessionView::gridHandlePadsLaunchToggleArming(Clip* clip, bool immediate) {
 			PadLEDs::reassessGreyout(true);
 		}
 		else if (currentUIMode == UI_MODE_NONE && Buttons::isButtonPressed(deluge::hid::button::RECORD)) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::session::ArmClipGrid);
 			clip->armedForRecording = !clip->armedForRecording;
 			sessionView.timerCallback();
 		}
@@ -4713,6 +4805,7 @@ ActionResult SessionView::gridMoveHeldTrack(int32_t offset) {
 	if (sdRoutineLock) {
 		return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 	}
+	deluge::gui::combos::used(deluge::gui::combos::gesture::session::ReorderTrack);
 	// Do not reorder during a two-pad copy gesture.
 	if (!gridFirstPadActive() || !gridSecondPadInactive()) {
 		return ActionResult::DEALT_WITH;
@@ -4769,6 +4862,7 @@ ActionResult SessionView::gridHandleScroll(int32_t offsetX, int32_t offsetY) {
 	if (currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW && gridFirstPadActive()) {
 		if (offsetY != 0) {
 			if (Buttons::isButtonPressed(hid::button::Y_ENC)) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::session::TrackColour);
 				gridColourHeldTrack(offsetY);
 				return ActionResult::DEALT_WITH;
 			}
@@ -4873,6 +4967,7 @@ ActionResult SessionView::gridMoveHeldSections(int32_t offset) {
 		return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 	}
 
+	deluge::gui::combos::used(deluge::gui::combos::gesture::session::DragClip);
 	Output* track = gridHeldTrack();
 	if (track == nullptr) {
 		return ActionResult::DEALT_WITH;

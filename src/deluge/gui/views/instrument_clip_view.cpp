@@ -20,6 +20,10 @@
 #include "extern.h"
 #include "fatfs.hpp"
 #include "gui/colour/colour.h"
+#include "gui/combos/combo.h"
+#include "gui/combos/command_search.h"
+#include "gui/combos/gesture_list.h"
+#include "gui/combos/tables.h"
 #include "gui/context_menu/select_scale.h"
 #include "gui/context_menu/stem_export/cancel_stem_export.h"
 #include "gui/l10n/l10n.h"
@@ -99,6 +103,76 @@
 #include <new>
 #include <string.h>
 #include <vector>
+
+// Gestures handled in this view, for command search (gui/combos/gesture_list.h)
+namespace {
+PLACE_SDRAM_RODATA constexpr deluge::gui::combos::Gesture const* kGestures[] = {
+    &deluge::gui::combos::gesture::instrumentClip::SongView,
+    &deluge::gui::combos::gesture::instrumentClip::SessionMacros,
+    &deluge::gui::combos::gesture::instrumentClip::RunMacro,
+    &deluge::gui::combos::gesture::instrumentClip::AutomationView,
+    &deluge::gui::combos::gesture::instrumentClip::KeyboardView,
+    &deluge::gui::combos::gesture::instrumentClip::CrossScreen,
+    &deluge::gui::combos::gesture::instrumentClip::RecordToRow,
+    &deluge::gui::combos::gesture::instrumentClip::BrowseRowSample,
+    &deluge::gui::combos::gesture::instrumentClip::BrowseOscSample,
+    &deluge::gui::combos::gesture::instrumentClip::ToKit,
+    &deluge::gui::combos::gesture::instrumentClip::ToSynth,
+    &deluge::gui::combos::gesture::instrumentClip::ToMidi,
+    &deluge::gui::combos::gesture::instrumentClip::ToCv,
+    &deluge::gui::combos::gesture::instrumentClip::NewFmSynth,
+    &deluge::gui::combos::gesture::instrumentClip::SynthRow,
+    &deluge::gui::combos::gesture::instrumentClip::MidiRow,
+    &deluge::gui::combos::gesture::instrumentClip::GateRow,
+    &deluge::gui::combos::gesture::instrumentClip::SaveRow,
+    &deluge::gui::combos::gesture::instrumentClip::DeleteRow,
+    &deluge::gui::combos::gesture::instrumentClip::MoveKitRowHere,
+    &deluge::gui::combos::gesture::instrumentClip::NoteEditor,
+    &deluge::gui::combos::gesture::instrumentClip::RowEditor,
+    &deluge::gui::combos::gesture::instrumentClip::ScaleMode,
+    &deluge::gui::combos::gesture::instrumentClip::ShowScale,
+    &deluge::gui::combos::gesture::instrumentClip::RootNote,
+    &deluge::gui::combos::gesture::instrumentClip::RandomizeDrum,
+    &deluge::gui::combos::gesture::instrumentClip::RandomizeAllDrums,
+    &deluge::gui::combos::gesture::instrumentClip::RandomizeHeldDrums,
+    &deluge::gui::combos::gesture::instrumentClip::VelocityEditor,
+    &deluge::gui::combos::gesture::instrumentClip::DragKitRow,
+    &deluge::gui::combos::gesture::instrumentClip::MuteRow,
+    &deluge::gui::combos::gesture::instrumentClip::SilentAudition,
+    &deluge::gui::combos::gesture::instrumentClip::ResampleRow,
+    &deluge::gui::combos::gesture::instrumentClip::AddKitRow,
+    &deluge::gui::combos::gesture::instrumentClip::NoteLength,
+    &deluge::gui::combos::gesture::instrumentClip::RowPitch,
+    &deluge::gui::combos::gesture::instrumentClip::RowProbability,
+    &deluge::gui::combos::gesture::instrumentClip::NoteProbability,
+    &deluge::gui::combos::gesture::instrumentClip::BrowsePresets,
+    &deluge::gui::combos::gesture::instrumentClip::KnobMidiCc,
+    &deluge::gui::combos::gesture::instrumentClip::MoveCcAutomation,
+    &deluge::gui::combos::gesture::instrumentClip::TransposeScreen,
+    &deluge::gui::combos::gesture::instrumentClip::TransposeInOctave,
+    &deluge::gui::combos::gesture::instrumentClip::Euclidean,
+    &deluge::gui::combos::gesture::instrumentClip::NoteRepeat,
+    &deluge::gui::combos::gesture::instrumentClip::TransposeOctave,
+    &deluge::gui::combos::gesture::instrumentClip::TransposeClip,
+    &deluge::gui::combos::gesture::instrumentClip::NudgeSemitone,
+    &deluge::gui::combos::gesture::instrumentClip::ClipColour,
+    &deluge::gui::combos::gesture::instrumentClip::RowColour,
+    &deluge::gui::combos::gesture::instrumentClip::MoveNotes,
+    &deluge::gui::combos::gesture::instrumentClip::NoteVelocity,
+    &deluge::gui::combos::gesture::instrumentClip::NudgeNotes,
+    &deluge::gui::combos::gesture::instrumentClip::RowLength,
+    &deluge::gui::combos::gesture::instrumentClip::RotateRow,
+    &deluge::gui::combos::gesture::instrumentClip::Quantize,
+    &deluge::gui::combos::gesture::instrumentClip::DrumParam,
+    &deluge::gui::combos::gesture::instrumentClip::ClearClip,
+    &deluge::gui::combos::gesture::instrumentClip::SoundMenu,
+    &deluge::gui::combos::gesture::instrumentClip::AffectEntire,
+};
+} // namespace
+
+deluge::gui::combos::Gestures deluge::gui::combos::instrumentClipGestures() {
+	return kGestures;
+}
 
 extern "C" {}
 
@@ -301,10 +375,175 @@ ActionResult InstrumentClipView::commandExitScaleMode() {
 	return ActionResult::DEALT_WITH;
 }
 
+// Button combos of the instrument clip view. Command search lists them from this same table. Save / load ones shared
+// with the other instrument clip views are in InstrumentClipMinder.
+struct InstrumentClipViewShortcuts {
+	using Button = deluge::hid::Button;
+
+	static bool isKitClip() { return getCurrentOutputType() == OutputType::KIT; }
+	static bool isNotKitClip() { return getCurrentOutputType() != OutputType::KIT; }
+
+	static ActionResult exportDrumStems(Button) {
+		if (playbackHandler.isEitherClockActive() || playbackHandler.recording != RecordingMode::OFF
+		    || currentPlaybackMode == &arrangement) {
+			display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_CANT_EXPORT_STEMS));
+		}
+		else {
+			stemExport.startStemExportProcess(StemExportType::DRUM);
+		}
+		return ActionResult::DEALT_WITH;
+	}
+	static ActionResult copyNotes(Button) {
+		instrumentClipView.copyNotes(nullptr, false);
+		return ActionResult::DEALT_WITH;
+	}
+	static ActionResult pasteNotes(Button) {
+		instrumentClipView.pasteNotes();
+		return ActionResult::DEALT_WITH;
+	}
+	static ActionResult copyAutomation(Button b) {
+		instrumentClipView.copyAutomation(b == deluge::hid::button::MOD_ENCODER_1);
+		return ActionResult::DEALT_WITH;
+	}
+	static ActionResult pasteAutomation(Button b) {
+		instrumentClipView.pasteAutomation(b == deluge::hid::button::MOD_ENCODER_1);
+		return ActionResult::DEALT_WITH;
+	}
+	static ActionResult learnUserScale(Button) {
+		// Held grid pads are tied to their notes by screen row and changing the scale moves notes to other rows
+		if (instrumentClipView.numEditPadPresses > 0) {
+			instrumentClipView.endAllEditPadPresses();
+		}
+		actionLogger.deleteAllLogs(); // Can't undo past this!
+		if (!getCurrentInstrumentClip()->inScaleMode) {
+			instrumentClipView.commandEnterScaleMode();
+		}
+		return instrumentClipView.commandLearnUserScale();
+	}
+	static bool noUIMode() { return currentUIMode == UI_MODE_NONE; }
+	static bool inScaleModeNotKit() { return isNotKitClip() && getCurrentInstrumentClip()->inScaleMode; }
+	// MOD7 + SYNTH makes an FM one
+	static bool canMakeSynth() { return noUIMode() && !Buttons::isButtonPressed(deluge::hid::button::MOD7); }
+	static bool canDeleteUnusedRows() {
+		return noUIMode() && isKitClip()
+		       && runtimeFeatureSettings.get(RuntimeFeatureSettingType::DeleteUnusedKitRows)
+		              == RuntimeFeatureStateToggle::On;
+	}
+
+	// Still held after the shortcut, e.g. for rotating a single row
+	static void holdingHorizontalEncoder(Button b) {
+		if (Buttons::isButtonPressed(b)) {
+			enterUIMode(UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON);
+		}
+	}
+	static ActionResult doubleClip(Button b) {
+		// Zoom to max if we weren't already there, or if we didn't need to do that, double the clip length
+		if (!instrumentClipView.zoomToMax()) {
+			instrumentClipView.doubleClipLengthAction();
+		}
+		else {
+			instrumentClipView.displayZoomLevel();
+		}
+		holdingHorizontalEncoder(b);
+		return ActionResult::DEALT_WITH;
+	}
+	static ActionResult pasteNotesWithCross(Button b) {
+		instrumentClipView.pasteNotes(false);
+		holdingHorizontalEncoder(b);
+		return ActionResult::DEALT_WITH;
+	}
+	static ActionResult loopView(Button) {
+		instrumentClipView.togglePlayWindow();
+		return ActionResult::DEALT_WITH;
+	}
+	static ActionResult selectScale(Button) {
+		// Held grid pads are tied to their notes by screen row and changing the scale moves notes to other rows
+		if (instrumentClipView.numEditPadPresses > 0) {
+			instrumentClipView.endAllEditPadPresses();
+		}
+		actionLogger.deleteAllLogs(); // Can't undo past this!
+		return instrumentClipView.commandSelectScale();
+	}
+	static ActionResult newSynth(Button) {
+		instrumentClipView.createNewInstrument(OutputType::SYNTH);
+		return ActionResult::DEALT_WITH;
+	}
+	static ActionResult newKit(Button) {
+		instrumentClipView.createNewInstrument(OutputType::KIT);
+		return ActionResult::DEALT_WITH;
+	}
+	// Deletes all kit rows without notes, instead of note + delete on each
+	static ActionResult deleteUnusedRows(Button) {
+		InstrumentClip* clip = getCurrentInstrumentClip();
+		if (!clip->containsAnyNotes()) {
+			display->displayPopup(
+			    deluge::l10n::get(deluge::l10n::String::STRING_FOR_AT_LEAST_ONE_ROW_NEEDS_TO_HAVE_NOTES));
+			return ActionResult::DEALT_WITH;
+		}
+		char modelStackMemory[MODEL_STACK_MAX_SIZE];
+		ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
+		for (int32_t i = clip->noteRows.getNumElements() - 1; i >= 0; i--) {
+			NoteRow* noteRow = clip->noteRows.getElement(i);
+			if (noteRow->hasNoNotes() && clip->noteRows.getNumElements() > 1) {
+				// If the row has not notes and is not the last one
+				clip->deleteNoteRow(modelStack, i);
+			}
+		}
+		clip->yScroll = 0;            // Reset scroll position
+		actionLogger.deleteAllLogs(); // Can't undo past this
+		instrumentClipView.setSelectedDrum(nullptr, true);
+		instrumentClipView.recalculateColours();
+		uiNeedsRendering(&instrumentClipView);
+		// Show popup to make it clear what just happened
+		display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_DELETED_UNUSED_ROWS));
+		return ActionResult::DEALT_WITH;
+	}
+};
+
+namespace {
+using deluge::gui::combos::Held;
+using deluge::gui::combos::kNoButton;
+using deluge::gui::combos::Shortcut;
+using enum deluge::l10n::String;
+namespace button = deluge::hid::button;
+using S = InstrumentClipViewShortcuts;
+
+// clang-format off
+PLACE_SDRAM_RODATA constexpr Shortcut kShortcuts[] = {
+    {Held::SAVE,  button::RECORD,        kNoButton,     STRING_FOR_SHORTCUT_STEM_EXPORT,      S::isKitClip,    S::exportDrumStems, "bounce render audio"},
+    {Held::LEARN, button::X_ENC,         button::SHIFT, STRING_FOR_SHORTCUT_PASTE_NOTES,      nullptr,         S::pasteNotes, "duplicate clone bar"},
+    {Held::LEARN, button::X_ENC,         kNoButton,     STRING_FOR_SHORTCUT_COPY_NOTES,       nullptr,         S::copyNotes, "duplicate clone bar"},
+    {Held::LEARN, button::MOD_ENCODER_0, button::SHIFT, STRING_FOR_SHORTCUT_PASTE_AUTOMATION, nullptr,         S::pasteAutomation, "knob param"},
+    {Held::LEARN, button::MOD_ENCODER_1, button::SHIFT, STRING_FOR_SHORTCUT_PASTE_AUTOMATION, nullptr,         S::pasteAutomation, "knob param"},
+    {Held::LEARN, button::MOD_ENCODER_0, kNoButton,     STRING_FOR_SHORTCUT_COPY_AUTOMATION,  nullptr,         S::copyAutomation, "knob param"},
+    {Held::LEARN, button::MOD_ENCODER_1, kNoButton,     STRING_FOR_SHORTCUT_COPY_AUTOMATION,  nullptr,         S::copyAutomation, "knob param"},
+    {Held::LEARN, button::SCALE_MODE,    kNoButton,     STRING_FOR_SHORTCUT_LEARN_SCALE,      S::isNotKitClip, S::learnUserScale, "key notes"},
+    {Held::SHIFT, button::X_ENC,         button::CROSS_SCREEN_EDIT, STRING_FOR_SHORTCUT_PASTE_NOTES, S::noUIMode, S::pasteNotesWithCross},
+    {Held::SHIFT, button::CROSS_SCREEN_EDIT, kNoButton, STRING_FOR_LOOP_VIEW_ON,              S::noUIMode,     S::loopView, "play window bar section repeat", true},
+    {Held::SHIFT, button::X_ENC,         kNoButton,     STRING_FOR_SHORTCUT_DOUBLE_CLIP,      S::noUIMode,         S::doubleClip, "multiply length repeat copy"},
+    {Held::SHIFT, button::SCALE_MODE,    kNoButton,     STRING_FOR_SHORTCUT_SELECT_SCALE,     S::inScaleModeNotKit, S::selectScale, "key mode change"},
+    {Held::SHIFT, button::SYNTH,         kNoButton,     STRING_FOR_SHORTCUT_NEW_SYNTH,        S::canMakeSynth,        S::newSynth, "instrument create preset"},
+    {Held::SHIFT, button::KIT,           kNoButton,     STRING_FOR_SHORTCUT_NEW_KIT,          S::noUIMode,         S::newKit, "instrument create drums"},
+    {Held::SHIFT, button::SAVE,          button::KIT,   STRING_FOR_SHORTCUT_DELETE_UNUSED_ROWS, S::canDeleteUnusedRows, S::deleteUnusedRows, "kit empty clean drums"},
+};
+// clang-format on
+static_assert(deluge::gui::combos::isValidTable(kShortcuts));
+} // namespace
+
+std::span<const deluge::gui::combos::Shortcut> InstrumentClipView::shortcuts() {
+	return kShortcuts;
+}
+
 ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
 	using namespace deluge::hid::button;
 
 	maybeStartShortcutOverview(b, on);
+
+	for (auto table : {shortcuts(), InstrumentClipMinder::shortcuts()}) {
+		if (auto result = deluge::gui::combos::dispatch(table, b, on, inCardRoutine)) {
+			return *result;
+		}
+	}
 
 	// Scale mode button
 	if (b == SCALE_MODE && currentUIMode != UI_MODE_HOLDING_LOAD_BUTTON) {
@@ -346,6 +585,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 				return ActionResult::DEALT_WITH;
 			}
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::SongView);
 			ClipMinder::transitionToArrangerOrSession();
 		}
 	}
@@ -358,6 +598,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
 			D_PRINTLN("- yes");
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::AutomationView);
 			changeRootUI(&automationView);
 		}
 		else {
@@ -372,7 +613,8 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
 
-			changeRootUI(&keyboardScreen);
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::KeyboardView);
+			changeRootUI(&keyboardScreen); // Shift + keyboard (command search) is in Buttons::buttonAction
 		}
 	}
 
@@ -385,10 +627,9 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 					return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 				}
 
-				if (Buttons::crossScreenPressedWithShift) {
-					togglePlayWindow();
-				}
-				else if (getCurrentInstrumentClip()->wrapEditing) {
+				// Shift + cross screen (loop view) is in kShortcuts
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::CrossScreen);
+				if (getCurrentInstrumentClip()->wrapEditing) {
 					getCurrentInstrumentClip()->wrapEditing = false;
 				}
 				else {
@@ -414,6 +655,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::RecordToRow);
 			char modelStackMemory[MODEL_STACK_MAX_SIZE];
 			ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
 
@@ -455,19 +697,8 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 		}
 	}
 
-	// trigger stem export when pressing record while holding save
-	else if (b == RECORD && currentUIMode == UI_MODE_HOLDING_SAVE_BUTTON) {
-		if (on && getCurrentOutputType() == OutputType::KIT) {
-			if (playbackHandler.isEitherClockActive() || playbackHandler.recording != RecordingMode::OFF
-			    || currentPlaybackMode == &arrangement) {
-				display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_CANT_EXPORT_STEMS));
-			}
-			else {
-				stemExport.startStemExportProcess(StemExportType::DRUM);
-				return ActionResult::DEALT_WITH;
-			}
-		}
-	}
+	// Record with save held only does the stem export shortcut (kits); don't let it start recording
+	else if (b == RECORD && currentUIMode == UI_MODE_HOLDING_SAVE_BUTTON) {}
 
 	// cancel stem export process
 	else if (b == BACK && stemExport.processStarted) {
@@ -503,6 +734,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::BrowseRowSample);
 			currentUIMode = UI_MODE_NONE;
 
 			char modelStackMemory[MODEL_STACK_MAX_SIZE];
@@ -535,6 +767,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 
 			// Auditioning drum
 			if (getCurrentOutputType() == OutputType::KIT) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::BrowseRowSample);
 				cutAuditionedNotesToOne();
 				int32_t noteRowIndex;
 				NoteRow* noteRow =
@@ -553,6 +786,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 
 			// Auditioning synth
 			if (getCurrentOutputType() == OutputType::SYNTH) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::BrowseOscSample);
 				cancelAllAuditioning();
 
 				// Can't fail because we just set the selected Drum
@@ -572,6 +806,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::ToKit);
 			handleInstrumentChange(OutputType::KIT);
 		}
 	}
@@ -584,10 +819,12 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 			}
 
 			if (currentUIMode == UI_MODE_NONE) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::ToSynth);
 				handleInstrumentChange(OutputType::SYNTH);
 			}
 			else if (currentUIMode == UI_MODE_ADDING_DRUM_NOTEROW || currentUIMode == UI_MODE_AUDITIONING) {
 				// hook to load synth preset
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::SynthRow);
 				createDrumForAuditionedNoteRow(DrumType::SOUND);
 			}
 		}
@@ -601,6 +838,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 			}
 
 			if (currentUIMode == UI_MODE_NONE) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::ToMidi);
 				changeOutputType(OutputType::MIDI_OUT);
 
 				// Drop out of scale mode if the clip is now routed to MIDI transpose,
@@ -614,6 +852,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 				}
 			}
 			else if (currentUIMode == UI_MODE_ADDING_DRUM_NOTEROW || currentUIMode == UI_MODE_AUDITIONING) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::MidiRow);
 				createDrumForAuditionedNoteRow(DrumType::MIDI);
 			}
 		}
@@ -626,9 +865,11 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 			}
 
 			if (currentUIMode == UI_MODE_NONE) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::ToCv);
 				changeOutputType(OutputType::CV);
 			}
 			else if (currentUIMode == UI_MODE_ADDING_DRUM_NOTEROW || currentUIMode == UI_MODE_AUDITIONING) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::GateRow);
 				createDrumForAuditionedNoteRow(DrumType::GATE);
 			}
 		}
@@ -636,6 +877,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 	else if (b == SAVE && currentUIMode == UI_MODE_AUDITIONING) {
 		NoteRow* noteRow = getCurrentInstrumentClip()->getNoteRowOnScreen(lastAuditionedYDisplay, currentSong, nullptr);
 		if (noteRow->drum->type == DrumType::SOUND) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::SaveRow);
 			saveKitRowUI.setup((SoundDrum*)noteRow->drum, &noteRow->paramManager);
 			AudioEngine::stopAnyPreviewing();
 			cancelAllAuditioning();
@@ -653,6 +895,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::DeleteRow);
 			int32_t i;
 			for (i = 0; i < kEditPadPressBufferSize; i++) {
 				if (editPadPresses[i].isActive) {
@@ -721,65 +964,6 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 		}
 	}
 
-	// Kit + Shift + Save/Delete: shorcut that will delete all Kit rows that does not contain notes
-	// (instead of pressing Note + Delete to do it one by one)
-	else if (b == SAVE && currentUIMode != UI_MODE_NOTES_PRESSED && Buttons::isShiftButtonPressed()
-	         && Buttons::isButtonPressed(KIT) && getCurrentOutputType() == OutputType::KIT
-	         && (runtimeFeatureSettings.get(RuntimeFeatureSettingType::DeleteUnusedKitRows)
-	             == RuntimeFeatureStateToggle::On)) {
-		if (inCardRoutine) {
-			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
-		}
-
-		if (on) {
-			InstrumentClip* clip = getCurrentInstrumentClip();
-
-			if (!clip->containsAnyNotes()) {
-				display->displayPopup(
-				    deluge::l10n::get(deluge::l10n::String::STRING_FOR_AT_LEAST_ONE_ROW_NEEDS_TO_HAVE_NOTES));
-			}
-			else {
-				char modelStackMemory[MODEL_STACK_MAX_SIZE];
-				ModelStackWithTimelineCounter* modelStack =
-				    currentSong->setupModelStackWithCurrentClip(modelStackMemory);
-
-				int32_t i;
-				for (i = clip->noteRows.getNumElements() - 1; i >= 0; i--) {
-					NoteRow* noteRow = clip->noteRows.getElement(i);
-					if (noteRow->hasNoNotes() && clip->noteRows.getNumElements() > 1) {
-						// If the row has not notes and is not the last one
-						clip->deleteNoteRow(modelStack, i);
-					}
-				}
-
-				clip->yScroll = 0; // Reset scroll position
-
-				actionLogger.deleteAllLogs(); // Can't undo past this
-
-				setSelectedDrum(nullptr, true);
-
-				recalculateColours();
-				uiNeedsRendering(this);
-
-				// Show popup to make it clear what just happened
-				display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_DELETED_UNUSED_ROWS));
-			}
-		}
-	}
-
-	// Horizontal encoder button if learn button pressed. Make sure you let the "off" action slide past to the Editor
-	else if (b == X_ENC && on && Buttons::isButtonPressed(deluge::hid::button::LEARN)) {
-		if (inCardRoutine) {
-			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
-		}
-
-		if (Buttons::isShiftButtonPressed()) {
-			pasteNotes();
-		}
-		else {
-			copyNotes(nullptr, false);
-		}
-	}
 	else if (b == TEMPO_ENC && isUIModeActive(UI_MODE_AUDITIONING)
 	         && runtimeFeatureSettings.get(RuntimeFeatureSettingType::Quantize) == RuntimeFeatureStateToggle::On) {
 		// Prevent Tempo pop-up when auditioning: audition + tempo press is how quantize/humanize all starts.
@@ -791,27 +975,8 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 
 		// If user wants to "multiple" Clip contents
 		if (on && Buttons::isShiftButtonPressed() && !isUIModeActiveExclusively(UI_MODE_NOTES_PRESSED)) {
-			if (isNoUIModeActive()) {
-				if (inCardRoutine) {
-					return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
-				}
-				if (Buttons::isButtonPressed(deluge::hid::button::CROSS_SCREEN_EDIT)) {
-					pasteNotes(false);
-				}
-				else {
-					// Zoom to max if we weren't already there...
-
-					if (!zoomToMax()) {
-						// Or if we didn't need to do that, double Clip length
-						doubleClipLengthAction();
-					}
-					else {
-						displayZoomLevel();
-					}
-				}
-			}
-			// Whether or not we did the "multiply" action above, we need to be in this UI mode, e.g. for rotating
-			// individual NoteRow
+			// With no UI mode, shift + this doubles the clip (see kShortcuts). In other modes we still need to be in
+			// this UI mode, e.g. for rotating individual NoteRow
 			enterUIMode(UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON);
 		}
 
@@ -864,6 +1029,7 @@ doCancelPopup:
 								return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 							}
 
+							deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::MoveKitRowHere);
 							actionLogger.deleteAllLogs();
 							cancelAllAuditioning();
 							InstrumentClip* clip = getCurrentInstrumentClip();
@@ -898,11 +1064,13 @@ doCancelPopup:
 		if (on) {
 			if (currentUIMode == UI_MODE_NOTES_PRESSED) {
 				if (enterNoteEditor()) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::NoteEditor);
 					return ActionResult::DEALT_WITH;
 				}
 			}
 			else if (currentUIMode == UI_MODE_AUDITIONING) {
 				if (enterNoteRowEditor()) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::RowEditor);
 					return ActionResult::DEALT_WITH;
 				}
 			}
@@ -928,6 +1096,7 @@ ActionResult InstrumentClipView::timerCallback() {
 	// Reveal the macro sidebar only once the Session button has been held past the long-press threshold.
 	if (isUIModeActive(UI_MODE_HOLDING_SONG_BUTTON) && !sessionMacroSidebarActive
 	    && Buttons::isButtonPressed(SESSION_VIEW)) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::SessionMacros);
 		sessionMacroSidebarActive = true;
 		uiNeedsRendering(this, 0, 0xFFFFFFFF);
 	}
@@ -958,18 +1127,13 @@ ActionResult InstrumentClipView::handleScaleButtonAction(bool on, bool inCardRou
 
 	bool inScaleMode = getCurrentInstrumentClip()->inScaleMode;
 
-	if (on && Buttons::isButtonPressed(deluge::hid::button::LEARN)) {
-		if (!inScaleMode) {
-			commandEnterScaleMode();
-		}
-		return commandLearnUserScale();
-	}
-	else if (on && inScaleMode && Buttons::isShiftButtonPressed()) {
+	if (on && inScaleMode && Buttons::isShiftButtonPressed()) {
 		// If we're note in scale mode, we defer to commands that
 		// will instead enter the scale mode.
 		return commandSelectScale();
 	}
 	else if (on && oneNoteAuditioning()) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::RootNote);
 		if (inScaleMode) {
 			return commandChangeRootNote(lastAuditionedYDisplay);
 		}
@@ -983,6 +1147,7 @@ ActionResult InstrumentClipView::handleScaleButtonAction(bool on, bool inCardRou
 		scaleButtonPressTime = AudioEngine::audioSampleTimer;
 		// if you're already in scale mode, display the current scale
 		if (getCurrentInstrumentClip()->inScaleMode) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::ShowScale);
 			currentSong->displayCurrentRootNoteAndScaleName();
 		}
 		return commandFlashRootNote();
@@ -992,6 +1157,7 @@ ActionResult InstrumentClipView::handleScaleButtonAction(bool on, bool inCardRou
 		exitUIMode(UI_MODE_SCALE_MODE_BUTTON_PRESSED);
 		if (toggleScaleModeOnButtonRelease && isShortPress(scaleButtonPressTime)) {
 			toggleScaleModeOnButtonRelease = false;
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::ScaleMode);
 			if (inScaleMode) {
 				display->cancelPopup();
 				return commandExitScaleMode();
@@ -1018,6 +1184,9 @@ bool InstrumentClipView::handleInstrumentChange(OutputType outputType) {
 	}
 
 	if (!isMIDIorCV && (is_fm || Buttons::isShiftButtonPressed())) {
+		if (is_fm) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::NewFmSynth);
+		}
 		return createNewInstrument(outputType, is_fm);
 	}
 	else {
@@ -1121,16 +1290,11 @@ ramError:
 
 void InstrumentClipView::modEncoderButtonAction(uint8_t whichModEncoder, bool on) {
 
-	// Copy / paste uses presses; releases must still reach the sound to stop stutter.
-	if (on && Buttons::isButtonPressed(deluge::hid::button::LEARN)) {
-		if (Buttons::isShiftButtonPressed()) {
-			pasteAutomation(whichModEncoder);
-		}
-		else {
-			copyAutomation(whichModEncoder);
-		}
-	}
-	else {
+	// Learn + knob copy / paste (the automation overview forwards knob presses here). Releases always go on, to stop
+	// stutter.
+	deluge::hid::Button knob =
+	    whichModEncoder ? deluge::hid::button::MOD_ENCODER_1 : deluge::hid::button::MOD_ENCODER_0;
+	if (!deluge::gui::combos::dispatch(shortcuts(), knob, on, false)) {
 		view.modEncoderButtonAction(whichModEncoder, on);
 	}
 }
@@ -1875,10 +2039,12 @@ void InstrumentClipView::selectEncoderAction(int8_t offset) {
 				return;
 			}
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::RowPitch);
 			cutAuditionedNotesToOne();
 			offsetNoteCodeAction(offset);
 		}
 		else {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::RowProbability);
 			handleProbabilityOrIteranceEditing(offset, true);
 		}
 	}
@@ -1895,6 +2061,7 @@ void InstrumentClipView::selectEncoderAction(int8_t offset) {
 
 	// Or, if user holding a note(s) down, we'll adjust probability / iterance instead
 	else if (currentUIMode == UI_MODE_NOTES_PRESSED) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::NoteProbability);
 		handleProbabilityOrIteranceEditing(offset, false);
 	}
 	// Or, normal option - trying to change Instrument presets
@@ -1985,6 +2152,7 @@ ActionResult InstrumentClipView::padAction(int32_t x, int32_t y, int32_t velocit
 			// are we trying to enter the automation view velocity note editor
 			// by pressing audition pad + velocity shortcut?
 			if (isUIModeActive(UI_MODE_AUDITIONING) && automationView.isNoteVelocityEditorShortcut(x, y)) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::VelocityEditor);
 				return commandEnterNoteVelocityEditor(x, y);
 			}
 			// otherwise let's check for another shortcut pad action
@@ -2039,6 +2207,7 @@ doRegularEditPadActionProbably:
 		else {
 maybeRegularMutePress:
 			if (isUIModeWithinRange(mutePadActionUIModes) && velocity) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::MuteRow);
 				mutePadPress(y);
 			}
 		}
@@ -2067,6 +2236,7 @@ possiblyAuditionPad:
 
 				if (velocity && getCurrentOutputType() != OutputType::KIT) { // We probably couldn't have got this far
 					                                                         // if it was a Kit, but let's just check
+					deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::RootNote);
 					toggleScaleModeOnButtonRelease = false;
 					currentUIMode = UI_MODE_NONE;
 					if (getCurrentInstrumentClip()->inScaleMode) {
@@ -2118,8 +2288,15 @@ ActionResult InstrumentClipView::potentiallyRandomizeDrumSamples() {
 	int32_t nRows = 8;
 	int32_t rowsRandomized = 0;
 	if (Buttons::isButtonPressed(deluge::hid::button::AFFECT_ENTIRE)) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::RandomizeAllDrums);
 		nRows = instrumentClip->noteRows.getNumElements();
 		randomizeAll = true;
+	}
+	else if (isUIModeActive(UI_MODE_AUDITIONING)) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::RandomizeHeldDrums);
+	}
+	else {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::RandomizeDrum);
 	}
 
 	Kit* kit = (Kit*)instrumentClip->output;
@@ -2323,6 +2500,7 @@ ActionResult InstrumentClipView::commandSaveKitRow(InstrumentClip* clip, Output*
 
 		if (noteRow && noteRow->drum && noteRow->drum->type == DrumType::SOUND) {
 			auto* drum = static_cast<SoundDrum*>(noteRow->drum);
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::SaveRow);
 			currentUIMode = UI_MODE_NONE;
 			indicator_leds::setLedState(IndicatorLED::SAVE, false);
 			saveKitRowUI.setup(static_cast<SoundDrum*>(drum), &noteRow->paramManager);
@@ -2343,6 +2521,7 @@ ActionResult InstrumentClipView::commandActivateSongMacro(int32_t y, int32_t vel
 	}
 	// activate macro on release
 	else {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::RunMacro);
 		view.activateMacro(y);
 	}
 	return ActionResult::DEALT_WITH;
@@ -2526,6 +2705,7 @@ void InstrumentClipView::editPadAction(bool state, uint8_t yDisplay, uint8_t xDi
 				}
 
 				if (haveNote) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::NoteLength);
 
 					// First, figure out the lengh to take the note up to the start of the pressed square. Put it in
 					// newLength
@@ -4668,6 +4848,7 @@ ActionResult InstrumentClipView::scrollVertical(int32_t scrollAmount, bool inCar
 	if (!inAutomationView) {
 		// If any presses happening, grab those Notes...
 		if (draggingNote) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::MoveNotes);
 			scrollVertical_grabNotesPressed(modelStack, clip);
 
 			// Held notes land on the in-scale row under the pad after the scroll, even if they were accidentals. Forget
@@ -4681,6 +4862,7 @@ ActionResult InstrumentClipView::scrollVertical(int32_t scrollAmount, bool inCar
 
 		// Shift the selected NoteRow, if that's what we're doing. We know we're in Kit mode then
 		if (draggingNoteRow) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::DragKitRow);
 			scrollVertical_dragSelectedNoteRow(clip, output, isKit, noteRowToShiftI, noteRowToSwapWithI);
 		}
 	}
@@ -5576,6 +5758,7 @@ Drum* InstrumentClipView::getAuditionedDrum(int32_t velocity, int32_t yDisplay, 
 			setSelectedDrum(nullptr);
 
 			if (currentUIMode == UI_MODE_NONE) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::AddKitRow);
 				currentUIMode = UI_MODE_ADDING_DRUM_NOTEROW;
 				fileBrowserShouldNotPreview = shiftButtonDown;
 
@@ -5760,6 +5943,7 @@ bool InstrumentClipView::startAuditioningRow(int32_t velocity, int32_t yDisplay,
 	if (!doSilentAudition) {
 		// If won't be actually sounding Instrument...
 		if (shiftButtonDown || Buttons::isButtonPressed(deluge::hid::button::Y_ENC)) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::SilentAudition);
 			fileBrowserShouldNotPreview = true;
 
 			doSilentAudition = true;
@@ -5804,6 +5988,7 @@ bool InstrumentClipView::startAuditioningRow(int32_t velocity, int32_t yDisplay,
 	// Begin resampling / output-recording
 	if (Buttons::isButtonPressed(deluge::hid::button::RECORD)
 	    && audioRecorder.recordingSource == AudioInputChannel::NONE) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::ResampleRow);
 		audioRecorder.beginOutputRecording();
 		Buttons::recordButtonPressUsedUp = true;
 	}
@@ -6603,6 +6788,12 @@ ActionResult InstrumentClipView::verticalEncoderAction(int32_t offset, bool inCa
 	// If horizontal encoder button pressed, rotate notes within octave
 	if (Buttons::isButtonPressed(deluge::hid::button::X_ENC)) {
 		if (getCurrentOutputType() != OutputType::KIT) {
+			if (Buttons::isButtonPressed(hid::button::Y_ENC)) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::TransposeInOctave);
+			}
+			else {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::TransposeScreen);
+			}
 			commandTransposeScreen(offset, Buttons::isButtonPressed(hid::button::Y_ENC));
 			return ActionResult::DEALT_WITH;
 		}
@@ -6612,12 +6803,14 @@ ActionResult InstrumentClipView::verticalEncoderAction(int32_t offset, bool inCa
 	else if (Buttons::isButtonPressed(deluge::hid::button::Y_ENC)) {
 		// User may be trying to move a noteCode...
 		if (isUIModeActiveExclusively(UI_MODE_AUDITIONING)) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::Euclidean);
 			commandEuclidean(offset);
 		}
 
 		// Or note repeat...
 		else if (isUIModeActiveExclusively(UI_MODE_NOTES_PRESSED)
 		         || (inNoteRowEditor && isUIModeActive(UI_MODE_NOTES_PRESSED))) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::NoteRepeat);
 			editNoteRepeat(offset);
 		}
 
@@ -6633,6 +6826,7 @@ ActionResult InstrumentClipView::verticalEncoderAction(int32_t offset, bool inCa
 		// Holding note(s) in a scale-mode clip: move them by a semitone, which may leave the scale
 		if (isUIModeActiveExclusively(UI_MODE_NOTES_PRESSED) && getCurrentOutputType() != OutputType::KIT
 		    && getCurrentInstrumentClip()->isScaleModeClip()) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::NudgeSemitone);
 			nudgeHeldNotesBySemitone(offset);
 		}
 		else {
@@ -6753,6 +6947,12 @@ ActionResult InstrumentClipView::commandTransposeKey(int32_t offset, bool inCard
 
 	InstrumentClip* clip = getCurrentInstrumentClip();
 	auto nudgeType = Buttons::isShiftButtonPressed() ? VerticalNudgeType::ROW : VerticalNudgeType::OCTAVE;
+	if (nudgeType == VerticalNudgeType::ROW) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::TransposeClip);
+	}
+	else {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::TransposeOctave);
+	}
 	if (!clip->nudgeNotesVertically(offset, nudgeType, modelStack)) {
 		// Out of range, so nothing changed - leave the undo history alone.
 		return ActionResult::DEALT_WITH;
@@ -6980,6 +7180,7 @@ void InstrumentClipView::commandShiftColour(int32_t offset) {
 				goto shiftAllColour;
 			}
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::RowColour);
 			char modelStackMemory[MODEL_STACK_MAX_SIZE];
 			ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
 
@@ -7008,6 +7209,7 @@ void InstrumentClipView::commandShiftColour(int32_t offset) {
 	// Otherwise, adjust whole colour spectrum
 	else if (currentUIMode == UI_MODE_NONE) {
 shiftAllColour:
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::ClipColour);
 		getCurrentInstrumentClip()->colourOffset += offset;
 		recalculateColours();
 		whichRowsToRender = 0xFFFFFFFF;
@@ -7035,6 +7237,7 @@ ActionResult InstrumentClipView::horizontalEncoderAction(int32_t offset) {
 			// If nothing else held down, adjust velocity
 			if (isUIModeActiveExclusively(UI_MODE_NOTES_PRESSED)) {
 				if (!shouldIgnoreHorizontalScrollKnobActionIfNotAlsoPressedForThisNotePress) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::NoteVelocity);
 					adjustVelocity(offset);
 				}
 			}
@@ -7042,6 +7245,7 @@ ActionResult InstrumentClipView::horizontalEncoderAction(int32_t offset) {
 			// Or, if horizontal encoder held down, nudge note
 			else if (isUIModeActive(UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON)
 			         && isUIModeWithinRange(noteNudgeUIModes)) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::NudgeNotes);
 				nudgeNotes(offset);
 			}
 		}
@@ -7050,12 +7254,14 @@ ActionResult InstrumentClipView::horizontalEncoderAction(int32_t offset) {
 
 	// Auditioning but not holding down <> encoder - edit length of just one row
 	else if (isUIModeActiveExclusively(UI_MODE_AUDITIONING)) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::RowLength);
 		editNoteRowLength(offset);
 		return ActionResult::DEALT_WITH;
 	}
 
 	// Auditioning *and* holding down <> encoder - rotate/shift just one row
 	else if (isUIModeActiveExclusively(UI_MODE_AUDITIONING | UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON)) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::RotateRow);
 		rotateNoteRowHorizontally(offset);
 		return ActionResult::DEALT_WITH;
 	}
@@ -7105,11 +7311,13 @@ void InstrumentClipView::tempoEncoderAction(int8_t offset, bool encoderButtonPre
 	exitedShortcutOverview = true;
 	auto quantizeType = encoderButtonPressed ? NudgeMode::QUANTIZE_ALL : NudgeMode::QUANTIZE;
 	if (isUIModeActive(UI_MODE_QUANTIZE)) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::Quantize);
 		commandQuantizeNotes(offset, quantizeType);
 	}
 	else if (isUIModeActive(UI_MODE_AUDITIONING)
 	         && runtimeFeatureSettings.get(RuntimeFeatureSettingType::Quantize)
 	                == RuntimeFeatureStateToggle::On) { // quantize
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::Quantize);
 		commandStartQuantize(offset, quantizeType);
 	}
 	else {
@@ -8044,6 +8252,7 @@ void InstrumentClipView::modEncoderAction(int32_t whichModEncoder, int32_t offse
 			        ->getNoteRowForDrum(modelStackWithTimelineCounter,
 			                            kit->selectedDrum); // The NoteRow probably doesn't get referred to...
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::DrumParam);
 			NonAudioDrum* drum = (NonAudioDrum*)kit->selectedDrum;
 
 			ParamManagerForTimeline* paramManager = nullptr;

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <span>
+
 #include "definitions_cxx.hpp"
 #include "hid/button.h"
 #include "hid/display/oled_canvas/canvas.h"
@@ -28,6 +30,9 @@
 class InstrumentClip;
 class Output;
 class ModelStack;
+namespace deluge::gui::combos {
+struct Shortcut;
+}
 
 // This class performs operations on an InstrumentClip that are common to both the InstrumentClipView,
 // AutomationInstrumentClipView and KeyboardView.
@@ -41,6 +46,8 @@ public:
 	void setLedStates();
 	virtual void focusRegained();
 	virtual ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine);
+	/// Save / load button combos (see gui/combos/combo.h)
+	static std::span<const deluge::gui::combos::Shortcut> shortcuts();
 	void calculateDefaultRootNote();
 	void drawActualNoteCode(int16_t noteCode);
 	void cycleThroughScales();

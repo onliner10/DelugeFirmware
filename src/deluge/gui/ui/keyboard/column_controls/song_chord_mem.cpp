@@ -16,6 +16,7 @@
  */
 
 #include "song_chord_mem.h"
+#include "gui/combos/gesture_list.h"
 #include "gui/ui/keyboard/layout/column_controls.h"
 #include "hid/buttons.h"
 #include "model/song/song.h"
@@ -56,6 +57,7 @@ void SongChordMemColumn::handlePad(ModelStackWithTimelineCounter* modelStackWith
 	else {
 		activeChordMem = 0xFF;
 		if ((!currentSong->chordMemNoteCount[pad.y] || Buttons::isShiftButtonPressed()) && currentNotesState.count) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ChordMemory);
 			auto noteCount = currentNotesState.count;
 			for (int i = 0; i < noteCount && i < MAX_NOTES_CHORD_MEM; i++) {
 				currentSong->chordMem[pad.y][i] = currentNotesState.notes[i].note;
@@ -63,6 +65,7 @@ void SongChordMemColumn::handlePad(ModelStackWithTimelineCounter* modelStackWith
 			currentSong->chordMemNoteCount[pad.y] = noteCount;
 		}
 		else if (Buttons::isShiftButtonPressed()) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ChordMemory);
 			currentSong->chordMemNoteCount[pad.y] = 0;
 		}
 	}

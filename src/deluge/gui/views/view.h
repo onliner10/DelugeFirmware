@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014-2023 Synthstrom Audible Limited
+ * Copyright Â© 2014-2023 Synthstrom Audible Limited
  *
  * This file is part of The Synthstrom Audible Deluge Firmware.
  *
@@ -24,6 +24,7 @@
 #include "modulation/params/param.h"
 #include "processing/audio_output.h"
 #include <cstdint>
+#include <span>
 
 class InstrumentClip;
 class NoteRow;
@@ -48,11 +49,20 @@ class Kit;
 // (Is that still a good description? This class is a bit of a mishmash of poorly organised code, sorry.)
 
 /// Assorted utilities for manging the user interface.
+namespace deluge::gui::combos {
+struct Shortcut;
+}
+struct ViewShortcuts;
+
 class View {
+	friend struct ViewShortcuts;
+
 public:
 	View();
 	void focusRegained();
 	ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine);
+	/// Shift + button combos that work in every view
+	static std::span<const deluge::gui::combos::Shortcut> shortcuts();
 	void setTimeBaseScaleLedState();
 	void setLedStates();
 

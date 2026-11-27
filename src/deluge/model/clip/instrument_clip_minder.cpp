@@ -17,6 +17,8 @@
 
 #include "model/clip/instrument_clip_minder.h"
 #include "definitions_cxx.hpp"
+#include "gui/combos/combo.h"
+#include "gui/combos/gesture_list.h"
 #include "gui/l10n/l10n.h"
 #include "gui/ui/keyboard/keyboard_screen.h"
 #include "gui/ui/load/load_instrument_preset_ui.h"
@@ -82,11 +84,13 @@ void InstrumentClipMinder::selectEncoderAction(int32_t offset) {
 			int32_t newCC;
 
 			if (!Buttons::isButtonPressed(deluge::hid::button::SELECT_ENC)) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::KnobMidiCc);
 				newCC = instrument->changeControlNumberForModKnob(offset, editingMIDICCForWhichModKnob,
 				                                                  instrument->modKnobMode);
 				view.setKnobIndicatorLevels();
 			}
 			else {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::MoveCcAutomation);
 				newCC = instrument->moveAutomationToDifferentCC(offset, editingMIDICCForWhichModKnob,
 				                                                instrument->modKnobMode, modelStackWithThreeMainThings);
 				if (newCC == -1) {
@@ -102,6 +106,7 @@ void InstrumentClipMinder::selectEncoderAction(int32_t offset) {
 		}
 	}
 	else {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::BrowsePresets);
 		view.navigateThroughPresetsForInstrumentClip(offset, modelStack);
 	}
 }
@@ -338,6 +343,121 @@ void InstrumentClipMinder::focusRegained() {
 	}
 }
 
+// Save / load shortcuts, shared by every view of an instrument clip. Command search lists them from this same
+// table.
+namespace {
+using deluge::gui::combos::Held;
+using deluge::gui::combos::kNoButton;
+using deluge::gui::combos::Shortcut;
+using deluge::hid::Button;
+using enum deluge::l10n::String;
+namespace button = deluge::hid::button;
+
+bool isSynthClip() {
+	return getCurrentOutputType() == OutputType::SYNTH;
+}
+bool isKitClip() {
+	return getCurrentOutputType() == OutputType::KIT;
+}
+bool isMIDIClip() {
+	return getCurrentOutputType() == OutputType::MIDI_OUT;
+}
+
+// New tracks have no drum selected, but a kit row pattern needs one
+bool kitRowPatternImpossible() {
+	if (getCurrentOutputType() == OutputType::KIT && !getRootUI()->getAffectEntire()
+	    && (getCurrentKit() == nullptr || getCurrentKit()->selectedDrum == nullptr)) {
+		display->displayPopup(deluge::l10n::get(STRING_FOR_PATTERN_NODRUM));
+		return true;
+	}
+	return false;
+}
+
+ActionResult savePattern(Button) {
+	if (!kitRowPatternImpossible()) {
+		openUI(&savePatternUI);
+	}
+	return ActionResult::DEALT_WITH;
+}
+
+ActionResult saveInstrumentPreset(Button) {
+	openUI(&saveInstrumentPresetUI);
+	return ActionResult::DEALT_WITH;
+}
+
+ActionResult saveMIDIDeviceDefinition(Button) {
+	openUI(&saveMidiDeviceDefinitionUI);
+	return ActionResult::DEALT_WITH;
+}
+
+ActionResult loadMIDIDeviceDefinition(Button) {
+	openUI(&loadMidiDeviceDefinitionUI);
+	return ActionResult::DEALT_WITH;
+}
+
+ActionResult loadPattern(bool overwriteExisting, bool noScaling) {
+	// Need to stop Playback before loading a new Pattern to prevent Stuck notes on big Midi files
+	playbackHandler.endPlayback();
+	if (!kitRowPatternImpossible()) {
+		openUI(&loadPatternUI);
+		loadPatternUI.setupLoadPatternUI(overwriteExisting, noScaling);
+	}
+	return ActionResult::DEALT_WITH;
+}
+
+ActionResult loadPatternReplacing(Button) {
+	return loadPattern(true, false);
+}
+ActionResult loadPatternMerging(Button) {
+	return loadPattern(false, false);
+}
+ActionResult loadPatternUnscaled(Button) {
+	return loadPattern(true, true);
+}
+
+ActionResult loadInstrumentOfType(Button b) {
+	OutputType newOutputType = (b == button::KIT)    ? OutputType::KIT
+	                           : (b == button::MIDI) ? OutputType::MIDI_OUT
+	                                                 : OutputType::SYNTH;
+	InstrumentClip* clip = getCurrentInstrumentClip();
+	Output* output = clip->output;
+	OutputType oldOutputType = output->type;
+	Instrument* instrument = (Instrument*)output;
+	// don't allow clip type change if clip is not empty
+	// only impose this restriction if switching to/from kit clip
+	if (!((oldOutputType != newOutputType) && ((oldOutputType == OutputType::KIT) || (newOutputType == OutputType::KIT))
+	      && (!clip->isEmpty() || !clip->output->isEmpty()))) {
+		loadInstrumentPresetUI.setupLoadInstrument(newOutputType, instrument, clip);
+		openUI(&loadInstrumentPresetUI);
+	}
+	return ActionResult::DEALT_WITH;
+}
+
+// clang-format off
+PLACE_SDRAM_RODATA constexpr Shortcut kShortcuts[] = {
+    {Held::SAVE, button::X_ENC,         kNoButton,                 STRING_FOR_SHORTCUT_SAVE_PATTERN,            nullptr,     savePattern, "midi file"},
+    {Held::SAVE, button::SYNTH,         kNoButton,                 STRING_FOR_SHORTCUT_PRESET,             isSynthClip, saveInstrumentPreset, "synth kit sound"},
+    {Held::SAVE, button::KIT,           kNoButton,                 STRING_FOR_SHORTCUT_PRESET,             isKitClip,   saveInstrumentPreset, "synth kit sound"},
+    {Held::SAVE, button::MIDI,          kNoButton,                 STRING_FOR_SHORTCUT_PRESET,             isMIDIClip,  saveInstrumentPreset, "synth kit sound"},
+    {Held::SAVE, button::MOD_ENCODER_0, kNoButton,                 STRING_FOR_SHORTCUT_SAVE_MIDI_DEVICE,        isMIDIClip,  saveMIDIDeviceDefinition},
+    {Held::SAVE, button::MOD_ENCODER_1, kNoButton,                 STRING_FOR_SHORTCUT_SAVE_MIDI_DEVICE,        isMIDIClip,  saveMIDIDeviceDefinition},
+    {Held::LOAD, button::X_ENC,         button::CROSS_SCREEN_EDIT, STRING_FOR_SHORTCUT_PATTERN_MERGE,      nullptr,     loadPatternMerging, "midi file"},
+    {Held::LOAD, button::X_ENC,         button::SCALE_MODE,        STRING_FOR_SHORTCUT_PATTERN_NO_SCALING, nullptr,     loadPatternUnscaled, "midi file length"},
+    {Held::LOAD, button::X_ENC,         kNoButton,                 STRING_FOR_SHORTCUT_LOAD_PATTERN,            nullptr,     loadPatternReplacing, "midi file"},
+    {Held::LOAD, button::SYNTH,         kNoButton,                 STRING_FOR_SHORTCUT_LOAD_SYNTH,         nullptr,     loadInstrumentOfType},
+    {Held::LOAD, button::KIT,           kNoButton,                 STRING_FOR_SHORTCUT_LOAD_KIT,         nullptr,     loadInstrumentOfType},
+    {Held::LOAD, button::MIDI,          kNoButton,                 STRING_FOR_SHORTCUT_LOAD_MIDI,         nullptr,     loadInstrumentOfType},
+    {Held::LOAD, button::MOD_ENCODER_0, kNoButton,                 STRING_FOR_SHORTCUT_LOAD_MIDI_DEVICE,        isMIDIClip,  loadMIDIDeviceDefinition},
+    {Held::LOAD, button::MOD_ENCODER_1, kNoButton,                 STRING_FOR_SHORTCUT_LOAD_MIDI_DEVICE,        isMIDIClip,  loadMIDIDeviceDefinition},
+};
+// clang-format on
+static_assert(deluge::gui::combos::isValidTable(kShortcuts));
+} // namespace
+
+std::span<const deluge::gui::combos::Shortcut> InstrumentClipMinder::shortcuts() {
+	return kShortcuts;
+}
+
 ActionResult InstrumentClipMinder::buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
 	using namespace deluge::hid::button;
 
@@ -345,96 +465,23 @@ ActionResult InstrumentClipMinder::buttonAction(deluge::hid::Button b, bool on, 
 		return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 	}
 
-	// If holding save button...
+	if (auto result = deluge::gui::combos::dispatch(shortcuts(), b, on, inCardRoutine)) {
+		return *result;
+	}
+
+	// Holding save: any other press just ends it
 	if (currentUIMode == UI_MODE_HOLDING_SAVE_BUTTON && on) {
 		currentUIMode = UI_MODE_NONE;
 		indicator_leds::setLedState(IndicatorLED::SAVE, false);
-
-		if (getCurrentOutputType() == OutputType::MIDI_OUT && (b == MOD_ENCODER_0 || b == MOD_ENCODER_1)) {
-			openUI(&saveMidiDeviceDefinitionUI);
-		}
-		else if (b == X_ENC) {
-			// New Tracks have not Drum selected -> abort Drum action
-			if (getCurrentOutputType() == OutputType::KIT && !getRootUI()->getAffectEntire()
-			    && (getCurrentKit() == nullptr || getCurrentKit()->selectedDrum == nullptr)) {
-				display->displayPopup(l10n::get(l10n::String::STRING_FOR_PATTERN_NODRUM));
-				return ActionResult::DEALT_WITH;
-			}
-
-			openUI(&savePatternUI);
-		}
-		else if ((b == SYNTH && getCurrentOutputType() == OutputType::SYNTH)
-		         || (b == KIT && getCurrentOutputType() == OutputType::KIT)
-		         || (b == MIDI && getCurrentOutputType() == OutputType::MIDI_OUT)) {
-			openUI(&saveInstrumentPresetUI);
-		}
 	}
 
-	// If holding load button...
-	else if (currentUIMode == UI_MODE_HOLDING_LOAD_BUTTON && on) {
-		if (getCurrentOutputType() == OutputType::MIDI_OUT && (b == MOD_ENCODER_0 || b == MOD_ENCODER_1)) {
-			currentUIMode = UI_MODE_NONE;
-			indicator_leds::setLedState(IndicatorLED::LOAD, false);
-			openUI(&loadMidiDeviceDefinitionUI);
-		}
-		else if (b == X_ENC) {
-			currentUIMode = UI_MODE_NONE;
-			indicator_leds::setLedState(IndicatorLED::LOAD, false);
-			// Need to stop Playback before loading a new Pattern to prevent Stuck notes on big Midi files
-			playbackHandler.endPlayback();
-
-			// New Tracks have not Drum selected -> abort Drum action
-			if (getCurrentOutputType() == OutputType::KIT && !getRootUI()->getAffectEntire()
-			    && (getCurrentKit() == nullptr || getCurrentKit()->selectedDrum == nullptr)) {
-				display->displayPopup(l10n::get(l10n::String::STRING_FOR_PATTERN_NODRUM));
-				return ActionResult::DEALT_WITH;
-			}
-
-			openUI(&loadPatternUI);
-			if (Buttons::isButtonPressed(deluge::hid::button::CROSS_SCREEN_EDIT)) {
-				// Setup for gently pasting notes
-				loadPatternUI.setupLoadPatternUI(false, false);
-			}
-			else if (Buttons::isButtonPressed(deluge::hid::button::SCALE_MODE)) {
-				// Setup for keeping original Scale on paste
-				loadPatternUI.setupLoadPatternUI(true, true);
-			}
-			else {
-				// Default Load
-				loadPatternUI.setupLoadPatternUI();
-			}
-		}
-		else if (b == SYNTH || b == KIT || b == MIDI) {
-			currentUIMode = UI_MODE_NONE;
-			indicator_leds::setLedState(IndicatorLED::LOAD, false);
-			OutputType newOutputType;
-			if (b == SYNTH) {
-				newOutputType = OutputType::SYNTH;
-			}
-			else if (b == KIT) {
-				newOutputType = OutputType::KIT;
-			}
-			else if (b == MIDI) {
-				newOutputType = OutputType::MIDI_OUT;
-			}
-			InstrumentClip* clip = getCurrentInstrumentClip();
-			Output* output = clip->output;
-			OutputType oldOutputType = output->type;
-			Instrument* instrument = (Instrument*)output;
-			// don't allow clip type change if clip is not empty
-			// only impose this restriction if switching to/from kit clip
-			if (!((oldOutputType != newOutputType)
-			      && ((oldOutputType == OutputType::KIT) || (newOutputType == OutputType::KIT))
-			      && (!clip->isEmpty() || !clip->output->isEmpty()))) {
-				loadInstrumentPresetUI.setupLoadInstrument(newOutputType, instrument, clip);
-				openUI(&loadInstrumentPresetUI);
-			}
-		}
-	}
+	// Holding load: other presses do nothing
+	else if (currentUIMode == UI_MODE_HOLDING_LOAD_BUTTON && on) {}
 
 	// Select button, without shift
 	else if (b == SELECT_ENC && !Buttons::isShiftButtonPressed()) {
 		if (on && currentUIMode == UI_MODE_NONE) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::SoundMenu);
 			// todo: this should probably be inside the sound editor but I don't want to deal with it right now
 			if (SoundEditor::shouldEditKitAffectEntire()) {
 				soundEditor.setupKitGlobalFXMenu = true;
@@ -451,7 +498,7 @@ ActionResult InstrumentClipMinder::buttonAction(deluge::hid::Button b, bool on, 
 	else if (b == AFFECT_ENTIRE) {
 		if (on && currentUIMode == UI_MODE_NONE) {
 			if (getCurrentOutputType() == OutputType::KIT) {
-
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::AffectEntire);
 				getCurrentInstrumentClip()->affectEntire = !getCurrentInstrumentClip()->affectEntire;
 				view.setActiveModControllableTimelineCounter(getCurrentInstrumentClip());
 			}
@@ -462,6 +509,7 @@ ActionResult InstrumentClipMinder::buttonAction(deluge::hid::Button b, bool on, 
 	else if (b == BACK && currentUIMode == UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON) {
 		if (on) {
 			// Clear Clip
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::ClearClip);
 			Action* action = actionLogger.getNewAction(ActionType::CLIP_CLEAR, ActionAddition::NOT_ALLOWED);
 
 			char modelStackMemory[MODEL_STACK_MAX_SIZE];
@@ -509,12 +557,14 @@ ActionResult InstrumentClipMinder::buttonAction(deluge::hid::Button b, bool on, 
 	else if (b == SYNTH) {
 		if (on && currentUIMode == UI_MODE_NONE) {
 			if (Buttons::isButtonPressed(MOD7)) { // FM
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::NewFmSynth);
 				createNewInstrument(OutputType::SYNTH, true);
 			}
 			else if (Buttons::isShiftButtonPressed()) {
 				createNewInstrument(OutputType::SYNTH);
 			}
 			else {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::ToSynth);
 				changeOutputType(OutputType::SYNTH);
 			}
 		}
@@ -522,12 +572,14 @@ ActionResult InstrumentClipMinder::buttonAction(deluge::hid::Button b, bool on, 
 
 	else if (b == MIDI) {
 		if (on && currentUIMode == UI_MODE_NONE) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::ToMidi);
 			changeOutputType(OutputType::MIDI_OUT);
 		}
 	}
 
 	else if (b == CV) {
 		if (on && currentUIMode == UI_MODE_NONE) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::ToCv);
 			changeOutputType(OutputType::CV);
 		}
 	}

@@ -18,6 +18,7 @@
 
 #include "gui/ui/keyboard/layout/chord_library.h"
 #include "gui/colour/colour.h"
+#include "gui/combos/gesture_list.h"
 #include "gui/ui/audio_recorder.h"
 #include "gui/ui/browser/sample_browser.h"
 #include "gui/ui/keyboard/chords.h"
@@ -77,6 +78,7 @@ void KeyboardLayoutChordLibrary::handleHorizontalEncoder(int32_t offset, bool sh
 	KeyboardStateChordLibrary& state = getState().chordLibrary;
 
 	if (encoderPressed) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ChordVoicing);
 		for (int32_t idxPress = kMaxNumKeyboardPadPresses - 1; idxPress >= 0; --idxPress) {
 
 			PressedPad pressed = presses[idxPress];

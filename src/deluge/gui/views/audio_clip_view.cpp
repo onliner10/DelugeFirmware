@@ -20,6 +20,8 @@
 #include "deluge/model/settings/runtime_feature_settings.h"
 #include "extern.h"
 #include "gui/colour/colour.h"
+#include "gui/combos/gesture_list.h"
+#include "gui/combos/tables.h"
 #include "gui/l10n/l10n.h"
 #include "gui/ui/sound_editor.h"
 #include "gui/ui/ui.h"
@@ -49,6 +51,23 @@
 #include "playback/playback_handler.h"
 #include "processing/engines/audio_engine.h"
 #include "storage/flash_storage.h"
+
+// Gestures handled in this view, for command search (gui/combos/gesture_list.h)
+namespace {
+PLACE_SDRAM_RODATA constexpr deluge::gui::combos::Gesture const* kGestures[] = {
+    &deluge::gui::combos::gesture::audioClip::SongView,       &deluge::gui::combos::gesture::audioClip::RunMacro,
+    &deluge::gui::combos::gesture::audioClip::AutomationView, &deluge::gui::combos::gesture::audioClip::LengthToSample,
+    &deluge::gui::combos::gesture::audioClip::SoundMenu,      &deluge::gui::combos::gesture::audioClip::ClearClip,
+    &deluge::gui::combos::gesture::audioClip::GrabTempo,      &deluge::gui::combos::gesture::audioClip::EndPoint,
+    &deluge::gui::combos::gesture::audioClip::TrimStart,      &deluge::gui::combos::gesture::audioClip::MoveToTrack,
+    &deluge::gui::combos::gesture::audioClip::OutputMode,     &deluge::gui::combos::gesture::audioClip::LengthNoStretch,
+    &deluge::gui::combos::gesture::audioClip::ClipColour,
+};
+} // namespace
+
+deluge::gui::combos::Gestures deluge::gui::combos::audioClipGestures() {
+	return kGestures;
+}
 
 extern "C" {
 extern uint8_t currentlyAccessingCard;
@@ -358,6 +377,7 @@ ActionResult AudioClipView::buttonAction(deluge::hid::Button b, bool on, bool in
 				return ActionResult::DEALT_WITH;
 			}
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::audioClip::SongView);
 			uiTimerManager.unsetTimer(TimerName::UI_SPECIFIC);
 
 			ClipMinder::transitionToArrangerOrSession();
@@ -371,6 +391,7 @@ ActionResult AudioClipView::buttonAction(deluge::hid::Button b, bool on, bool in
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::audioClip::AutomationView);
 			changeRootUI(&automationView);
 		}
 	}
@@ -395,6 +416,7 @@ dontDeactivateMarker:
 				if (inCardRoutine) {
 					return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 				}
+				deluge::gui::combos::used(deluge::gui::combos::gesture::audioClip::LengthToSample);
 				setClipLengthEqualToSampleLength();
 			}
 		}
@@ -411,6 +433,7 @@ dontDeactivateMarker:
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::audioClip::SoundMenu);
 			if (!soundEditor.setup(getCurrentClip())) {
 				return ActionResult::DEALT_WITH;
 			}
@@ -428,6 +451,7 @@ dontDeactivateMarker:
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::audioClip::ClearClip);
 			// Clear Clip
 			Action* action = actionLogger.getNewAction(ActionType::CLIP_CLEAR, ActionAddition::NOT_ALLOWED);
 
@@ -481,6 +505,7 @@ ActionResult AudioClipView::padAction(int32_t x, int32_t y, int32_t on) {
 	if (x < kDisplayWidth) {
 		if (Buttons::isButtonPressed(deluge::hid::button::TEMPO_ENC)) {
 			if (on) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::audioClip::GrabTempo);
 				playbackHandler.grabTempoFromClip(getCurrentAudioClip());
 			}
 		}
@@ -529,6 +554,7 @@ ActionResult AudioClipView::padAction(int32_t x, int32_t y, int32_t on) {
 							    (x + 1) * currentSong->xZoom[NAVIGATION_CLIP] + currentSong->xScroll[NAVIGATION_CLIP];
 							int32_t oldLength = clipRef.loopLength;
 							uint64_t oldLengthSamples = clipRef.sampleHolder.getDurationInSamples(true);
+							deluge::gui::combos::used(deluge::gui::combos::gesture::audioClip::EndPoint);
 							changeUnderlyingSampleLength(clipRef, sample, newLength, oldLength, oldLengthSamples);
 							uiNeedsRendering(this, 0xFFFFFFFF, 0);
 						}
@@ -548,6 +574,7 @@ ActionResult AudioClipView::padAction(int32_t x, int32_t y, int32_t on) {
 							    x * currentSong->xZoom[NAVIGATION_CLIP] + currentSong->xScroll[NAVIGATION_CLIP];
 							int32_t oldLength = clipRef.loopLength;
 							uint64_t oldLengthSamples = clipRef.sampleHolder.getDurationInSamples(true);
+							deluge::gui::combos::used(deluge::gui::combos::gesture::audioClip::TrimStart);
 							changeUnderlyingSampleStart(clipRef, sample, newStartTicks, oldLength, oldLengthSamples);
 							uiNeedsRendering(this, 0xFFFFFFFF, 0);
 						}
@@ -588,6 +615,7 @@ ActionResult AudioClipView::padAction(int32_t x, int32_t y, int32_t on) {
 			}
 			// activate macro on release
 			else {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::audioClip::RunMacro);
 				view.activateMacro(y);
 			}
 			return ActionResult::DEALT_WITH;
@@ -737,9 +765,11 @@ void AudioClipView::selectEncoderAction(int8_t offset) {
 	}
 	// allows you to assign an audio clip to a different audio track
 	if (Buttons::isShiftButtonPressed()) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::audioClip::MoveToTrack);
 		view.navigateThroughAudioOutputsForAudioClip(offset, getCurrentAudioClip());
 	}
 	else {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::audioClip::OutputMode);
 		auto ao = (AudioOutput*)getCurrentAudioClip()->output;
 		ao->scrollAudioOutputMode(offset);
 	}
@@ -796,6 +826,7 @@ ActionResult AudioClipView::horizontalEncoderAction(int32_t offset) {
 	stopShortcutOverview();
 	// Shift and x pressed - edit length of clip without timestretching
 	if (isNoUIModeActive() && Buttons::isButtonPressed(deluge::hid::button::X_ENC) && Buttons::isShiftButtonPressed()) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::audioClip::LengthNoStretch);
 		return editClipLengthWithoutTimestretching(offset);
 	}
 	else {
@@ -850,6 +881,7 @@ ActionResult AudioClipView::verticalEncoderAction(int32_t offset, bool inCardRou
 			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE; // Allow sometimes.
 		}
 
+		deluge::gui::combos::used(deluge::gui::combos::gesture::audioClip::ClipColour);
 		// Shift colour spectrum
 		getCurrentAudioClip()->colourOffset += offset;
 		uiNeedsRendering(this, 0xFFFFFFFF, 0);

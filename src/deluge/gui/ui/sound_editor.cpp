@@ -182,6 +182,20 @@ bool isRelevant(ModControllableAudio* forThing, MenuItem* menuitem, int32_t thin
 	       and ((forThing == nullptr) or menuitem->isRelevant(forThing, thing));
 }
 
+bool SoundEditor::shortcutIsRelevant(ModControllableAudio* forThing, MenuItem* item, int32_t x) {
+	return isRelevant(forThing, item, x % 2);
+}
+
+void SoundEditor::openShortcutFromSearch(int32_t x, int32_t y, bool secondLayer) {
+	shortcutFromSearch = true;
+	potentialShortcutPadAction(x, y, true);
+	// The second layer is the same pad again
+	if (secondLayer && getCurrentUI() == this) {
+		potentialShortcutPadAction(x, y, true);
+	}
+	shortcutFromSearch = false;
+}
+
 void SoundEditor::renderMainShortcutsOnly(ModControllableAudio* forThing, RGB image[][kDisplayWidth + kSideBarWidth],
                                           uint8_t occupancyMask[][kDisplayWidth + kSideBarWidth],
                                           bool doKitAffectEntire) {
@@ -1503,7 +1517,7 @@ ActionResult SoundEditor::potentialShortcutPadAction(int32_t x, int32_t y, bool 
 	}
 	bool ignoreAction = false;
 	bool modulationItemFound = false;
-	if (!Buttons::isShiftButtonPressed()) {
+	if (!Buttons::isShiftButtonPressed() && !shortcutFromSearch) {
 		// ignore if you're not auditioning and in instrument clip view
 		ignoreAction = !(isUIModeActive(UI_MODE_AUDITIONING) && getRootUI() == &instrumentClipView);
 	}
@@ -1711,9 +1725,10 @@ void SoundEditor::enterOrUpdateSoundEditor(bool on) {
 	if (getCurrentUI() != &soundEditor) {
 		D_PRINTLN("updating sound editor");
 		// setup kit fx menu if we're here from shift and not auditioning, or if it was already true
-		setupKitGlobalFXMenu = setupKitGlobalFXMenu
-		                       or (shouldEditKitAffectEntire() and Buttons::isShiftButtonPressed()
-		                           and not isUIModeActive(UI_MODE_AUDITIONING));
+		setupKitGlobalFXMenu =
+		    setupKitGlobalFXMenu
+		    or (shouldEditKitAffectEntire() and (Buttons::isShiftButtonPressed() or shortcutFromSearch)
+		        and not isUIModeActive(UI_MODE_AUDITIONING));
 
 		if (getCurrentUI() == &sampleMarkerEditor) {
 			display->setNextTransitionDirection(0);

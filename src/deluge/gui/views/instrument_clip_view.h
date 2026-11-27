@@ -113,6 +113,8 @@ public:
 	/// Learn notes from current clip + scale mode clips as USER scale.
 	/// Enters scale mode if wasn't in it already. LEARN + SCALE.
 	ActionResult commandLearnUserScale();
+	/// This view's own button combos (see gui/combos/combo.h). Save / load ones are in InstrumentClipMinder.
+	static std::span<const deluge::gui::combos::Shortcut> shortcuts();
 	/// Pick a scale from a popup list. SHIFT + SCALE in scale mode.
 	ActionResult commandSelectScale();
 	/// The song's scale was changed: redraw with the new colours
@@ -405,7 +407,8 @@ private:
 	// note editor selected / remembered note targets
 	Note* get_remembered_note(int32_t selection_index = -1);
 	ModelStackWithNoteRow* get_note_edit_row(ModelStackWithTimelineCounter* model_stack, const EditPadPress& target);
-	friend class NoteLockEditor; // Edits the notes the note editor targets
+	friend class NoteLockEditor;               // Edits the notes the note editor targets
+	friend struct InstrumentClipViewShortcuts; // Runs this view's button combos
 	EditPadPress remembered_notes[kEditPadPressBufferSize]{};
 	int32_t remembered_note_row_ids[kEditPadPressBufferSize]{};
 	int32_t remembered_note_count = 0;

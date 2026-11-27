@@ -17,6 +17,7 @@
 
 #include "gui/ui_timer_manager.h"
 #include "definitions_cxx.hpp"
+#include "gui/combos/gesture_list.h"
 #include "gui/ui/keyboard/keyboard_screen.h"
 #include "gui/ui/sound_editor.h"
 #include "gui/views/automation_view.h"
@@ -161,6 +162,7 @@ void UITimerManager::routine() {
 					break;
 				}
 				case TimerName::BACK_MENU_EXIT: {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::global::ExitMenus);
 					ActionResult result = getCurrentUI()->exitUI();
 					if (result == ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE) {
 						timer.active = true;

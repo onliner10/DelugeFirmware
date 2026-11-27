@@ -18,6 +18,7 @@
 #include "hid/encoder_input.h"
 #include "definitions_cxx.hpp"
 #include "extern.h"
+#include "gui/combos/gesture_list.h"
 #include "gui/ui/ui.h"
 #include "gui/views/automation_view.h"
 #include "gui/views/instrument_clip_view.h"
@@ -122,6 +123,7 @@ checkResult:
 
 			case 0: // scrollY
 				if (Buttons::isShiftButtonPressed() && Buttons::isButtonPressed(deluge::hid::button::LEARN)) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::global::PadBrightness);
 					PadLEDs::changeDimmerInterval(detentDelta);
 				}
 				else {
@@ -148,10 +150,12 @@ checkResult:
 
 			case 3: // select
 				if (Buttons::isButtonPressed(deluge::hid::button::CLIP_VIEW)) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::global::PadRefresh);
 					PadLEDs::changeRefreshTime(saturatedDelta);
 				}
 				else if (Buttons::isButtonPressed(deluge::hid::button::RECORD)) {
 					if (currentSong) {
+						deluge::gui::combos::used(deluge::gui::combos::gesture::global::ThresholdRecording);
 						currentSong->changeThresholdRecordingMode(saturatedDelta);
 					}
 				}
