@@ -27,10 +27,15 @@
 #define MEMORY_REGION_EXTERNAL 2
 #define MEMORY_REGION_EXTERNAL_SMALL 3
 #define MEMORY_REGION_INTERNAL_SMALL 4
-#define NUM_MEMORY_REGIONS 5
+#define MEMORY_REGION_EXTERNAL_RESERVE 5
+#define NUM_MEMORY_REGIONS 6
 constexpr uint32_t RESERVED_EXTERNAL_ALLOCATOR = 0x00200000;       // 2 MiB - at least. See GeneralMemoryAllocator()
 constexpr uint32_t RESERVED_EXTERNAL_SMALL_ALLOCATOR = 0x00020000; // 200k
 constexpr uint32_t RESERVED_INTERNAL_SMALL = 0x00010000;           // 200k
+
+/// Kept for allocExternal() alone (Strings, operator new, STL containers), which other allocations can't fill - so a
+/// song big enough to fill the external regions still leaves room for them. Taken off the stealable sections.
+constexpr uint32_t RESERVED_EXTERNAL_RESERVE = 0x00040000; // 256k
 class Stealable;
 
 /*
@@ -85,7 +90,12 @@ public:
 
 	void* alloc(uint32_t requiredSize, bool mayUseOnChipRam, bool makeStealable, void* thingNotToStealFrom);
 	void dealloc(void* address);
+	/// Non-stealable memory for Strings, operator new and STL containers: the external regions, then the reserve only
+	/// they may use, and only once that's full too the stealable region (which may steal). Returns nullptr only if no
+	/// memory can be found or stolen anywhere.
 	void* allocExternal(uint32_t requiredSize);
+	/// The external regions only, never the reserve or the stealable region.
+	void* allocExternalRegions(uint32_t requiredSize);
 	void* allocInternal(uint32_t requiredSize);
 	void deallocExternal(void* address);
 	uint32_t shortenRight(void* address, uint32_t newSize);

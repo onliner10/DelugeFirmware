@@ -423,6 +423,13 @@ gotError:
 		if (!saveAudioFile(audioFile)) {
 			return false;
 		}
+		// Building the paths can steal memory, and with it unused AudioFiles, which removes them from the array. Find
+		// where this one has moved to, so the next one isn't skipped.
+		while (i > 0
+		       && (i >= audioFileManager.audioFiles.getNumElements()
+		           || audioFileManager.audioFiles.getElement(i) != audioFile)) {
+			i--;
+		}
 	}
 
 	String filePathDuringWrite;

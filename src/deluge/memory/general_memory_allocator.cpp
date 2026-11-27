@@ -32,6 +32,9 @@ PLACE_INTERNAL_FRUNK char emptySpacesMemoryInternal[sizeof(EmptySpaceRecord) * 1
 PLACE_INTERNAL_FRUNK char emptySpacesMemoryInternalSmall[sizeof(EmptySpaceRecord) * 256];
 PLACE_INTERNAL_FRUNK char emptySpacesMemoryGeneral[sizeof(EmptySpaceRecord) * 256];
 PLACE_INTERNAL_FRUNK char emptySpacesMemoryGeneralSmall[sizeof(EmptySpaceRecord) * 256];
+// Not in the frunk like the others: that would take on-chip memory from the small internal region's hot little
+// objects (measured: +25% L2 misses per rendered frame), and the reserve is seldom allocated from
+PLACE_SDRAM_BSS char emptySpacesMemoryReserve[sizeof(EmptySpaceRecord) * 256];
 extern uint32_t __frunk_bss_end;
 extern uint32_t __frunk_slack_end;
 extern uint32_t __sdram_bss_start;
@@ -64,6 +67,13 @@ GeneralMemoryAllocator::GeneralMemoryAllocator() : lock(false) {
 	stealableSectionsStart = stealable_start;
 	stealableSectionsEnd = stealable_end;
 
+	// The reserve for allocExternal() comes off the start of the stealable sections rather than the external region:
+	// a song's own data there (params read on every render) keeps all of its L2-cached memory, and Strings don't
+	// need L2. The sections still cover it, so it's not L2 cached either.
+	uint32_t reserve_start = stealable_start;
+	uint32_t reserve_end = stealable_start + RESERVED_EXTERNAL_RESERVE;
+	stealable_start = reserve_end;
+
 	// NOLINTBEGIN
 	auto internal_small_start = (uint32_t)&__frunk_bss_end;
 	auto internal_small_end = (uint32_t)&__frunk_slack_end;
@@ -75,6 +85,7 @@ GeneralMemoryAllocator::GeneralMemoryAllocator() : lock(false) {
 	regions[MEMORY_REGION_EXTERNAL].name = "external";
 	regions[MEMORY_REGION_EXTERNAL_SMALL].name = "small external";
 	regions[MEMORY_REGION_INTERNAL_SMALL].name = "small internal";
+	regions[MEMORY_REGION_EXTERNAL_RESERVE].name = "external reserve";
 
 	regions[MEMORY_REGION_STEALABLE].setup(emptySpacesMemory, sizeof(emptySpacesMemory), stealable_start, stealable_end,
 	                                       &cacheManager);
@@ -84,6 +95,11 @@ GeneralMemoryAllocator::GeneralMemoryAllocator() : lock(false) {
 	                                            external_small_start, external_small_end, nullptr);
 	regions[MEMORY_REGION_EXTERNAL_SMALL].minAlign_ = 16;
 	regions[MEMORY_REGION_EXTERNAL_SMALL].pivot_ = 64;
+	// Mostly small Strings, but containers too - so the small-object alignment, with any size allowed
+	regions[MEMORY_REGION_EXTERNAL_RESERVE].setup(emptySpacesMemoryReserve, sizeof(emptySpacesMemoryReserve),
+	                                              reserve_start, reserve_end, nullptr);
+	regions[MEMORY_REGION_EXTERNAL_RESERVE].minAlign_ = 16;
+	regions[MEMORY_REGION_EXTERNAL_RESERVE].pivot_ = 64;
 	regions[MEMORY_REGION_INTERNAL].setup(emptySpacesMemoryInternal, sizeof(emptySpacesMemoryInternal), internal_start,
 	                                      internal_end, nullptr);
 
@@ -132,7 +148,27 @@ extern "C" void delugeDealloc(void* address) {
 	GeneralMemoryAllocator::get().dealloc(address);
 #endif
 }
+// Strings, operator new and the STL containers allocate here. A big song can fill the external regions by itself - its
+// own clips, notes and params spill into the stealable region once they're full - and then every String operation
+// would fail, and with it saving the song ("Insufficient RAM"). So these get a reserve no other allocation can fill,
+// and only if even that is full, the stealable region like everything else.
 void* GeneralMemoryAllocator::allocExternal(uint32_t requiredSize) {
+	void* address = allocExternalRegions(requiredSize);
+	if (address != nullptr || lock) {
+		return address;
+	}
+
+	lock = true;
+	address = regions[MEMORY_REGION_EXTERNAL_RESERVE].alloc(requiredSize, false, nullptr);
+	lock = false;
+	if (address != nullptr) {
+		return address;
+	}
+
+	return alloc(requiredSize, false, false, nullptr);
+}
+
+void* GeneralMemoryAllocator::allocExternalRegions(uint32_t requiredSize) {
 
 	if (lock) {
 		return nullptr; // Prevent any weird loops in freeSomeStealableMemory(), which mostly would only be bad cos they
@@ -209,7 +245,7 @@ void* GeneralMemoryAllocator::alloc(uint32_t requiredSize, bool mayUseOnChipRam,
 		}
 
 		// Second try external region
-		address = allocExternal(requiredSize);
+		address = allocExternalRegions(requiredSize);
 
 		if (address) {
 			return address;
@@ -256,6 +292,10 @@ int32_t GeneralMemoryAllocator::getRegion(void* address) {
 	else if (value >= regions[MEMORY_REGION_INTERNAL_SMALL].start
 	         && value < regions[MEMORY_REGION_INTERNAL_SMALL].end) {
 		return MEMORY_REGION_INTERNAL_SMALL;
+	}
+	else if (value >= regions[MEMORY_REGION_EXTERNAL_RESERVE].start
+	         && value < regions[MEMORY_REGION_EXTERNAL_RESERVE].end) {
+		return MEMORY_REGION_EXTERNAL_RESERVE;
 	}
 
 	FREEZE_WITH_ERROR("E339");
