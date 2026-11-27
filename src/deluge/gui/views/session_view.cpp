@@ -130,6 +130,7 @@ PLACE_SDRAM_RODATA constexpr deluge::gui::combos::Gesture const* kGestures[] = {
     &deluge::gui::combos::gesture::session::ClipColour,
     &deluge::gui::combos::gesture::session::TrackColour,
     &deluge::gui::combos::gesture::session::DragClip,
+    &deluge::gui::combos::gesture::session::InsertEmptyPad,
     &deluge::gui::combos::gesture::session::ReorderTrack,
     &deluge::gui::combos::gesture::session::SoloClip,
     &deluge::gui::combos::gesture::session::LaunchClipNow,
@@ -1540,8 +1541,10 @@ ActionResult SessionView::verticalEncoderAction(int32_t offset, bool inCardRouti
 			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE; // Allow sometimes.
 		}
 
-		// Change row colour by pressing row & shift - same shortcut as in clip view.
+		// Change row colour by pressing row & shift - same shortcut as in clip view. Grid colours whole tracks and
+		// uses shift for inserting empty pads instead.
 		if (currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW
+		    && currentSong->sessionLayout != SessionLayoutType::SessionLayoutTypeGrid
 		    && (Buttons::isShiftButtonPressed() || clipWasSelectedWithShift)) {
 
 			deluge::gui::combos::used(deluge::gui::combos::gesture::session::ClipColour);
@@ -4866,6 +4869,9 @@ ActionResult SessionView::gridHandleScroll(int32_t offsetX, int32_t offsetY) {
 				gridColourHeldTrack(offsetY);
 				return ActionResult::DEALT_WITH;
 			}
+			if (Buttons::isShiftButtonPressed()) {
+				return gridInsertEmptyAtHeld(offsetY);
+			}
 			return gridMoveHeldSections(offsetY);
 		}
 		if (offsetX != 0) {
@@ -4998,6 +5004,70 @@ ActionResult SessionView::gridMoveHeldSections(int32_t offset) {
 		gridMoveSectionLast = last;
 	}
 
+	return gridShiftHeldSections(track, offset);
+}
+
+// Shift + holding a clip and turning the vertical encoder down inserts an empty pad at the held clip: it and every
+// clip below it in the track move down one section. Turning up takes the empty pad above back out again, and does
+// nothing when there is a clip there, so it never moves a clip that wasn't pushed down.
+ActionResult SessionView::gridInsertEmptyAtHeld(int32_t offset) {
+	if (sdRoutineLock) {
+		return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+	}
+
+	deluge::gui::combos::used(deluge::gui::combos::gesture::session::InsertEmptyPad);
+	// A second pad held picks a range to move or a copy target
+	if (!gridSecondPadInactive()) {
+		return ActionResult::DEALT_WITH;
+	}
+	Output* track = gridHeldTrack();
+	if (track == nullptr) {
+		return ActionResult::DEALT_WITH;
+	}
+
+	// The moved range runs from the held clip to the track's last clip. Recomputed every time, as a plain drag earlier
+	// in this hold may have picked a shorter range.
+	int32_t first = gridMoveSectionFirst;
+	if (first < 0) {
+		first = (gridMoveClip != nullptr) ? gridMoveClip->section : gridSectionFromY(gridFirstPressedY);
+		if (first < 0) {
+			return ActionResult::DEALT_WITH;
+		}
+	}
+	int32_t last = std::max(first, gridMoveSectionLast);
+	bool sectionAboveUsed = false;
+	for (int32_t idxClip = 0; idxClip < currentSong->sessionClips.getNumElements(); ++idxClip) {
+		Clip* clip = currentSong->sessionClips.getClipAtIndex(idxClip);
+		if (clip->output != track || clip->section >= kMaxNumSections) {
+			continue;
+		}
+		if (clip->section > last) {
+			last = clip->section;
+		}
+		if (clip->section == first - 1) {
+			sectionAboveUsed = true;
+		}
+	}
+
+	if (offset > 0) {
+		if (first == 0 || sectionAboveUsed) {
+			return ActionResult::DEALT_WITH;
+		}
+	}
+	else if (last >= kMaxNumSections - 1) {
+		display->displayPopup(l10n::get(l10n::String::STRING_FOR_TARGET_FULL));
+		return ActionResult::DEALT_WITH;
+	}
+
+	gridMoveSectionFirst = first;
+	gridMoveSectionLast = last;
+	// One section per call, so a fast turn up stops at the first clip above
+	return gridShiftHeldSections(track, (offset > 0) ? 1 : -1);
+}
+
+// Moves the held range (gridMoveSectionFirst..gridMoveSectionLast) of the track up or down. The cell it moves onto
+// goes to the other end of the range.
+ActionResult SessionView::gridShiftHeldSections(Output* track, int32_t offset) {
 	if (playbackHandler.recording == RecordingMode::ARRANGEMENT) {
 		display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_RECORDING_TO_ARRANGEMENT));
 		return ActionResult::DEALT_WITH;

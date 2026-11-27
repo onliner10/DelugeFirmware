@@ -390,6 +390,7 @@ PLACE_SDRAM_RODATA constexpr Gesture MoveSection{.hold = pad::SECTION, .input = 
 PLACE_SDRAM_RODATA constexpr Gesture ClipColour{.hold = pad::CLIP, .hold2 = gbtn::SHIFT, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_CLIP_COLOUR, .applies = applies_rows, .keywords = "color"};
 PLACE_SDRAM_RODATA constexpr Gesture TrackColour{.hold = pad::CLIP, .hold2 = gbtn::Y_ENC, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_TRACK_COLOUR, .applies = applies_grid, .keywords = "color hue column"};
 PLACE_SDRAM_RODATA constexpr Gesture DragClip{.hold = pad::CLIP, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_DRAG_CLIP, .keywords = "move"};
+PLACE_SDRAM_RODATA constexpr Gesture InsertEmptyPad{.hold = pad::CLIP, .hold2 = gbtn::SHIFT, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_INSERT_EMPTY_PAD, .applies = applies_grid, .keywords = "insert gap push down make room"};
 PLACE_SDRAM_RODATA constexpr Gesture ReorderTrack{.hold = pad::CLIP, .input = gbtn::X_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_REORDER_TRACK, .applies = applies_grid, .keywords = "move"};
 PLACE_SDRAM_RODATA constexpr Gesture SoloClip{.hold = gbtn::X_ENC, .input = pad::CLIP, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_SOLO_CLIP, .applies = applies_grid};
 PLACE_SDRAM_RODATA constexpr Gesture LaunchClipNow{.hold = gbtn::SHIFT, .input = pad::CLIP, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_LAUNCH_CLIP_NOW, .applies = applies_grid, .keywords = "immediate"};
@@ -642,6 +643,7 @@ constexpr Gesture const* kAll[] = {
     &session::ClipColour,
     &session::TrackColour,
     &session::DragClip,
+    &session::InsertEmptyPad,
     &session::ReorderTrack,
     &session::SoloClip,
     &session::LaunchClipNow,

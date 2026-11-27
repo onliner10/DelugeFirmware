@@ -1280,6 +1280,7 @@ PLACE_SDRAM_DATA Language english{
         {STRING_FOR_GESTURE_TRANSPOSE_SONG, "Transpose song"},
         {STRING_FOR_GESTURE_MOVE_SECTION, "Move section"},
         {STRING_FOR_GESTURE_DRAG_CLIP, "Drag clip"},
+        {STRING_FOR_GESTURE_INSERT_EMPTY_PAD, "Insert empty pad"},
         {STRING_FOR_GESTURE_REORDER_TRACK, "Reorder track"},
         {STRING_FOR_GESTURE_MOVE_CLIP_TO_SESSION, "Move clip to session"},
         {STRING_FOR_GESTURE_ARRANGER_AUTOMATION, "Arranger automation"},
