@@ -17,6 +17,7 @@
  */
 
 #include "scale_mode.h"
+#include "gui/combos/gesture_list.h"
 #include "gui/ui/keyboard/layout/column_controls.h"
 #include "model/scale/preset_scales.h"
 
@@ -42,6 +43,7 @@ void ScaleModeColumn::renderColumn(RGB image[][kDisplayWidth + kSideBarWidth], i
 }
 
 bool ScaleModeColumn::handleVerticalEncoder(int8_t pad, int32_t offset) {
+	deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ColumnSetting);
 	Scale newScale = scaleModes[pad];
 	bool newScaleNotSelectedYet = true;
 	while (newScaleNotSelectedYet) {

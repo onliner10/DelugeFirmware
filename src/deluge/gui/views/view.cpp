@@ -21,6 +21,9 @@
 #include "dsp/reverb/reverb.hpp"
 #include "extern.h"
 #include "gui/colour/colour.h"
+#include "gui/combos/combo.h"
+#include "gui/combos/gesture_list.h"
+#include "gui/combos/tables.h"
 #include "gui/context_menu/clear_song.h"
 #include "gui/context_menu/clip_settings/clip_settings.h"
 #include "gui/l10n/l10n.h"
@@ -89,6 +92,22 @@
 #include "storage/flash_storage.h"
 #include "storage/storage_manager.h"
 
+// Gestures handled in this view, for command search (gui/combos/gesture_list.h)
+namespace {
+PLACE_SDRAM_RODATA constexpr deluge::gui::combos::Gesture const* kGestures[] = {
+    &deluge::gui::combos::gesture::view::TapTempo,    &deluge::gui::combos::gesture::view::MidiLearn,
+    &deluge::gui::combos::gesture::view::SaveSong,    &deluge::gui::combos::gesture::view::LoadSong,
+    &deluge::gui::combos::gesture::view::SyncScaling, &deluge::gui::combos::gesture::view::Undo,
+    &deluge::gui::combos::gesture::view::KnobParam,   &deluge::gui::combos::gesture::view::ParamLockNotes,
+    &deluge::gui::combos::gesture::view::KnobButton,  &deluge::gui::combos::gesture::view::LaunchNow,
+    &deluge::gui::combos::gesture::view::SoloClip,    &deluge::gui::combos::gesture::view::ArmClip,
+};
+} // namespace
+
+deluge::gui::combos::Gestures deluge::gui::combos::viewGestures() {
+	return kGestures;
+}
+
 namespace params = deluge::modulation::params;
 namespace encoders = deluge::hid::encoders;
 using namespace deluge;
@@ -135,8 +154,86 @@ void View::focusRegained() {
 
 extern GlobalMIDICommand pendingGlobalMIDICommandNumClustersWritten;
 
+// Shift combos that work in every view. Command search lists them from this same table.
+struct ViewShortcuts {
+	using Button = deluge::hid::Button;
+
+	static ActionResult toggleMetronome(Button) {
+		playbackHandler.toggleMetronomeStatus();
+		return ActionResult::DEALT_WITH;
+	}
+	static ActionResult newSong(Button) {
+		if (context_menu::clearSong.setupAndCheckAvailability()) {
+			openUI(&context_menu::clearSong);
+		}
+		return ActionResult::DEALT_WITH;
+	}
+	static ActionResult redo(Button) {
+		if (actionLogger.allowedToDoReversion()) {
+			pendingGlobalMIDICommand = GlobalMIDICommand::REDO;
+			pendingGlobalMIDICommandNumClustersWritten = GlobalMIDICommand::PLAYBACK_RESTART; // Bug hunting.
+			playbackHandler.slowRoutine(); // Do it now if not reading card.
+		}
+		return ActionResult::DEALT_WITH;
+	}
+	static ActionResult settings(Button) {
+		if (playbackHandler.recording == RecordingMode::ARRANGEMENT) {
+			display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_RECORDING_TO_ARRANGEMENT));
+			return ActionResult::DEALT_WITH;
+		}
+		display->setNextTransitionDirection(1);
+		soundEditor.setup();
+		openUI(&soundEditor);
+		return ActionResult::DEALT_WITH;
+	}
+	static bool haveModControllable() { return view.activeModControllableModelStack.modControllable != nullptr; }
+	static ActionResult deleteAutomation(Button b) {
+		view.modEncoderButtonAction_deleteAutomation(b == deluge::hid::button::MOD_ENCODER_1);
+		return ActionResult::DEALT_WITH;
+	}
+	static bool noUIMode() { return currentUIMode == UI_MODE_NONE; }
+	static bool tapTempoMode() { return currentUIMode == UI_MODE_NONE || currentUIMode == UI_MODE_RECORD_COUNT_IN; }
+	static bool canNewSong() { return noUIMode() && noTypeButtonHeld(); }
+	// Load and save combos need these free, or they're shortcuts of their own
+	static bool noTypeButtonHeld() {
+		using namespace deluge::hid::button;
+		return !Buttons::isButtonPressed(SYNTH) && !Buttons::isButtonPressed(KIT) && !Buttons::isButtonPressed(MIDI)
+		       && !Buttons::isButtonPressed(CV)
+		       && !((getRootUI() == &performanceView) && Buttons::isButtonPressed(KEYBOARD));
+	}
+};
+
+namespace {
+using deluge::gui::combos::Held;
+using deluge::gui::combos::kNoButton;
+using deluge::gui::combos::Shortcut;
+using enum deluge::l10n::String;
+using VS = ViewShortcuts;
+
+// clang-format off
+PLACE_SDRAM_RODATA constexpr Shortcut kViewShortcuts[] = {
+    {Held::SHIFT, deluge::hid::button::TAP_TEMPO,     kNoButton, STRING_FOR_SHORTCUT_METRONOME,         VS::tapTempoMode,        VS::toggleMetronome, "click tempo"},
+    {Held::SHIFT, deluge::hid::button::LOAD,          kNoButton, STRING_FOR_SHORTCUT_NEW_SONG,          VS::canNewSong,          VS::newSong, "clear empty"},
+    {Held::SHIFT, deluge::hid::button::BACK,          kNoButton, STRING_FOR_SHORTCUT_REDO,              nullptr,                 VS::redo, "undo"},
+    {Held::SHIFT, deluge::hid::button::SELECT_ENC,    kNoButton, STRING_FOR_SHORTCUT_SETTINGS,          VS::noUIMode,            VS::settings, "menu preferences"},
+    {Held::SHIFT, deluge::hid::button::MOD_ENCODER_0, kNoButton, STRING_FOR_SHORTCUT_DELETE_AUTOMATION, VS::haveModControllable, VS::deleteAutomation, "knob param clear"},
+    {Held::SHIFT, deluge::hid::button::MOD_ENCODER_1, kNoButton, STRING_FOR_SHORTCUT_DELETE_AUTOMATION, VS::haveModControllable, VS::deleteAutomation, "knob param clear"},
+};
+// clang-format on
+static_assert(deluge::gui::combos::isValidTable(kViewShortcuts));
+} // namespace
+
+std::span<const deluge::gui::combos::Shortcut> View::shortcuts() {
+	return kViewShortcuts;
+}
+
 ActionResult View::buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
 	using namespace deluge::hid::button;
+
+	// Down here, so the views' own handling of these buttons comes first
+	if (auto result = deluge::gui::combos::dispatch(kViewShortcuts, b, on, inCardRoutine)) {
+		return *result;
+	}
 
 	GlobalMIDICommand newGlobalMidiCommand;
 
@@ -165,15 +262,13 @@ doEndMidiLearnPressSession:
 		}
 		else if (currentUIMode == UI_MODE_NONE || currentUIMode == UI_MODE_RECORD_COUNT_IN) {
 			if (on) {
-				// If shift button, toggle metronome
-				if (Buttons::isShiftButtonPressed()) {
-					playbackHandler.toggleMetronomeStatus();
-				}
-				// Otherwise, normal - tap tempo, but not during record count in
-				else if (currentUIMode == UI_MODE_NONE) {
+				// Shift + tap tempo (metronome) is in kViewShortcuts. Otherwise, normal - tap tempo, but not during
+				// record count in
+				if (currentUIMode == UI_MODE_NONE && !Buttons::isShiftButtonPressed()) {
 					bool useNormalTapTempoBehaviour =
 					    (runtimeFeatureSettings.get(RuntimeFeatureSettingType::AlternativeTapTempoBehaviour)
 					     == RuntimeFeatureStateToggle::Off);
+					deluge::gui::combos::used(deluge::gui::combos::gesture::view::TapTempo);
 					playbackHandler.tapTempoButtonPress(useNormalTapTempoBehaviour);
 				}
 			}
@@ -187,6 +282,7 @@ doEndMidiLearnPressSession:
 		}
 
 		if (on) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::view::MidiLearn);
 			startMIDILearn();
 		}
 		else {
@@ -257,6 +353,7 @@ doEndMidiLearnPressSession:
 							    deluge::l10n::get(deluge::l10n::String::STRING_FOR_CANT_SAVE_WHILE_OVERDUBS_PENDING));
 						}
 						else {
+							deluge::gui::combos::used(deluge::gui::combos::gesture::view::SaveSong);
 							openUI(&saveSongUI);
 						}
 					}
@@ -282,17 +379,8 @@ doEndMidiLearnPressSession:
 			if (on) {
 				if (currentUIMode == UI_MODE_NONE) {
 
-					if (Buttons::isShiftButtonPressed()) {
-						if (inCardRoutine) {
-							return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
-						}
-						bool available = context_menu::clearSong.setupAndCheckAvailability();
-						if (available) {
-							openUI(&context_menu::clearSong);
-						}
-					}
-
-					else {
+					// Shift + load is in kViewShortcuts
+					if (!Buttons::isShiftButtonPressed()) {
 						currentUIMode = UI_MODE_HOLDING_LOAD_BUTTON;
 						timeSaveButtonPressed = AudioEngine::audioSampleTimer;
 						indicator_leds::setLedState(IndicatorLED::LOAD, true);
@@ -309,6 +397,7 @@ doEndMidiLearnPressSession:
 					currentUIMode = UI_MODE_NONE;
 
 					if ((int32_t)(AudioEngine::audioSampleTimer - timeSaveButtonPressed) < kShortPressTime) {
+						deluge::gui::combos::used(deluge::gui::combos::gesture::view::LoadSong);
 						bool success = openUI(&loadSongUI);
 
 						// Need to redraw everything if no success, because the LoadSongUI does some drawing before even
@@ -367,6 +456,7 @@ cant:
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::view::SyncScaling);
 			// If no scaling currently, start it, if we're on a Clip-minder screen
 			if (!currentSong->getSyncScalingClip()) {
 				if (!getCurrentUI()->toClipMinder()) {
@@ -410,8 +500,8 @@ cant:
 				// Here we'll take advantage of the pending command system which has to exist for these commands for
 				// their MIDI-triggered case anyway. In the future, maybe a lot more commands should pend in the same
 				// way?
-				pendingGlobalMIDICommand =
-				    Buttons::isShiftButtonPressed() ? GlobalMIDICommand::REDO : GlobalMIDICommand::UNDO;
+				deluge::gui::combos::used(deluge::gui::combos::gesture::view::Undo);
+				pendingGlobalMIDICommand = GlobalMIDICommand::UNDO; // Shift + back: redo, in kViewShortcuts
 				pendingGlobalMIDICommandNumClustersWritten = GlobalMIDICommand::PLAYBACK_RESTART; // Bug hunting.
 				playbackHandler.slowRoutine(); // Do it now if not reading card.
 			}
@@ -444,24 +534,8 @@ possiblyRevert:
 	}
 #endif
 
-	// Select button with shift - go to settings menu
-	else if (b == SELECT_ENC && Buttons::isShiftButtonPressed()) {
-		if (on && currentUIMode == UI_MODE_NONE) {
-
-			if (playbackHandler.recording == RecordingMode::ARRANGEMENT) {
-				display->displayPopup(deluge::l10n::get(deluge::l10n::String::STRING_FOR_RECORDING_TO_ARRANGEMENT));
-				return ActionResult::DEALT_WITH;
-			}
-
-			if (inCardRoutine) {
-				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
-			}
-
-			display->setNextTransitionDirection(1);
-			soundEditor.setup();
-			openUI(&soundEditor);
-		}
-	}
+	// Shift + select (settings) is in kViewShortcuts. Swallow the release and presses in other modes, as before.
+	else if (b == SELECT_ENC && Buttons::isShiftButtonPressed()) {}
 	else {
 		return ActionResult::NOT_DEALT_WITH;
 	}
@@ -824,6 +898,7 @@ void View::modEncoderAction(int32_t whichModEncoder, int32_t offset) {
 
 	if (activeModControllableModelStack.modControllable) {
 
+		deluge::gui::combos::used(deluge::gui::combos::gesture::view::KnobParam);
 		bool noteTailsAllowedBefore;
 		ModelStackWithAutoParam* modelStackWithParam = getModelStackWithParam(whichModEncoder, noteTailsAllowedBefore);
 
@@ -919,6 +994,7 @@ void View::modEncoderAction_existentParam(int32_t whichModEncoder, int32_t offse
 	}
 
 	if (noteLock) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::view::ParamLockNotes);
 		instrumentClipView.noteLocks.setHeldValue(
 		    modelStackWithParam,
 		    modelStackWithParam->paramCollection->knobPosToParamValue(newKnobPos, modelStackWithParam));
@@ -1434,10 +1510,10 @@ void View::modEncoderButtonAction(uint8_t whichModEncoder, bool on) {
 
 	if (activeModControllableModelStack.modControllable) {
 
-		if (Buttons::isShiftButtonPressed() && on) {
-			modEncoderButtonAction_deleteAutomation(whichModEncoder);
-		}
-		else {
+		deluge::hid::Button knob =
+		    whichModEncoder ? deluge::hid::button::MOD_ENCODER_1 : deluge::hid::button::MOD_ENCODER_0;
+		if (!deluge::gui::combos::dispatch(kViewShortcuts, knob, on, false)) { // Shift: delete automation
+			deluge::gui::combos::used(deluge::gui::combos::gesture::view::KnobButton);
 			modEncoderButtonAction_changeModControllable(whichModEncoder, on);
 		}
 	}
@@ -2851,6 +2927,7 @@ ActionResult View::clipStatusPadAction(Clip* clip, bool on, int32_t yDisplayIfIn
 
 	case UI_MODE_VIEWING_RECORD_ARMING:
 		if (on) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::view::ArmClip);
 			if (!clip->armedForRecording) {
 				clip->armedForRecording = true;
 				if (clip->type == ClipType::AUDIO) {
@@ -2884,6 +2961,9 @@ ActionResult View::clipStatusPadAction(Clip* clip, bool on, int32_t yDisplayIfIn
 
 	case UI_MODE_HOLDING_STATUS_PAD:
 		if (on) {
+			if (Buttons::isShiftButtonPressed()) { // Without shift it's a plain launch
+				deluge::gui::combos::used(deluge::gui::combos::gesture::view::LaunchNow);
+			}
 			enterUIMode(UI_MODE_HOLDING_STATUS_PAD);
 			context_menu::clip_settings::clipSettings.clip = clip;
 			sessionView.performActionOnPadRelease = false; // Even though there's a chance we're not in session view
@@ -2913,6 +2993,7 @@ ActionResult View::clipStatusPadAction(Clip* clip, bool on, int32_t yDisplayIfIn
 #endif
 		if (on) {
 			sessionView.performActionOnPadRelease = false; // Even though there's a chance we're not in session view
+			deluge::gui::combos::used(deluge::gui::combos::gesture::view::SoloClip);
 			session.soloClipAction(clip, Buttons::isShiftButtonPressed(), kInternalButtonPressLatency);
 		}
 		break;

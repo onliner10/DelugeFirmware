@@ -16,6 +16,7 @@
  */
 
 #include "mod.h"
+#include "gui/combos/gesture_list.h"
 #include "gui/ui/keyboard/layout/column_controls.h"
 #include "storage/flash_storage.h"
 
@@ -40,6 +41,7 @@ void ModColumn::renderColumn(RGB image[][kDisplayWidth + kSideBarWidth], int32_t
 
 bool ModColumn::handleVerticalEncoder(int8_t pad, int32_t offset) {
 	if (pad == 7) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ColumnSetting);
 		modMax += offset << kVelModShift;
 		modMax = std::clamp(modMax, modMin, (uint32_t)127 << kVelModShift);
 		display->displayPopup(modMax >> kVelModShift);
@@ -47,6 +49,7 @@ bool ModColumn::handleVerticalEncoder(int8_t pad, int32_t offset) {
 		return true;
 	}
 	else if (pad == 0) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ColumnSetting);
 		modMin += offset << kVelModShift;
 		modMin = std::clamp((int32_t)modMin, (int32_t)0, (int32_t)modMax);
 		display->displayPopup(modMin >> kVelModShift);

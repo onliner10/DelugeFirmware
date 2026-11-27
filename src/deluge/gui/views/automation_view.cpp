@@ -101,6 +101,46 @@
 extern "C" {
 #include "RZA1/uart/sio_char.h"
 }
+#include "gui/combos/gesture_list.h"
+#include "gui/combos/tables.h"
+
+// Gestures handled in this view, for command search (gui/combos/gesture_list.h)
+namespace {
+PLACE_SDRAM_RODATA constexpr deluge::gui::combos::Gesture const* kGestures[] = {
+    &deluge::gui::combos::gesture::automation::Overview,
+    &deluge::gui::combos::gesture::automation::SongView,
+    &deluge::gui::combos::gesture::automation::KeyboardView,
+    &deluge::gui::combos::gesture::automation::ClipView,
+    &deluge::gui::combos::gesture::automation::LoopView,
+    &deluge::gui::combos::gesture::automation::CopyAutomation,
+    &deluge::gui::combos::gesture::automation::PasteAutomation,
+    &deluge::gui::combos::gesture::automation::DoubleClip,
+    &deluge::gui::combos::gesture::automation::ClearAutomation,
+    &deluge::gui::combos::gesture::automation::SoundMenu,
+    &deluge::gui::combos::gesture::automation::FoldVelocity,
+    &deluge::gui::combos::gesture::automation::Interpolation,
+    &deluge::gui::combos::gesture::automation::PadSelection,
+    &deluge::gui::combos::gesture::automation::VelocityEditor,
+    &deluge::gui::combos::gesture::automation::PickParam,
+    &deluge::gui::combos::gesture::automation::SilentAudition,
+    &deluge::gui::combos::gesture::automation::ShiftAutomation,
+    &deluge::gui::combos::gesture::automation::RowLength,
+    &deluge::gui::combos::gesture::automation::NoteVelocity,
+    &deluge::gui::combos::gesture::automation::TransposeOctave,
+    &deluge::gui::combos::gesture::automation::ClipColour,
+    &deluge::gui::combos::gesture::automation::StepValue,
+    &deluge::gui::combos::gesture::automation::ParamValue,
+    &deluge::gui::combos::gesture::automation::CopyKnobAutomation,
+    &deluge::gui::combos::gesture::automation::PasteKnobAutomation,
+    &deluge::gui::combos::gesture::automation::DeleteKnobAutomation,
+    &deluge::gui::combos::gesture::automation::FastParamSelect,
+    &deluge::gui::combos::gesture::automation::SelectParam,
+};
+} // namespace
+
+deluge::gui::combos::Gestures deluge::gui::combos::automationGestures() {
+	return kGestures;
+}
 
 namespace params = deluge::modulation::params;
 using deluge::modulation::params::kNoParamID;
@@ -1246,6 +1286,7 @@ ActionResult AutomationView::buttonAction(hid::Button b, bool on, bool inCardRou
 				if (inCardRoutine) {
 					return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 				}
+				deluge::gui::combos::used(deluge::gui::combos::gesture::automation::LoopView);
 				instrumentClipView.togglePlayWindow();
 			}
 		}
@@ -1347,6 +1388,7 @@ passToOthers:
 			if (inNoteEditor()) {
 				// only with nothing held, matching InstrumentClipMinder's kit affect entire toggle
 				if (currentUIMode == UI_MODE_NONE) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::automation::FoldVelocity);
 					endNoteEditorPadPresses();
 					velocityFold().affectEntireChanged();
 					blinkShortcuts();
@@ -1384,6 +1426,7 @@ void AutomationView::handleSessionButtonAction(Clip* clip, bool on) {
 	}
 	// go back to song / arranger view
 	else if (on && (currentUIMode == UI_MODE_NONE || (currentUIMode == UI_MODE_NOTES_PRESSED && padSelectionOn))) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::SongView);
 		if (padSelectionOn) {
 			// Song / Arranger View cannot release the automation editor's held pads.
 			endAutomationEditPadPresses();
@@ -1404,6 +1447,7 @@ void AutomationView::handleSessionButtonAction(Clip* clip, bool on) {
 // called by button action if b == KEYBOARD
 void AutomationView::handleKeyboardButtonAction(bool on) {
 	if (on && (currentUIMode == UI_MODE_NONE || (currentUIMode == UI_MODE_NOTES_PRESSED && padSelectionOn))) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::KeyboardView);
 		if (padSelectionOn) {
 			// Keyboard / Performance View cannot release the automation editor's held pads.
 			endAutomationEditPadPresses();
@@ -1428,6 +1472,7 @@ void AutomationView::handleClipButtonAction(bool on, bool isAudioClip) {
 	if (on && (currentUIMode == UI_MODE_AUDITIONING || Buttons::isShiftButtonPressed())) {
 		// Note edits store the selected note row, not the physical pad row used by overview releases.
 		// End them while leaving the editor, before discarding that context.
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::Overview);
 		if (inNoteEditor()) {
 			endNoteEditorPadPresses();
 		}
@@ -1437,6 +1482,7 @@ void AutomationView::handleClipButtonAction(bool on, bool isAudioClip) {
 	}
 	// go back to arranger view or clip view
 	else if (on && (currentUIMode == UI_MODE_NONE || (currentUIMode == UI_MODE_NOTES_PRESSED && padSelectionOn))) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::ClipView);
 		if (padSelectionOn) {
 			endAutomationEditPadPresses();
 			initPadSelection();
@@ -1589,11 +1635,13 @@ bool AutomationView::handleHorizontalEncoderButtonAction(bool on, bool isAudioCl
 			int32_t xZoom = currentSong->xZoom[navSysId];
 
 			if (Buttons::isShiftButtonPressed()) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::automation::PasteAutomation);
 				// paste within Automation Editor
 				automationEditorLayoutModControllable.pasteAutomation(modelStackWithParam, clip, effectiveLength,
 				                                                      xScroll, xZoom);
 			}
 			else {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::automation::CopyAutomation);
 				// copy within Automation Editor
 				automationEditorLayoutModControllable.copyAutomation(modelStackWithParam, clip, xScroll, xZoom);
 			}
@@ -1618,6 +1666,7 @@ bool AutomationView::handleHorizontalEncoderButtonAction(bool on, bool isAudioCl
 	// If user wants to "multiply" Clip contents
 	else if (on && Buttons::isShiftButtonPressed() && !isUIModeActiveExclusively(UI_MODE_NOTES_PRESSED)
 	         && !onAutomationOverview()) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::DoubleClip);
 		if (isNoUIModeActive()) {
 			// Zoom to max if we weren't already there...
 			if (!zoomToMax()) {
@@ -1645,6 +1694,7 @@ bool AutomationView::handleBackAndHorizontalEncoderButtonComboAction(Clip* clip,
 	// only allow clearing of a clip if you're on the automation overview
 	if (on && onAutomationOverview()) {
 		if (clip->type == ClipType::AUDIO || onArrangerView) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::automation::ClearAutomation);
 			// clear all arranger automation
 			if (onArrangerView) {
 				Action* action = actionLogger.getNewAction(ActionType::ARRANGEMENT_CLEAR, ActionAddition::NOT_ALLOWED);
@@ -1674,6 +1724,7 @@ bool AutomationView::handleBackAndHorizontalEncoderButtonComboAction(Clip* clip,
 		return true;
 	}
 	else if (on && inAutomationEditor()) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::ClearAutomation);
 		// delete automation of current parameter selected
 
 		char modelStackMemory[MODEL_STACK_MAX_SIZE];
@@ -1749,6 +1800,7 @@ void AutomationView::handleVerticalEncoderButtonAction(bool on) {
 // called by button action if b == SELECT_ENC and shift button is not pressed
 void AutomationView::handleSelectEncoderButtonAction(bool on) {
 	if (on && (currentUIMode == UI_MODE_NONE || (currentUIMode == UI_MODE_NOTES_PRESSED && padSelectionOn))) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::SoundMenu);
 		initParameterSelection();
 		uiNeedsRendering(&automationView);
 
@@ -1900,6 +1952,7 @@ ActionResult AutomationView::handleEditPadAction(ModelStackWithAutoParam* modelS
 	// pressing PatchSource::Velocity shortcut
 	if (velocity && !onArrangerView && clip->type == ClipType::INSTRUMENT && isUIModeActive(UI_MODE_AUDITIONING)
 	    && isNoteVelocityEditorShortcut(x, y)) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::VelocityEditor);
 		// Automation edits store physical pad rows, which note-editor releases cannot match.
 		if (inAutomationEditor()) {
 			endAutomationEditPadPresses();
@@ -1978,11 +2031,13 @@ bool AutomationView::shortcutPadAction(ModelStackWithAutoParam* modelStackWithPa
 				// toggle interpolation on / off
 				// not relevant for note editor because interpolation doesn't apply to note params
 				if ((x == kInterpolationShortcutX && y == kInterpolationShortcutY)) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::automation::Interpolation);
 					return automationEditorLayoutModControllable.toggleAutomationInterpolation();
 				}
 				// toggle pad selection on / off
 				// not relevant for note editor because pad selection mode was deemed unnecessary
 				else if (inAutomationEditor() && (x == kPadSelectionShortcutX && y == kPadSelectionShortcutY)) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::automation::PadSelection);
 					return automationEditorLayoutModControllable.toggleAutomationPadSelectionMode(
 					    modelStackWithParam, effectiveLength, xScroll, xZoom);
 				}
@@ -2000,6 +2055,7 @@ bool AutomationView::shortcutPadAction(ModelStackWithAutoParam* modelStackWithPa
 				    || !(outputType == OutputType::KIT && !getAffectEntire() && !((Kit*)output)->selectedDrum)
 				    || (outputType == OutputType::KIT && getAffectEntire())) {
 
+					deluge::gui::combos::used(deluge::gui::combos::gesture::automation::PickParam);
 					handleParameterSelection(clip, output, outputType, x, y);
 
 					// if you're in not in note editor, turn led off if it's on
@@ -2200,6 +2256,9 @@ ActionResult AutomationView::handleAuditionPadAction(InstrumentClip* instrumentC
 		// Actual basic audition pad press:
 		else if (!velocity || isUIModeWithinRange(auditionPadActionUIModes)) {
 			bool auditioningSilently = Buttons::isShiftButtonPressed();
+			if (velocity && auditioningSilently) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::automation::SilentAudition);
+			}
 			if (inNoteEditor() && isUIModeActive(UI_MODE_NOTES_PRESSED)) {
 				// Don't change row selection while holding a note, but always release held audition pads.
 				if (velocity && instrumentClipView.lastAuditionedYDisplay != y) {
@@ -2379,6 +2438,7 @@ ActionResult AutomationView::horizontalEncoderAction(int32_t offset) {
 	        || (isUIModeActiveExclusively(UI_MODE_AUDITIONING | UI_MODE_HOLDING_HORIZONTAL_ENCODER_BUTTON)))) {
 
 		if (inAutomationEditor()) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::automation::ShiftAutomation);
 			int32_t xScroll = currentSong->xScroll[navSysId];
 			int32_t xZoom = currentSong->xZoom[navSysId];
 			int32_t squareSize = getPosFromSquare(1, xScroll, xZoom) - getPosFromSquare(0, xScroll, xZoom);
@@ -2418,12 +2478,14 @@ ActionResult AutomationView::horizontalEncoderAction(int32_t offset) {
 
 	// fine tune velocity of the held steps in the folded velocity editor
 	else if (velocityFold().isFolded() && velocityFold().anyPadPresses()) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::NoteVelocity);
 		velocityFold().adjustHeldVelocity(getCurrentInstrumentClip(), offset);
 		return ActionResult::DEALT_WITH;
 	}
 
 	// Auditioning but not holding down <> encoder - edit length of just one row
 	else if (isUIModeActiveExclusively(UI_MODE_AUDITIONING)) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::RowLength);
 		instrumentClipView.editNoteRowLength(offset);
 		return ActionResult::DEALT_WITH;
 	}
@@ -2433,6 +2495,7 @@ ActionResult AutomationView::horizontalEncoderAction(int32_t offset) {
 	else if (inNoteEditor() && isUIModeActiveExclusively(UI_MODE_NOTES_PRESSED)) {
 		if (automationParamType == AutomationParamType::NOTE_VELOCITY) {
 			if (!instrumentClipView.shouldIgnoreHorizontalScrollKnobActionIfNotAlsoPressedForThisNotePress) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::automation::NoteVelocity);
 				instrumentClipView.adjustVelocity(offset);
 				renderDisplay(getCurrentInstrument()->defaultVelocity);
 				uiNeedsRendering(&automationView, 0xFFFFFFFF, 0);
@@ -2506,6 +2569,7 @@ ActionResult AutomationView::verticalEncoderAction(int32_t offset, bool inCardRo
 		}
 		// If user not wanting to move a noteCode, they want to transpose the key
 		else if (!currentUIMode && outputType != OutputType::KIT) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::automation::TransposeOctave);
 			ActionResult result = instrumentClipView.commandTransposeKey(offset, inCardRoutine);
 			// if we're in note editor transposing will the change note selected
 			// so we want to re-render the display to show the updated note
@@ -2517,6 +2581,7 @@ ActionResult AutomationView::verticalEncoderAction(int32_t offset, bool inCardRo
 
 	// Or, if shift key is pressed
 	else if (Buttons::isShiftButtonPressed()) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::ClipColour);
 		instrumentClipView.commandShiftColour(offset);
 	}
 
@@ -2614,6 +2679,7 @@ void AutomationView::modEncoderAction(int32_t whichModEncoder, int32_t offset) {
 		         < 0))
 		    || padSelectionOn) {
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::automation::StepValue);
 			if (automationEditorLayoutModControllable.automationModEncoderActionForSelectedPad(
 			        modelStackWithParam, whichModEncoder, offset, effectiveLength)) {
 				return;
@@ -2624,6 +2690,7 @@ void AutomationView::modEncoderAction(int32_t whichModEncoder, int32_t offset) {
 	// the selected parameter this code is also executed if you're just changing the current value of
 	// the parameter at the current mod position
 	else {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::ParamValue);
 		automationEditorLayoutModControllable.automationModEncoderActionForUnselectedPad(
 		    modelStackWithParam, whichModEncoder, offset, effectiveLength);
 	}
@@ -2697,15 +2764,18 @@ void AutomationView::modEncoderButtonAction(uint8_t whichModEncoder, bool on) {
 
 	// if they want to copy automation...
 	if (is_copy_action) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::CopyKnobAutomation);
 		automationEditorLayoutModControllable.copyAutomation(modelStackWithParam, clip, xScroll, xZoom);
 	}
 	// if they want to paste automation
 	else if (is_paste_action) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::PasteKnobAutomation);
 		automationEditorLayoutModControllable.pasteAutomation(modelStackWithParam, clip, effectiveLength, xScroll,
 		                                                      xZoom);
 	}
 	// if they want to delete automation
 	else if (is_delete_action) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::DeleteKnobAutomation);
 		Action* action = actionLogger.getNewAction(ActionType::AUTOMATION_DELETE);
 		modelStackWithParam->autoParam->deleteAutomation(action, modelStackWithParam);
 
@@ -2730,6 +2800,7 @@ void AutomationView::selectEncoderAction(int8_t offset) {
 
 	// 5x acceleration of select encoder when holding the shift button
 	if (Buttons::isButtonPressed(deluge::hid::button::SHIFT)) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::FastParamSelect);
 		offset = offset * 5;
 	}
 
@@ -2768,11 +2839,13 @@ void AutomationView::selectEncoderAction(int8_t offset) {
 	}
 	// if you're in a midi clip
 	else if (outputType == OutputType::MIDI_OUT) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::SelectParam);
 		selectMIDICC(offset, clip);
 		getLastSelectedParamShortcut(clip);
 	}
 	// if you're in arranger view or in a non-midi, non-cv clip (e.g. audio, synth, kit)
 	else if (onArrangerView || outputType != OutputType::CV) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::SelectParam);
 		// if you're in a audio clip, a kit with affect entire enabled, or in arranger view
 		if (onArrangerView || (outputType == OutputType::AUDIO)
 		    || (outputType == OutputType::KIT && getAffectEntire())) {
@@ -2795,6 +2868,7 @@ void AutomationView::selectEncoderAction(int8_t offset) {
 	}
 	// if you're in a CV clip, cycle through the expression params (pitch bend, Y, pressure)
 	else if (outputType == OutputType::CV) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::automation::SelectParam);
 		selectExpressionParam(offset, clip);
 		getLastSelectedParamShortcut(clip);
 	}

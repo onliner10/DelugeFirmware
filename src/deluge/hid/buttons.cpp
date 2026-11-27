@@ -17,6 +17,7 @@
 
 #include "hid/buttons.h"
 #include "definitions_cxx.hpp"
+#include "gui/combos/command_search.h"
 #include "gui/ui/audio_recorder.h"
 #include "gui/ui/load/load_song_ui.h"
 #include "gui/ui/ui.h"
@@ -33,7 +34,44 @@
 #include <map>
 #include <string>
 
+#include "gui/combos/gesture_list.h"
+#include "gui/combos/tables.h"
 #include "io/debug/log.h"
+
+// Gestures handled in this view, for command search (gui/combos/gesture_list.h)
+namespace {
+PLACE_SDRAM_RODATA constexpr deluge::gui::combos::Gesture const* kGestures[] = {
+    &deluge::gui::combos::gesture::global::Play,
+    &deluge::gui::combos::gesture::global::RestartPlay,
+    &deluge::gui::combos::gesture::global::RestartPlayCross,
+    &deluge::gui::combos::gesture::global::PlayFromScreen,
+    &deluge::gui::combos::gesture::global::PlayFromScreenCross,
+    &deluge::gui::combos::gesture::global::PlayFromStart,
+    &deluge::gui::combos::gesture::global::PlayFromStartCross,
+    &deluge::gui::combos::gesture::global::PlayRecordOutput,
+    &deluge::gui::combos::gesture::global::RecordOutput,
+    &deluge::gui::combos::gesture::global::Record,
+    &deluge::gui::combos::gesture::global::ClearTempoAutomation,
+    &deluge::gui::combos::gesture::global::ShowSwing,
+    &deluge::gui::combos::gesture::global::ShowTempo,
+    &deluge::gui::combos::gesture::global::SwingInterval,
+    &deluge::gui::combos::gesture::global::NudgeSync,
+    &deluge::gui::combos::gesture::global::SwingAmount,
+    &deluge::gui::combos::gesture::global::ClockOutScale,
+    &deluge::gui::combos::gesture::global::Tempo,
+    &deluge::gui::combos::gesture::global::FineTempo,
+    &deluge::gui::combos::gesture::global::PadBrightness,
+    &deluge::gui::combos::gesture::global::PadRefresh,
+    &deluge::gui::combos::gesture::global::ThresholdRecording,
+    &deluge::gui::combos::gesture::global::SwapDisplay,
+    &deluge::gui::combos::gesture::global::ExitMenus,
+    &deluge::gui::combos::gesture::global::StickyShift,
+};
+} // namespace
+
+deluge::gui::combos::Gestures deluge::gui::combos::globalGestures() {
+	return kGestures;
+}
 
 namespace Buttons {
 
@@ -119,6 +157,7 @@ ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
 		if (on && isShiftButtonPressed() && isButtonPressed(LEARN)) {
 			if (runtimeFeatureSettings.get(RuntimeFeatureSettingType::EmulatedDisplay)
 			    != RuntimeFeatureStateEmulatedDisplay::Hardware) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::global::SwapDisplay);
 				deluge::hid::display::swapDisplayType();
 				goto dealtWith;
 			}
@@ -144,6 +183,15 @@ ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
 			selectButtonPressUsedUp = false;
 		}
 	}
+	// Shift + keyboard: command search, in every view that has one
+	else if (b == KEYBOARD && on && isShiftButtonPressed() && currentUIMode == UI_MODE_NONE
+	         && CommandSearchUI::canOpen()) {
+		if (inCardRoutine) {
+			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+		}
+		openUI(&commandSearchUI);
+		goto dealtWith;
+	}
 
 	result = getCurrentUI()->buttonAction(b, on, inCardRoutine);
 
@@ -168,10 +216,12 @@ ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
 			else {
 
 				// if (inCardRoutine) return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+				deluge::gui::combos::used(deluge::gui::combos::gesture::global::Play);
 				playbackHandler.playButtonPressed(kInternalButtonPressLatency);
 
 				// Begin output-recording simultaneously with playback
 				if (isButtonPressed(RECORD) && playbackHandler.playbackState && !recordButtonPressUsedUp) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::global::PlayRecordOutput);
 					audioRecorder.beginOutputRecording();
 				}
 			}
@@ -193,6 +243,7 @@ ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
 
 			if (audioRecorder.recordingSource == AudioInputChannel::NONE) {
 				if (isShiftButtonPressed()) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::global::RecordOutput);
 					audioRecorder.beginOutputRecording();
 					recordButtonPressUsedUp = true;
 				}
@@ -210,6 +261,7 @@ ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
 					audioRecorder.endRecordingSoon(kInternalButtonPressLatency);
 				}
 				else {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::global::Record);
 					playbackHandler.recordButtonPressed();
 				}
 			}
@@ -220,9 +272,11 @@ ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
 	else if (b == TEMPO_ENC) {
 		if (on) {
 			if (isShiftButtonPressed()) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::global::ClearTempoAutomation);
 				playbackHandler.commandClearTempoAutomation();
 			}
 			else if (isButtonPressed(TAP_TEMPO)) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::global::ShowSwing);
 				playbackHandler.commandDisplaySwingInterval();
 			}
 			else {
@@ -231,6 +285,7 @@ ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
 				    display->haveOLED() && (currentUI == &sessionView || currentUI == &arrangerView);
 				// only display tempo pop-up if we're using 7SEG or we're not currently in Song / Arranger View
 				if (!loadSongUI.isLoadingSong() && !isOLEDSessionView) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::global::ShowTempo);
 					playbackHandler.commandDisplayTempo();
 				}
 			}
@@ -279,6 +334,7 @@ void commandToggleShift(bool on) {
 			if (delta < FlashStorage::holdTime) {
 				// unstick shift if another button was pressed while shift was held, or we were already stuck and
 				// this short press is to get us unstuck.
+				deluge::gui::combos::used(deluge::gui::combos::gesture::global::StickyShift);
 				shiftCurrentlyStuck = considerShiftReleaseForSticky && !shiftCurrentlyStuck;
 			}
 		}

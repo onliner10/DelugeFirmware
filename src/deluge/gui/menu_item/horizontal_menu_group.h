@@ -33,6 +33,7 @@ public:
 	void beginSession(MenuItem* navigatedBackwardFrom) override;
 	void endSession() override;
 	bool hasItem(const MenuItem* item) override;
+	HorizontalMenu* menuWithItem(const MenuItem* item) override;
 
 protected:
 	void renderMenuItems(std::span<MenuItem*> items, const MenuItem* currentItem) override;

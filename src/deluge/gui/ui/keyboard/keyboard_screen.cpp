@@ -44,6 +44,8 @@
 #include "processing/sound/sound_instrument.h"
 #include <cstring>
 
+#include "gui/combos/gesture_list.h"
+#include "gui/combos/tables.h"
 #include "gui/ui/keyboard/layout.h"
 #include "gui/ui/keyboard/layout/chord_keyboard.h"
 #include "gui/ui/keyboard/layout/chord_library.h"
@@ -55,6 +57,29 @@
 #include "gui/ui/keyboard/layout/velocity_drums.h"
 #include "model/song/note_spelling.h"
 #include "util/functions.h"
+
+// Gestures handled in this view, for command search (gui/combos/gesture_list.h)
+namespace {
+PLACE_SDRAM_RODATA constexpr deluge::gui::combos::Gesture const* kGestures[] = {
+    &deluge::gui::combos::gesture::keyboard::SelectScale,   &deluge::gui::combos::gesture::keyboard::ScaleMode,
+    &deluge::gui::combos::gesture::keyboard::RootNote,      &deluge::gui::combos::gesture::keyboard::CycleScales,
+    &deluge::gui::combos::gesture::keyboard::RootNoteTurn,  &deluge::gui::combos::gesture::keyboard::BackToClip,
+    &deluge::gui::combos::gesture::keyboard::Layout,        &deluge::gui::combos::gesture::keyboard::SongView,
+    &deluge::gui::combos::gesture::keyboard::ReturnTarget,  &deluge::gui::combos::gesture::keyboard::ToKit,
+    &deluge::gui::combos::gesture::keyboard::ToSynth,       &deluge::gui::combos::gesture::keyboard::ToMidi,
+    &deluge::gui::combos::gesture::keyboard::ToCv,          &deluge::gui::combos::gesture::keyboard::NewSynth,
+    &deluge::gui::combos::gesture::keyboard::NewKit,        &deluge::gui::combos::gesture::keyboard::BrowseDrumSample,
+    &deluge::gui::combos::gesture::keyboard::Resample,      &deluge::gui::combos::gesture::keyboard::Colours,
+    &deluge::gui::combos::gesture::keyboard::RowInterval,   &deluge::gui::combos::gesture::keyboard::ChordMode,
+    &deluge::gui::combos::gesture::keyboard::DrumZoom,      &deluge::gui::combos::gesture::keyboard::DrumZoomX,
+    &deluge::gui::combos::gesture::keyboard::ChordVoicing,  &deluge::gui::combos::gesture::keyboard::ColumnFunction,
+    &deluge::gui::combos::gesture::keyboard::ColumnSetting, &deluge::gui::combos::gesture::keyboard::ChordMemory,
+};
+} // namespace
+
+deluge::gui::combos::Gestures deluge::gui::combos::keyboardGestures() {
+	return kGestures;
+}
 
 PLACE_SDRAM_BSS deluge::gui::ui::keyboard::KeyboardScreen keyboardScreen{};
 
@@ -180,6 +205,7 @@ ActionResult KeyboardScreen::padAction(int32_t x, int32_t y, int32_t velocity) {
 
 		// We probably couldn't have got this far if it was a Kit, but let's just check
 		if (getCurrentOutputType() != OutputType::KIT && lastNotesState.count == 0 && currentNotesState.count == 1) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::RootNote);
 			toggleScaleModeOnButtonRelease = false;
 			if (getCurrentInstrumentClip()->inScaleMode) {
 				instrumentClipView.setupChangingOfRootNote(currentNotesState.notes[0].note);
@@ -326,6 +352,7 @@ void KeyboardScreen::updateActiveNotes() {
 			// Begin resampling - yup this is even allowed if we're in the card routine!
 			if (Buttons::isButtonPressed(deluge::hid::button::RECORD)
 			    && audioRecorder.recordingSource == AudioInputChannel::NONE) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::Resample);
 				audioRecorder.beginOutputRecording();
 				Buttons::recordButtonPressUsedUp = true;
 			}
@@ -435,6 +462,7 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 
 				// If user holding shift and we're already in scale mode, pick a scale from a list
 				if (Buttons::isShiftButtonPressed() && inScaleMode) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::SelectScale);
 					if (gui::context_menu::selectScale.setupAndCheckAvailability()) {
 						openUI(&gui::context_menu::selectScale);
 					}
@@ -458,6 +486,7 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 
 			// If user is auditioning just one note, we can go directly into Scale Mode and set that root note
 			else if (currentUIMode == UI_MODE_AUDITIONING && currentNotesState.count == 1 && !inScaleMode) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::RootNote);
 				exitAuditionMode();
 				enterScaleMode(currentNotesState.notes[0].note);
 			}
@@ -469,6 +498,7 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 			}
 
 			if (toggleScaleModeOnButtonRelease && isShortPress(scaleButtonPressTime)) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ScaleMode);
 				toggleScaleModeOnButtonRelease = false;
 				if (inScaleMode) {
 					display->cancelPopup();
@@ -494,6 +524,7 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 		if (currentUIMode == UI_MODE_NONE && !keyboardButtonActive
 		    && !keyboardButtonUsed) { // Leave if key up and not used
 
+			deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::BackToClip);
 			instrumentClipView.recalculateColours();
 			if (getCurrentClip()->onAutomationClipView) {
 				changeRootUI(&automationView);
@@ -508,6 +539,7 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 
 	// Song view button
 	else if (b == SESSION_VIEW && on && currentUIMode == UI_MODE_NONE) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::SongView);
 		ClipMinder::transitionToArrangerOrSession();
 	}
 
@@ -515,6 +547,7 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 	// instrument clip view
 	else if (b == CLIP_VIEW) {
 		if (on) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ReturnTarget);
 			if (getCurrentClip()->onAutomationClipView) {
 				getCurrentClip()->onAutomationClipView = false;
 				indicator_leds::setLedState(IndicatorLED::CLIP_VIEW, true);
@@ -529,6 +562,12 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 	// Kit button
 	else if (b == KIT && currentUIMode == UI_MODE_NONE) {
 		if (on) {
+			if (Buttons::isShiftButtonPressed()) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::NewKit);
+			}
+			else {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ToKit);
+			}
 			if (instrumentClipView.handleInstrumentChange(OutputType::KIT)) {
 				selectLayout(0);
 			}
@@ -537,6 +576,12 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 
 	else if (b == SYNTH && currentUIMode == UI_MODE_NONE) {
 		if (on) {
+			if (Buttons::isShiftButtonPressed()) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::NewSynth);
+			}
+			else {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ToSynth);
+			}
 			if (instrumentClipView.handleInstrumentChange(OutputType::SYNTH)) {
 				selectLayout(0);
 			}
@@ -545,6 +590,7 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 
 	else if (b == MIDI && currentUIMode == UI_MODE_NONE) {
 		if (on) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ToMidi);
 			if (changeOutputType(OutputType::MIDI_OUT)) {
 				selectLayout(0);
 			}
@@ -553,6 +599,7 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 
 	else if (b == CV && currentUIMode == UI_MODE_NONE) {
 		if (on) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ToCv);
 			if (changeOutputType(OutputType::CV)) {
 				selectLayout(0);
 			}
@@ -561,6 +608,7 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 
 	else if (b == SELECT_ENC && on && getCurrentInstrumentClip()->inScaleMode
 	         && currentUIMode == UI_MODE_SCALE_MODE_BUTTON_PRESSED) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::CycleScales);
 		toggleScaleModeOnButtonRelease = false;
 		cycleThroughScales();
 		onScaleChanged();
@@ -587,6 +635,7 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 			if (output->type == OutputType::KIT) {
 				Kit* kit = (Kit*)output;
 				if (kit->selectedDrum) {
+					deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::BrowseDrumSample);
 					exitAuditionMode();
 
 					char modelStackMemory[MODEL_STACK_MAX_SIZE];
@@ -622,6 +671,7 @@ ActionResult KeyboardScreen::verticalEncoderAction(int32_t offset, bool inCardRo
 	}
 
 	if (Buttons::isShiftButtonPressed() && currentUIMode == UI_MODE_NONE) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::Colours);
 		getCurrentInstrumentClip()->colourOffset += offset;
 		layout_list[getCurrentInstrumentClip()->keyboardState.currentLayout]->precalculate();
 	}
@@ -726,12 +776,14 @@ void KeyboardScreen::selectLayout(int8_t offset) {
 
 void KeyboardScreen::selectEncoderAction(int8_t offset) {
 	if (keyboardButtonActive) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::Layout);
 		keyboardButtonUsed = true;
 		selectLayout(offset);
 	}
 	else if (getCurrentOutputType() != OutputType::KIT && currentUIMode == UI_MODE_SCALE_MODE_BUTTON_PRESSED
 	         && getCurrentInstrumentClip()->inScaleMode) {
 
+		deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::RootNoteTurn);
 		toggleScaleModeOnButtonRelease = false;
 		int32_t newRootNote = ((currentSong->key.rootNote + kOctaveSize) + offset) % kOctaveSize;
 		instrumentClipView.setupChangingOfRootNote(newRootNote);

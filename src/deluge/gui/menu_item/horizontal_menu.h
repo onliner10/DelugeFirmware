@@ -58,6 +58,8 @@ public:
 	bool focusChild(const MenuItem* child) override;
 
 	virtual bool hasItem(const MenuItem* item);
+	/// The menu that shows `item`: this one, or for a group, the menu in it. Null if none.
+	virtual HorizontalMenu* menuWithItem(const MenuItem* item) { return hasItem(item) ? this : nullptr; }
 	decltype(items)& getItems() { return items; }
 	MenuItem* getCurrentItem() const { return *current_item_; }
 	bool selectEncoderActionEditsInstrument() override;

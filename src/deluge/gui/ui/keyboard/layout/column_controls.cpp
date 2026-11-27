@@ -16,6 +16,7 @@
  */
 
 #include "definitions.h"
+#include "gui/combos/gesture_list.h"
 #include "gui/ui/audio_recorder.h"
 #include "gui/ui/browser/sample_browser.h"
 #include "gui/ui/keyboard/layout/isomorphic.h"
@@ -320,6 +321,7 @@ bool ColumnControlsKeyboard::horizontalEncoderHandledByColumns(int32_t offset, b
 
 	ColumnControlState& state = getState().columnControl;
 	if (leftColHeld == 7 && offset) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ColumnFunction);
 		state.leftCol->handleLeavingColumn(modelStackWithTimelineCounter, this);
 		state.leftColFunc = (offset > 0) ? nextControlFunction(state.leftColFunc, state.rightColFunc)
 		                                 : prevControlFunction(state.leftColFunc, state.rightColFunc);
@@ -329,6 +331,7 @@ bool ColumnControlsKeyboard::horizontalEncoderHandledByColumns(int32_t offset, b
 		return true;
 	}
 	else if (rightColHeld == 7 && offset) {
+		deluge::gui::combos::used(deluge::gui::combos::gesture::keyboard::ColumnFunction);
 		state.rightCol->handleLeavingColumn(modelStackWithTimelineCounter, this);
 		state.rightColFunc = (offset > 0) ? nextControlFunction(state.rightColFunc, state.leftColFunc)
 		                                  : prevControlFunction(state.rightColFunc, state.leftColFunc);

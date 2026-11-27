@@ -126,6 +126,7 @@ public:
 
 	bool shouldGoUpOneLevelOnBegin;
 	bool secondLayerShortcutsToggled;
+	bool shortcutFromSearch = false; // Act as if shift were held
 
 	bool programChangeReceived(MIDICable& cable, uint8_t channel, uint8_t program) { return false; }
 	bool midiCCReceived(MIDICable& cable, uint8_t channel, uint8_t ccNumber, uint8_t value);
@@ -149,6 +150,10 @@ public:
 	void markInstrumentAsEdited();
 	/// Checks ONLY the basic top level shortcut. Does not handle layers or whether patch cables are possible
 	static std::tuple<MenuItem*, bool> get_basic_shortcut_action(int32_t x, int32_t y, bool doKitAffectEntire);
+	/// Whether shortcut pad x leads to `item` for `forThing` (null: don't know, so yes), as the Shift overlay shows it
+	static bool shortcutIsRelevant(ModControllableAudio* forThing, MenuItem* item, int32_t x);
+	/// Command search: does what Shift + shortcut pad (x, y) does, pressed twice for its second layer
+	void openShortcutFromSearch(int32_t x, int32_t y, bool secondLayer);
 	static bool editingCVOrMIDIClip();
 	static bool editingNonAudioDrumRow();
 	static bool editingNothing();
