@@ -23,9 +23,11 @@ void checkPatchedLayout(ParamManager& manager) {
 	auto* unpatched = manager.getUnpatchedParamSet();
 	auto* patched = manager.getPatchedParamSet();
 	auto* cables = manager.getPatchCableSet();
+	// Unpatched and patched share one block; the PatchCableSet has a block of its own, so the shared one fits the
+	// 2 KB size class
 	CHECK(ownsBlock(unpatched));
 	CHECK(!ownsBlock(patched));
-	CHECK(!ownsBlock(cables));
+	CHECK(ownsBlock(cables));
 	CHECK(contains(unpatched, sizeof(*unpatched)));
 	CHECK(contains(patched, sizeof(*patched)));
 	CHECK(contains(cables, sizeof(*cables)));
@@ -33,7 +35,6 @@ void checkPatchedLayout(ParamManager& manager) {
 	CHECK_EQUAL(0, addressValue(patched) % alignof(PatchedParamSet));
 	CHECK_EQUAL(0, addressValue(cables) % alignof(PatchCableSet));
 	CHECK(addressValue(unpatched) + sizeof(*unpatched) <= addressValue(patched));
-	CHECK(addressValue(patched) + sizeof(*patched) <= addressValue(cables));
 }
 void addNode(AutoParam& param, int32_t value) {
 	CHECK(param.setNodeAtPos(0, value, false) >= 0);
@@ -54,11 +55,11 @@ void populateCollections(ParamManager& manager) {
 // NOLINTBEGIN(cppcoreguidelines-owning-memory,bugprone-throwing-static-initialization,readability-function-cognitive-complexity)
 TEST_GROUP(ParamManagerTests){};
 
-TEST(ParamManagerTests, PatchedSetupUsesOneAlignedAllocation) {
+TEST(ParamManagerTests, PatchedSetupUsesOneMainBlockAndOneCableBlock) {
 	ParamManager manager;
 	CHECK(manager.setupWithPatching() == Error::NONE);
-	CHECK_EQUAL(1, allocationAttempts());
-	CHECK_EQUAL(1, liveAllocations());
+	CHECK_EQUAL(2, allocationAttempts());
+	CHECK_EQUAL(2, liveAllocations());
 	checkPatchedLayout(manager);
 	manager.getUnpatchedParamSet()->params[0].setCurrentValueBasicForSetup(123);
 	manager.getPatchedParamSet()->params[0].setCurrentValueBasicForSetup(456);
@@ -98,7 +99,7 @@ TEST(ParamManagerTests, RepeatedSetupPreservesExpressionAndReleasesOldCollection
 	CHECK_EQUAL(1, manager.getExpressionParamSetOffset());
 	POINTERS_EQUAL(expression, manager.getExpressionParamSet());
 	CHECK(manager.setupWithPatching() == Error::NONE);
-	CHECK_EQUAL(2, liveAllocations());
+	CHECK_EQUAL(3, liveAllocations());
 	POINTERS_EQUAL(expression, manager.getExpressionParamSet());
 	CHECK_EQUAL(77, expression->getValue(0));
 	CHECK_EQUAL(1, manager.getExpressionParamSetSummary()->whichParamsAreAutomated[0]);
@@ -145,14 +146,14 @@ TEST(ParamManagerTests, CloneOwnsIndependentCollectionsAndAutomation) {
 	CHECK_EQUAL(11, source.getUnpatchedParamSet()->params[0].nodes.getFirst()->value);
 }
 
-TEST(ParamManagerTests, CloneAllocatesOneMainBlockAndSeparateExpressionBlock) {
+TEST(ParamManagerTests, CloneAllocatesMainCableAndExpressionBlocks) {
 	ParamManager source;
 	CHECK(source.setupWithPatching() == Error::NONE);
 	CHECK(source.ensureExpressionParamSetExists());
 	ParamManager clone;
 	size_t before = allocationAttempts();
 	CHECK(clone.cloneParamCollectionsFrom(&source, true, true) == Error::NONE);
-	CHECK_EQUAL(2, allocationAttempts() - before);
+	CHECK_EQUAL(3, allocationAttempts() - before);
 	CHECK(ownsBlock(clone.getExpressionParamSet()));
 	checkPatchedLayout(clone);
 }
@@ -210,7 +211,7 @@ TEST(ParamManagerTests, StealTransfersExpressionWhenDestinationHasNone) {
 	destination.stealParamCollectionsFrom(&source, true);
 	POINTERS_EQUAL(expression, destination.getExpressionParamSet());
 	CHECK(!source.containsAnyParamCollectionsIncludingExpression());
-	CHECK_EQUAL(2, liveAllocations());
+	CHECK_EQUAL(3, liveAllocations());
 }
 
 TEST(ParamManagerTests, StealDiscardsSourceExpressionWhenDestinationAlreadyHasOne) {
@@ -224,7 +225,7 @@ TEST(ParamManagerTests, StealDiscardsSourceExpressionWhenDestinationAlreadyHasOn
 	destination.stealParamCollectionsFrom(&source, true);
 	POINTERS_EQUAL(expression, destination.getExpressionParamSet());
 	CHECK(!source.containsAnyParamCollectionsIncludingExpression());
-	CHECK_EQUAL(2, liveAllocations());
+	CHECK_EQUAL(3, liveAllocations());
 }
 
 TEST(ParamManagerTests, SelfStealDoesNothing) {
@@ -259,13 +260,13 @@ TEST(ParamManagerTests, ExpressionAllocationFailureLeavesMainCollectionsIntact) 
 	failAllocationAfter(0);
 	CHECK(!manager.ensureExpressionParamSetExists());
 	POINTERS_EQUAL(nullptr, manager.getExpressionParamSet());
-	CHECK_EQUAL(1, liveAllocations());
+	CHECK_EQUAL(2, liveAllocations());
 	checkPatchedLayout(manager);
 }
 
 TEST(ParamManagerTests, CloneAllocationFailuresPreserveSourceAndDestination) {
-	// Fail either the main block or the subsequent expression allocation.
-	for (size_t successful = 0; successful < 2; ++successful) {
+	// Fail the main block, the cable block or the expression allocation.
+	for (size_t successful = 0; successful < 3; ++successful) {
 		ParamManager source;
 		CHECK(source.setupWithPatching() == Error::NONE);
 		CHECK(source.ensureExpressionParamSetExists());
@@ -300,7 +301,8 @@ TEST(ParamManagerTests, BeenClonedRepairsShallowCopyWithoutFreeingOriginal) {
 }
 
 TEST(ParamManagerTests, FailedBeenClonedClearsBorrowedPointers) {
-	for (size_t successful = 0; successful < 2; ++successful) {
+	// Fail the main block, the cable block or the expression allocation.
+	for (size_t successful = 0; successful < 3; ++successful) {
 		ParamManager source;
 		CHECK(source.setupWithPatching() == Error::NONE);
 		CHECK(source.ensureExpressionParamSetExists());
