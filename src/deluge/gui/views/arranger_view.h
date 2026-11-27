@@ -134,6 +134,7 @@ public:
 private:
 	void changeOutputType(OutputType newOutputType);
 	void moveClipToSession();
+	bool makeClipIntoSectionClip(Output* output, Clip* clip);
 	void auditionPadAction(bool on, int32_t y, UI* ui);
 	void beginAudition(Output* output);
 	void endAudition(Output* output, bool evenIfPlaying = false);
