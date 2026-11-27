@@ -25,6 +25,8 @@
 #include "gui/views/view.h"
 #include "hid/display/display.h"
 #include "hid/led/pad_leds.h"
+#include "model/action/action.h"
+#include "model/action/action_logger.h"
 #include "model/clip/clip_instance.h"
 #include "model/clip/instrument_clip.h"
 #include "model/instrument/instrument.h"
@@ -508,7 +510,9 @@ void Arrangement::rowEdited(Output* output, int32_t startPos, int32_t endPos, Cl
 }
 
 // First, be sure the clipInstance has a Clip
-Error Arrangement::doUniqueCloneOnClipInstance(ClipInstance* clipInstance, int32_t newLength, bool shouldCloneRepeats) {
+// With an action, the clone and the instance change are recorded so they can be undone
+Error Arrangement::doUniqueCloneOnClipInstance(ClipInstance* clipInstance, int32_t newLength, bool shouldCloneRepeats,
+                                               Action* action) {
 	if (!currentSong->arrangementOnlyClips.ensureEnoughSpaceAllocated(1)) {
 		return Error::INSUFFICIENT_RAM;
 	}
@@ -540,9 +544,20 @@ Error Arrangement::doUniqueCloneOnClipInstance(ClipInstance* clipInstance, int32
 	rowEdited(oldClip->output, clipInstance->pos, clipInstance->pos + clipInstance->length, clipInstance->clip,
 	          nullptr);
 
-	clipInstance->clip = newClip;
-	if (newLength != -1) {
-		clipInstance->length = newLength;
+	if (action
+	    && action->recordClipExistenceChange(currentSong, &currentSong->arrangementOnlyClips, newClip,
+	                                         ExistenceChangeType::CREATE)) {
+		clipInstance->change(action, oldClip->output, clipInstance->pos,
+		                     (newLength != -1) ? newLength : clipInstance->length, newClip);
+	}
+	else {
+		if (action) {
+			actionLogger.deleteAllLogs(); // Out of RAM for the undo step - earlier ones would no longer match
+		}
+		clipInstance->clip = newClip;
+		if (newLength != -1) {
+			clipInstance->length = newLength;
+		}
 	}
 
 	rowEdited(oldClip->output, clipInstance->pos, clipInstance->pos + clipInstance->length, nullptr, clipInstance);

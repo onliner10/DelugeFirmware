@@ -54,6 +54,7 @@
 #include "model/consequence/consequence_arranger_params_time_inserted.h"
 #include "model/consequence/consequence_clip_existence.h"
 #include "model/consequence/consequence_clip_instance_change.h"
+#include "model/consequence/consequence_clip_move_to_session.h"
 #include "model/drum/drum.h"
 #include "model/instrument/instrument.h"
 #include "model/instrument/kit.h"
@@ -193,17 +194,11 @@ void ArrangerView::moveClipToSession() {
 				intendedIndex = currentSong->sessionClips.getNumElements();
 			}
 
-			clip->section = currentSong->getLowestSectionWithNoSessionClipForOutput(output);
-			Error error = currentSong->sessionClips.insertClipAtIndex(clip, intendedIndex);
+			Error error = moveArrangementOnlyClipToSession(
+			    clip, intendedIndex, currentSong->getLowestSectionWithNoSessionClipForOutput(output));
 			if (error != Error::NONE) {
 				display->displayError(error);
 				return;
-			}
-			actionLogger.deleteAllLogs();
-
-			int32_t oldIndex = currentSong->arrangementOnlyClips.getIndexForClip(clip);
-			if (oldIndex != -1) {
-				currentSong->arrangementOnlyClips.deleteAtIndex(oldIndex);
 			}
 		}
 
@@ -254,22 +249,47 @@ bool ArrangerView::makeClipIntoSectionClip(Output* output, Clip* clip) {
 		return false;
 	}
 
-	Error error = currentSong->sessionClips.insertClipAtIndex(clip, insertIndex);
+	Error error = moveArrangementOnlyClipToSession(clip, insertIndex, section);
 	if (error != Error::NONE) {
 		display->displayError(error);
 		return false;
 	}
+	return true;
+}
 
-	// Like moveClipToSession(), this moves the clip between lists, which undo can't follow
-	actionLogger.deleteAllLogs();
-
-	int32_t oldIndex = currentSong->arrangementOnlyClips.getIndexForClip(clip);
-	if (oldIndex != -1) {
-		currentSong->arrangementOnlyClips.deleteAtIndex(oldIndex);
+/// Moves an arrangement-only clip into sessionClips, giving it a section, as one undoable step
+Error ArrangerView::moveArrangementOnlyClipToSession(Clip* clip, int32_t sessionIndex, uint8_t section) {
+	int32_t arrangementOnlyIndex = currentSong->arrangementOnlyClips.getIndexForClip(clip);
+	if (arrangementOnlyIndex == -1) {
+		return Error::BUG;
 	}
+
+	Action* action = actionLogger.getNewAction(ActionType::CLIP_INSTANCE_EDIT, ActionAddition::NOT_ALLOWED);
+
+	Error error = currentSong->sessionClips.insertClipAtIndex(clip, sessionIndex);
+	if (error != Error::NONE) {
+		return error;
+	}
+	currentSong->arrangementOnlyClips.deleteAtIndex(arrangementOnlyIndex);
 	clip->section = section;
 
-	return true;
+	void* consMemory =
+	    action ? GeneralMemoryAllocator::get().allocLowSpeed(sizeof(ConsequenceClipMoveToSession)) : nullptr;
+	if (!consMemory) {
+		// Earlier undo steps would no longer match the song
+		actionLogger.deleteAllLogs();
+		return Error::NONE;
+	}
+	action->addConsequence(new (consMemory) ConsequenceClipMoveToSession(clip, arrangementOnlyIndex, sessionIndex));
+
+	// The clip moved within the "all clips" order that the action's per-clip view states are indexed by
+	if (action->clipStates) {
+		delugeDealloc(action->clipStates);
+		action->clipStates = nullptr;
+	}
+	action->numClipStates = 0;
+
+	return Error::NONE;
 }
 
 void ArrangerView::goToSongView() {
@@ -1483,9 +1503,12 @@ void ArrangerView::cloneClipInstanceToWhite(Output* output, int32_t x, int32_t y
 		}
 
 		if (oldClip && !oldClip->isArrangementOnlyClip() && !oldClip->getCurrentlyRecordingLinearly()) {
-			actionLogger.deleteAllLogs();
+			Action* action = actionLogger.getNewAction(ActionType::CLIP_INSTANCE_EDIT, ActionAddition::NOT_ALLOWED);
+			if (!action) {
+				actionLogger.deleteAllLogs(); // Can't record it, and earlier steps would no longer match
+			}
 
-			Error error = arrangement.doUniqueCloneOnClipInstance(clipInstance, clipInstance->length, true);
+			Error error = arrangement.doUniqueCloneOnClipInstance(clipInstance, clipInstance->length, true, action);
 			if (error != Error::NONE) {
 				display->displayError(error);
 			}
