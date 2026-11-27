@@ -110,6 +110,7 @@ add_executable(UnitTests
         envelope_curve_tests.cpp
         note_locks_tests.cpp
         sample_folder_index_tests.cpp
+        zones_playing_notes_tests.cpp
 )
 add_test(NAME UnitTests
         COMMAND UnitTests)

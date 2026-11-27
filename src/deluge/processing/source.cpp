@@ -28,6 +28,7 @@
 #include "storage/cluster/cluster.h"
 #include "storage/multi_range/multi_wave_table_range.h"
 #include "storage/multi_range/multisample_range.h"
+#include "storage/multi_range/zones_playing_notes.h"
 #include "storage/wave_table/wave_table.h"
 #include "util/functions.h"
 #include <algorithm>
@@ -132,17 +133,6 @@ Error Source::loadAllSamples(bool mayActuallyReadFiles) {
 // Multisamples with at least this many zones get loaded lazily when previewing presets
 constexpr int32_t kMinRangesToLoadLazily = 8;
 
-std::bitset<Source::kMaxLazyRanges> Source::zonesPlayedBy(std::span<const int16_t> notes) {
-	std::bitset<kMaxLazyRanges> played;
-	for (int16_t note : notes) {
-		int32_t e = getRangeIndex(note);
-		if (e < kMaxLazyRanges) {
-			played[e] = true;
-		}
-	}
-	return played;
-}
-
 bool Source::rangePlaysAnyOf(int32_t e, std::span<const int16_t> notes) {
 	for (int16_t note : notes) {
 		if (getRangeIndex(note) == e) {
@@ -150,6 +140,10 @@ bool Source::rangePlaysAnyOf(int32_t e, std::span<const int16_t> notes) {
 		}
 	}
 	return false;
+}
+
+void Source::ZonesPlaying::findZones() {
+	zones_ = zonesPlayingNotes<kMaxLazyRanges>(notes_, [this](int32_t note) { return source_.getRangeIndex(note); });
 }
 
 void Source::loadRange(int32_t e) {
@@ -166,14 +160,14 @@ Error Source::loadSamplesForNotes(std::span<const int16_t> notes) {
 	lazyTried.reset();
 	lazyNumRanges = numRanges;
 	lazyPending = false;
-	std::bitset<kMaxLazyRanges> played = zonesPlayedBy(notes);
+	ZonesPlaying playing{*this, notes};
 	int32_t numLoaded = 0;
 	for (int32_t e = 0; e < numRanges; e++) {
 		if (ranges.getElement(e)->getAudioFileHolder()->audioFile) {
 			lazyTried[e] = true; // Was already in memory
 			continue;
 		}
-		if (!played[e]) {
+		if (!playing[e]) {
 			lazyPending = true;
 			continue;
 		}
@@ -200,7 +194,7 @@ bool Source::loadLazySample(std::span<const int16_t> notes, bool anyOther) {
 		lazyNumRanges = std::min(numRanges, kMaxLazyRanges);
 	}
 
-	std::bitset<kMaxLazyRanges> played = zonesPlayedBy(notes);
+	ZonesPlaying playing{*this, notes};
 	int32_t toLoad = -1;
 	bool anyLeft = false;
 	for (int32_t e = 0; e < lazyNumRanges; e++) {
@@ -212,7 +206,7 @@ bool Source::loadLazySample(std::span<const int16_t> notes, bool anyOther) {
 			continue;
 		}
 		anyLeft = true;
-		if (played[e]) {
+		if (playing[e]) {
 			toLoad = e; // These first
 			break;
 		}

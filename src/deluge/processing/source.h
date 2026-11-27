@@ -22,6 +22,7 @@
 #include "storage/multi_range/multi_range_array.h"
 #include "util/phase_increment_fine_tuner.h"
 #include <bitset>
+#include <optional>
 #include <span>
 
 class Sound;
@@ -96,10 +97,27 @@ private:
 
 	// Lazy loading. Multisamples with more zones than this are just loaded in full.
 	static constexpr int32_t kMaxLazyRanges = 256;
+
+	/// Whether each zone plays one of some notes, worked out for all zones the first time it's asked - often never,
+	/// when every zone is loaded already
+	class ZonesPlaying {
+	public:
+		ZonesPlaying(Source& source, std::span<const int16_t> notes) : source_{source}, notes_{notes} {}
+		bool operator[](int32_t e) {
+			if (!zones_) {
+				findZones();
+			}
+			return (*zones_)[e];
+		}
+
+	private:
+		void findZones();
+		Source& source_;
+		std::span<const int16_t> notes_;
+		std::optional<std::bitset<kMaxLazyRanges>> zones_;
+	};
 	bool lazyPending = false;    ///< Some zones skipped by loadSamplesForNotes() may still need loading
 	int16_t loadedRangeHint = 0; ///< A zone hasAtLeastOneAudioFileLoaded() last found loaded, to look at first
 	int16_t lazyNumRanges = 0;   ///< How many zones there were when lazyTried was set up
 	std::bitset<kMaxLazyRanges> lazyTried; ///< Zones already loaded or tried, so a missing file isn't retried forever
-	/// Which zones notes fall in: one lookup per note, rather than every zone against every note
-	std::bitset<kMaxLazyRanges> zonesPlayedBy(std::span<const int16_t> notes);
 };
