@@ -55,9 +55,12 @@ public:
 	/// One sample per step. For the tests and the benchmark
 	void processTree(q31_t* buffer, int32_t numSamples, int32_t stride);
 
+	/// Zero the state, and forget the configuration: FilterSet keeps this in a union with other filters, which may
+	/// have written over the coefficients since, so the next configure() has to work them out whatever it's given
 	void reset() {
 		state_ = vdupq_n_f32(0.f);
 		stateR_ = vdupq_n_f32(0.f);
+		lastG_ = 0.f;
 	}
 
 	// Coefficients, public for the tests. Single step: s' = A s + B x, y = C s + D x

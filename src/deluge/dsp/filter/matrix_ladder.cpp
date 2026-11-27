@@ -289,6 +289,18 @@ void MatrixLadder::configureFourSteps() {
 }
 
 namespace {
+/// A state that isn't finite, or has run far beyond any audio level, can only be garbage (coefficients that were
+/// never worked out, say): zero it rather than let it silence the filter, or blow up, for good. Once per buffer
+[[gnu::always_inline]] inline float32x4_t sane(float32x4_t s) {
+	// abs(s) < 1e6 is false for NaN as well as for anything huge
+	uint32x4_t const ok = vcltq_f32(vabsq_f32(s), vdupq_n_f32(1e6f));
+	uint32x2_t const ok2 = vand_u32(vget_low_u32(ok), vget_high_u32(ok));
+	if ((vget_lane_u32(ok2, 0) & vget_lane_u32(ok2, 1)) != 0) [[likely]] {
+		return s;
+	}
+	return vdupq_n_f32(0.f);
+}
+
 /// Four samples: their outputs, and the state after them. Every product its own multiply and the sums as trees: on the
 /// Cortex-A9, chains of float multiply-accumulates wait on each other (measured: 39.5 cycles/sample with chains, 26
 /// like this)
@@ -378,7 +390,7 @@ void MatrixLadder::process(q31_t* buffer, int32_t numSamples, int32_t stride) {
 	if (i < numSamples) {
 		singleSteps(a_, b_, c_, d_, s, buffer + i * stride, numSamples - i, stride);
 	}
-	state_ = s;
+	state_ = sane(s);
 }
 
 void MatrixLadder::processStereo(q31_t* buffer, int32_t numFrames) {
@@ -413,14 +425,14 @@ void MatrixLadder::processStereo(q31_t* buffer, int32_t numFrames) {
 		singleSteps(a_, b_, c_, d_, sl, buffer + i * 2, numFrames - i, 2);
 		singleSteps(a_, b_, c_, d_, sr, buffer + i * 2 + 1, numFrames - i, 2);
 	}
-	state_ = sl;
-	stateR_ = sr;
+	state_ = sane(sl);
+	stateR_ = sane(sr);
 }
 
 void MatrixLadder::processTree(q31_t* buffer, int32_t numSamples, int32_t stride) {
 	float32x4_t s = state_;
 	singleSteps(a_, b_, c_, d_, s, buffer, numSamples, stride);
-	state_ = s;
+	state_ = sane(s);
 }
 
 } // namespace deluge::dsp::filter
