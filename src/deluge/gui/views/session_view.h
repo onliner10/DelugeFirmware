@@ -252,6 +252,8 @@ private:
 	void gridRenderMoveHighlight(RGB image[][kDisplayWidth + kSideBarWidth], size_t trackCount);
 	void gridRememberHeld();
 	ActionResult gridMoveHeldSections(int32_t offset);
+	ActionResult gridInsertEmptyAtHeld(int32_t offset);
+	ActionResult gridShiftHeldSections(Output* track, int32_t offset);
 	void gridColourHeldTrack(int32_t offset);
 
 	inline void gridResetPresses(bool first = true, bool second = true) {

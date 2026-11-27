@@ -302,6 +302,7 @@ extern Gesture const MoveSection;
 extern Gesture const ClipColour;
 extern Gesture const TrackColour;
 extern Gesture const DragClip;
+extern Gesture const InsertEmptyPad;
 extern Gesture const ReorderTrack;
 extern Gesture const SoloClip;
 extern Gesture const LaunchClipNow;
