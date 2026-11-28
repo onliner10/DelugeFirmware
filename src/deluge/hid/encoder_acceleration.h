@@ -49,5 +49,7 @@ private:
 
 inline constexpr EncoderAcceleration::Tuning kGoldEncoderAcceleration{};
 inline constexpr EncoderAcceleration::Tuning kHorizontalMenuAcceleration{.max_multiplier = 5.0};
+// Arranger scrolling: a song is hundreds of columns long, so a fast turn may cover a screen in a few detents
+inline constexpr EncoderAcceleration::Tuning kArrangerScrollAcceleration{.max_multiplier = 8.0};
 
 } // namespace deluge::hid::encoders

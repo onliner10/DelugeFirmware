@@ -145,6 +145,8 @@ public:
 private:
 	void updatePositionReadout(bool force);
 	void displayArrangerScrollPos();
+	int32_t accelerateScroll(int32_t offset);
+	void jumpToPlayhead();
 	static void formatSongTime(int32_t seconds, char* buffer, int32_t bufferSize);
 
 	uint32_t positionScreenGeneration = 0xFFFFFFFF; // OLED main image the readout may draw on (the normal screen)

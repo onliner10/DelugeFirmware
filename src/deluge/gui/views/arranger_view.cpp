@@ -398,6 +398,14 @@ ActionResult ArrangerView::buttonAction(deluge::hid::Button b, bool on, bool inC
 			// if another button wasn't pressed while cross screen was held
 			if (Buttons::considerCrossScreenReleaseForCrossScreenMode) {
 				deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::FollowPlayhead);
+
+				// Following, but scrolled away from the playhead: go back to it rather than stop following
+				if (currentSong->arrangerAutoScrollModeActive && !doingAutoScrollNow && arrangement.hasPlaybackActive()
+				    && !playbackHandler.ticksLeftInCountIn) {
+					jumpToPlayhead();
+					return ActionResult::DEALT_WITH;
+				}
+
 				currentSong->arrangerAutoScrollModeActive = !currentSong->arrangerAutoScrollModeActive;
 				indicator_leds::setLedState(IndicatorLED::CROSS_SCREEN_EDIT, currentSong->arrangerAutoScrollModeActive);
 
@@ -3236,6 +3244,11 @@ ActionResult ArrangerView::horizontalEncoderAction(int32_t offset) {
 			// square below zero if it is for example at a half step offset. But it will blink and then snap back to
 			// the last valid square (with the offset preserved), so that lets you know it's not exactly at zero.
 			// Also allows movement right so we don't get stuck at zero. The right side limit is in the function.
+			// Plain scrolling speeds up when the encoder is turned fast; dragging an instance stays one square a
+			// detent.
+			if (!isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW)) {
+				offset = accelerateScroll(offset);
+			}
 			return horizontalScrollOneSquare(offset);
 		}
 		return ActionResult::DEALT_WITH;

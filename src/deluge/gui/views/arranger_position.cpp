@@ -18,10 +18,12 @@
 // Where the song is: the bar and the time from the start of the song, shown top left on the OLED while the
 // arrangement plays, and with the bar in the popup when scrolling the arranger.
 
+#include "OSLikeStuff/scheduler_api.h"
 #include "gui/ui/ui.h"
 #include "gui/views/arranger_view.h"
 #include "hid/display/display.h"
 #include "hid/display/oled.h"
+#include "hid/encoder_acceleration.h"
 #include "model/model_stack.h"
 #include "model/song/song.h"
 #include "modulation/automation/auto_param.h"
@@ -29,6 +31,7 @@
 #include "modulation/params/param_node.h"
 #include "playback/mode/arrangement.h"
 #include "playback/playback_handler.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -179,4 +182,25 @@ void ArrangerView::displayArrangerScrollPos() {
 	char text[40];
 	snprintf(text, sizeof(text), "%d : %d : %d\n%s", (int)bar + 1, (int)beat + 1, (int)sixteenth + 1, time);
 	display->popupTextTemporary(text);
+}
+
+// Fast turns of the scroll encoder move several squares a detent; a slow turn is always exactly one square
+int32_t ArrangerView::accelerateScroll(int32_t offset) {
+	static deluge::hid::encoders::EncoderAcceleration acceleration;
+	double multiplier = acceleration.advance(static_cast<int8_t>(std::clamp<int32_t>(offset, -127, 127)),
+	                                         getSystemTime(), deluge::hid::encoders::kArrangerScrollAcceleration);
+	return static_cast<int32_t>(std::lround(offset * multiplier));
+}
+
+// Following the playhead but scrolled away from it: scroll back so it's where it was on the screen, and follow again
+void ArrangerView::jumpToPlayhead() {
+	int32_t xZoom = currentSong->xZoom[NAVIGATION_ARRANGEMENT];
+	int32_t pos = std::max<int32_t>(arrangement.getLivePos(), 0);
+	int32_t behind = std::clamp<int32_t>(autoScrollNumSquaresBehind, 0, kDisplayWidth - 1);
+	int32_t newScroll = std::max<int32_t>((pos / xZoom - behind) * xZoom, 0);
+	if (newScroll != currentSong->xScroll[NAVIGATION_ARRANGEMENT]) {
+		currentSong->xScroll[NAVIGATION_ARRANGEMENT] = newScroll;
+		uiNeedsRendering(this, 0xFFFFFFFF, 0);
+	}
+	reassessWhetherDoingAutoScroll(pos);
 }

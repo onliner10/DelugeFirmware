@@ -411,7 +411,7 @@ PLACE_SDRAM_RODATA constexpr Gesture SongView{.input = gbtn::SESSION_VIEW, .acti
 PLACE_SDRAM_RODATA constexpr Gesture ClipToSession{.hold = pad::CLIP, .input = gbtn::SESSION_VIEW, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_MOVE_CLIP_TO_SESSION};
 PLACE_SDRAM_RODATA constexpr Gesture ArrangerAutomation{.input = gbtn::CLIP_VIEW, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_ARRANGER_AUTOMATION, .keywords = "param"};
 PLACE_SDRAM_RODATA constexpr Gesture AffectEntire{.input = gbtn::AFFECT_ENTIRE, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_AFFECT_ENTIRE, .keywords = "song knobs"};
-PLACE_SDRAM_RODATA constexpr Gesture FollowPlayhead{.input = gbtn::CROSS_SCREEN_EDIT, .action = Action::TAP, .name = l10n::String::STRING_FOR_GESTURE_FOLLOW_PLAYHEAD, .keywords = "auto scroll"};
+PLACE_SDRAM_RODATA constexpr Gesture FollowPlayhead{.input = gbtn::CROSS_SCREEN_EDIT, .action = Action::TAP, .name = l10n::String::STRING_FOR_GESTURE_FOLLOW_PLAYHEAD, .keywords = "auto scroll jump back return cursor"};
 PLACE_SDRAM_RODATA constexpr Gesture ExportMixdown{.hold = gbtn::SAVE, .input = gbtn::RECORD, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_EXPORT_MIXDOWN_STEMS, .keywords = "bounce render"};
 PLACE_SDRAM_RODATA constexpr Gesture RecordArming{.input = gbtn::RECORD, .action = Action::HOLD, .name = l10n::String::STRING_FOR_GESTURE_RECORD_ARMING, .keywords = "arm"};
 PLACE_SDRAM_RODATA constexpr Gesture DeleteTrack{.hold = pad::AUDITION, .input = gbtn::SAVE, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_DELETE_TRACK, .keywords = "remove"};
