@@ -432,7 +432,8 @@ Clip* ArrangerView::takeTimeEditCopy(Output* output, Action* action) {
 		if (action == nullptr
 		    || !action->recordClipExistenceChange(currentSong, &currentSong->arrangementOnlyClips, copy,
 		                                          ExistenceChangeType::CREATE)) {
-			actionLogger.deleteAllLogs(); // No undo record for it: earlier steps would no longer match the song
+			actionLogger.deleteAllLogs(
+			    UndoBarrier::LOW_MEMORY); // No undo record for it: earlier steps would no longer match the song
 		}
 		return copy;
 	}

@@ -291,7 +291,7 @@ Error ArrangerView::moveArrangementOnlyClipToSession(Clip* clip, int32_t session
 	                        : nullptr;
 	if (cons_memory == nullptr) {
 		// Earlier undo steps would no longer match the song
-		actionLogger.deleteAllLogs();
+		actionLogger.deleteAllLogs(UndoBarrier::LOW_MEMORY);
 		return Error::NONE;
 	}
 	action->addConsequence(new (cons_memory) ConsequenceClipMoveToSession(clip, arrangement_only_index, session_index));
@@ -532,7 +532,7 @@ doChangeOutputType:
 					}
 
 					deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::TrackPreset);
-					actionLogger.deleteAllLogs();
+					actionLogger.deleteAllLogs(UndoBarrier::PRESET);
 
 					currentUIMode = UI_MODE_NONE;
 					endAudition(output);
@@ -1580,7 +1580,8 @@ void ArrangerView::cloneClipInstanceToWhite(Output* output, int32_t x, int32_t y
 		if (oldClip && !oldClip->isArrangementOnlyClip() && !oldClip->getCurrentlyRecordingLinearly()) {
 			Action* action = actionLogger.getNewAction(ActionType::CLIP_INSTANCE_EDIT, ActionAddition::NOT_ALLOWED);
 			if (action == nullptr) {
-				actionLogger.deleteAllLogs(); // Can't record it, and earlier steps would no longer match
+				actionLogger.deleteAllLogs(
+				    UndoBarrier::LOW_MEMORY); // Can't record it, and earlier steps would no longer match
 			}
 
 			Error error = arrangement.doUniqueCloneOnClipInstance(clipInstance, clipInstance->length, true, action);
@@ -1974,7 +1975,7 @@ void ArrangerView::copyClipInstanceToSquare(Output* output, int32_t y, int32_t s
 		if (action != nullptr
 		    && !action->recordClipExistenceChange(currentSong, &currentSong->arrangementOnlyClips, newClip,
 		                                          ExistenceChangeType::CREATE)) {
-			actionLogger.deleteAllLogs();
+			actionLogger.deleteAllLogs(UndoBarrier::LOW_MEMORY);
 			action = nullptr;
 		}
 	}
@@ -2997,7 +2998,7 @@ void ArrangerView::changeOutputType(OutputType newOutputType) {
 		return;
 	}
 
-	actionLogger.deleteAllLogs(); // Can't undo past this!
+	actionLogger.deleteAllLogs(UndoBarrier::INSTRUMENT); // Can't undo past this!
 
 	endAudition(oldInstrument);
 
@@ -3056,7 +3057,7 @@ cant:
 		// We'll do some other specific stuff below
 	}
 
-	actionLogger.deleteAllLogs(); // Can't undo past this!
+	actionLogger.deleteAllLogs(UndoBarrier::INSTRUMENT); // Can't undo past this!
 
 	endAudition(oldOutput);
 	oldOutput->cutAllSound();
@@ -3440,7 +3441,7 @@ ActionResult ArrangerView::verticalScrollOneSquare(int32_t direction) {
 		}
 
 		deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::MoveTrack);
-		actionLogger.deleteAllLogs();
+		actionLogger.deleteAllLogs(UndoBarrier::REARRANGE);
 
 		currentSong->arrangementYScroll += direction;
 

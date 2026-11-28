@@ -453,7 +453,7 @@ ActionResult KeyboardScreen::buttonAction(deluge::hid::Button b, bool on, bool i
 			return ActionResult::DEALT_WITH;
 		}
 
-		actionLogger.deleteAllLogs(); // Can't undo past this!
+		actionLogger.deleteAllLogs(UndoBarrier::SCALE); // Can't undo past this!
 
 		bool inScaleMode = getCurrentInstrumentClip()->inScaleMode;
 

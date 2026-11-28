@@ -103,7 +103,7 @@ bool SampleBrowser::opened() {
 	qwertyAlwaysVisible = false;
 
 	favouritesManager.setCategory("SAMPLES");
-	actionLogger.deleteAllLogs();
+	actionLogger.deleteAllLogs(UndoBarrier::SAMPLE);
 
 	allowedFileExtensions = allowedFileExtensionsAudio;
 	allowFoldersSharingNameWithFile = true;

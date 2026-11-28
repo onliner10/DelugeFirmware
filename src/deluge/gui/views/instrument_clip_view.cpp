@@ -457,7 +457,7 @@ struct InstrumentClipViewShortcuts {
 		if (instrumentClipView.numEditPadPresses > 0) {
 			instrumentClipView.endAllEditPadPresses();
 		}
-		actionLogger.deleteAllLogs(); // Can't undo past this!
+		actionLogger.deleteAllLogs(UndoBarrier::SCALE); // Can't undo past this!
 		if (!getCurrentInstrumentClip()->inScaleMode) {
 			instrumentClipView.commandEnterScaleMode();
 		}
@@ -504,7 +504,7 @@ struct InstrumentClipViewShortcuts {
 		if (instrumentClipView.numEditPadPresses > 0) {
 			instrumentClipView.endAllEditPadPresses();
 		}
-		actionLogger.deleteAllLogs(); // Can't undo past this!
+		actionLogger.deleteAllLogs(UndoBarrier::SCALE); // Can't undo past this!
 		return instrumentClipView.commandSelectScale();
 	}
 	static ActionResult newSynth(Button) {
@@ -532,8 +532,8 @@ struct InstrumentClipViewShortcuts {
 				clip->deleteNoteRow(modelStack, i);
 			}
 		}
-		clip->yScroll = 0;            // Reset scroll position
-		actionLogger.deleteAllLogs(); // Can't undo past this
+		clip->yScroll = 0;                                 // Reset scroll position
+		actionLogger.deleteAllLogs(UndoBarrier::KIT_ROWS); // Can't undo past this
 		instrumentClipView.setSelectedDrum(nullptr, true);
 		instrumentClipView.recalculateColours();
 		uiNeedsRendering(&instrumentClipView);
@@ -1040,7 +1040,7 @@ ActionResult InstrumentClipView::buttonAction(deluge::hid::Button b, bool on, bo
 						}
 					}
 
-					actionLogger.deleteAllLogs(); // Can't undo past this
+					actionLogger.deleteAllLogs(UndoBarrier::KIT_ROWS); // Can't undo past this
 
 					setSelectedDrum(nullptr, true);
 
@@ -1125,7 +1125,7 @@ doCancelPopup:
 							}
 
 							deluge::gui::combos::used(deluge::gui::combos::gesture::instrumentClip::MoveKitRowHere);
-							actionLogger.deleteAllLogs();
+							actionLogger.deleteAllLogs(UndoBarrier::KIT_ROWS);
 							cancelAllAuditioning();
 							InstrumentClip* clip = getCurrentInstrumentClip();
 							clip->noteRows.repositionElement(yDisplay + clip->yScroll,
@@ -1218,7 +1218,7 @@ ActionResult InstrumentClipView::handleScaleButtonAction(bool on, bool inCardRou
 		endAllEditPadPresses();
 	}
 
-	actionLogger.deleteAllLogs(); // Can't undo past this!
+	actionLogger.deleteAllLogs(UndoBarrier::SCALE); // Can't undo past this!
 
 	bool inScaleMode = getCurrentInstrumentClip()->inScaleMode;
 
@@ -1305,7 +1305,7 @@ void InstrumentClipView::createDrumForAuditionedNoteRow(DrumType drumType) {
 	char modelStackMemory[MODEL_STACK_MAX_SIZE];
 	ModelStackWithTimelineCounter* modelStack = currentSong->setupModelStackWithCurrentClip(modelStackMemory);
 
-	actionLogger.deleteAllLogs();
+	actionLogger.deleteAllLogs(UndoBarrier::INSTRUMENT);
 
 	if (currentUIMode == UI_MODE_ADDING_DRUM_NOTEROW) {
 		currentUIMode = UI_MODE_AUDITIONING;
@@ -2754,7 +2754,7 @@ void InstrumentClipView::editPadAction(bool state, uint8_t yDisplay, uint8_t xDi
 
 			// If that just created a new NoteRow for a Kit, then we can't undo any further back than this
 			if (instrument->type == OutputType::KIT) {
-				actionLogger.deleteAllLogs();
+				actionLogger.deleteAllLogs(UndoBarrier::KIT_ROWS);
 			}
 		}
 
@@ -5168,7 +5168,7 @@ void InstrumentClipView::scrollVertical_grabNotesPressed(ModelStackWithTimelineC
 
 void InstrumentClipView::scrollVertical_dragSelectedNoteRow(InstrumentClip* clip, Output* output, bool isKit,
                                                             int32_t noteRowToShiftI, int32_t noteRowToSwapWithI) {
-	actionLogger.deleteAllLogs(); // Can't undo past this!
+	actionLogger.deleteAllLogs(UndoBarrier::KIT_ROWS); // Can't undo past this!
 
 	clip->noteRows.getElement(noteRowToShiftI)->y = -32768; // Need to remember not to try and use the yNote value
 	                                                        // of this NoteRow if we switch back out of Kit mode
@@ -5502,7 +5502,7 @@ uint8_t InstrumentClipView::oneNoteAuditioning() {
 
 void InstrumentClipView::offsetNoteCodeAction(int32_t newOffset) {
 
-	actionLogger.deleteAllLogs(); // Can't undo past this!
+	actionLogger.deleteAllLogs(UndoBarrier::SCALE); // Can't undo past this!
 
 	uint8_t yVisualWithinOctave;
 
@@ -7096,7 +7096,7 @@ ActionResult InstrumentClipView::commandTransposeKey(int32_t offset, bool inCard
 		return ActionResult::DEALT_WITH;
 	}
 
-	actionLogger.deleteAllLogs(); // Can't undo past this
+	actionLogger.deleteAllLogs(UndoBarrier::TRANSPOSE); // Can't undo past this
 
 	recalculateColours();
 	uiNeedsRendering(getRootUI(), 0xFFFFFFFF, 0xFFFFFFFF);

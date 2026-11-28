@@ -2425,7 +2425,7 @@ void View::navigateThroughAudioOutputsForAudioClip(int32_t offset, AudioClip* cl
 		return;
 	}
 
-	actionLogger.deleteAllLogs(); // Can't undo past this!
+	actionLogger.deleteAllLogs(UndoBarrier::INSTRUMENT); // Can't undo past this!
 
 	// Work out availabilityRequirement. But we don't in this case need to think about whether the Output can be
 	// "replaced" - that's for InstrumentClips
@@ -2467,7 +2467,7 @@ void View::navigateThroughPresetsForInstrumentClip(int32_t offset, ModelStackWit
 
 	int32_t oldSubMode = currentUIMode; // We may have been holding down a clip in Session View
 
-	actionLogger.deleteAllLogs(); // Can't undo past this!
+	actionLogger.deleteAllLogs(UndoBarrier::PRESET); // Can't undo past this!
 
 	InstrumentClip* clip = (InstrumentClip*)modelStack->getTimelineCounter();
 

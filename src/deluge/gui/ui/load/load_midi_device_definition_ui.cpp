@@ -59,7 +59,7 @@ bool LoadMidiDeviceDefinitionUI::opened() {
 		return false;
 	}
 
-	actionLogger.deleteAllLogs();
+	actionLogger.deleteAllLogs(UndoBarrier::PRESET);
 
 	error = setupForLoadingMidiDeviceDefinition(); // Sets currentDir.
 	if (error != Error::NONE) {

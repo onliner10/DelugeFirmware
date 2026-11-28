@@ -70,7 +70,7 @@ bool AudioRecorder::getGreyoutColsAndRows(uint32_t* cols, uint32_t* rows) {
 bool AudioRecorder::opened() {
 	updatedRecordingStatus = false;
 
-	actionLogger.deleteAllLogs();
+	actionLogger.deleteAllLogs(UndoBarrier::SAMPLE);
 
 	// If we're already recording (probably the output) then no!
 	if (recordingSource > AudioInputChannel::NONE) {

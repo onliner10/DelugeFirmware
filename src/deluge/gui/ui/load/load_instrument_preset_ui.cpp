@@ -133,7 +133,7 @@ gotError:
 		return false;
 	}
 
-	actionLogger.deleteAllLogs();
+	actionLogger.deleteAllLogs(UndoBarrier::PRESET);
 
 	error = setupForOutputType(); // Sets currentDir.
 	if (error != Error::NONE) {

@@ -17,6 +17,7 @@
 
 #include "model/action/action_logger.h"
 #include "definitions_cxx.hpp"
+#include "gui/l10n/l10n.h"
 #include "gui/ui/keyboard/keyboard_screen.h"
 #include "gui/ui/load/load_pattern_ui.h"
 #include "gui/ui/ui.h"
@@ -49,9 +50,12 @@
 #include "playback/mode/session.h"
 #include "playback/playback_handler.h"
 #include "processing/engines/audio_engine.h"
+#include "util/d_stringbuf.h"
 #include "util/functions.h"
 #include <new>
 #include <string.h>
+
+namespace l10n = deluge::l10n;
 
 ActionLogger actionLogger{};
 
@@ -790,12 +794,14 @@ void ActionLogger::closeActionUnlessCreatedJustNow(ActionType actionType) {
 	}
 }
 
-void ActionLogger::deleteAllLogs() {
+void ActionLogger::deleteAllLogs(UndoBarrier reason) {
 	deleteLog(BEFORE);
 	deleteLog(AFTER);
+	barrier = reason;
 }
 
-void ActionLogger::invalidateLogs() {
+void ActionLogger::invalidateLogs(UndoBarrier reason) {
+	barrier = reason;
 	for (Action* newest : firstAction) {
 		if (newest != nullptr) {
 			// Everything older is behind this one in the list, so marking the newest covers them all
@@ -841,8 +847,11 @@ void ActionLogger::undo() {
 	// for those? Reverting those would call functions on invalid pointers. So instead, do just use regular Actions and
 	// Consequences for everything possible. And definitely don't delete any Clips here.
 
+	bool stoppedRecording = false; // Then that's what undo did, even with nothing to revert
+
 	// If currently recording an arrangement from session, we have to stop doing so first
 	if (playbackHandler.recording == RecordingMode::ARRANGEMENT) {
+		stoppedRecording = true;
 		playbackHandler.recording = RecordingMode::OFF;
 		currentSong->resumeClipsClonedForArrangementRecording();
 
@@ -853,23 +862,31 @@ void ActionLogger::undo() {
 	// Or if recording tempoless, gotta stop that
 	else if (playbackHandler.playbackState && !playbackHandler.isEitherClockActive()) {
 		playbackHandler.endPlayback();
-		goto displayUndoMessage;
+#ifdef undoLedX
+		indicator_leds::indicateAlertOnLed(undoLedX, undoLedY);
+#else
+		display->consoleText(l10n::get(l10n::String::STRING_FOR_UNDO));
+#endif
+		return;
 	}
 
 	// Or if recording linearly to arrangement, gotta exit that mode
 	else if (playbackHandler.playbackState && playbackHandler.recording != RecordingMode::OFF
 	         && currentPlaybackMode == &arrangement) {
 		arrangement.endAnyLinearRecording();
+		stoppedRecording = true;
 	}
 
 	// Ok, do the actual undo.
 	if (revert(BEFORE)) {
-displayUndoMessage:
 #ifdef undoLedX
 		indicator_leds::indicateAlertOnLed(undoLedX, undoLedY);
 #else
-		display->consoleText("Undo");
+		displayReverted(BEFORE);
 #endif
+	}
+	else if (firstAction[BEFORE] == nullptr && !stoppedRecording) { // Or a held pad kept it from changing view
+		displayNothingToRevert(BEFORE);
 	}
 }
 
@@ -881,8 +898,133 @@ void ActionLogger::redo() {
 #ifdef redoLedX
 		indicator_leds::indicateAlertOnLed(redoLedX, redoLedY);
 #else
-		display->consoleText("Redo");
+		displayReverted(AFTER);
 #endif
+	}
+	else if (firstAction[AFTER] == nullptr) {
+		displayNothingToRevert(AFTER);
+	}
+}
+
+namespace {
+/// What undo / redo calls an Action, or EMPTY_STRING for one with no name worth showing
+l10n::String actionName(ActionType type) {
+	using enum l10n::String;
+	switch (type) {
+	case ActionType::NOTE_EDIT:
+	case ActionType::NOTE_TAIL_EXTEND:
+		return STRING_FOR_UNDO_NOTE_EDIT;
+	case ActionType::CLIP_LENGTH_INCREASE:
+	case ActionType::CLIP_LENGTH_DECREASE:
+		return STRING_FOR_UNDO_CLIP_LENGTH;
+	case ActionType::RECORD:
+	case ActionType::ARRANGEMENT_RECORD:
+		return STRING_FOR_UNDO_RECORDING;
+	case ActionType::AUTOMATION_DELETE:
+		return STRING_FOR_UNDO_AUTOMATION_DELETE;
+	case ActionType::PARAM_UNAUTOMATED_VALUE_CHANGE:
+		return STRING_FOR_UNDO_PARAM_CHANGE;
+	case ActionType::SWING_CHANGE:
+		return STRING_FOR_UNDO_SWING;
+	case ActionType::TEMPO_CHANGE:
+		return STRING_FOR_UNDO_TEMPO;
+	case ActionType::CLIP_MULTIPLY:
+		return STRING_FOR_UNDO_CLIP_DOUBLE;
+	case ActionType::CLIP_CLEAR:
+		return STRING_FOR_UNDO_CLIP_CLEAR;
+	case ActionType::CLIP_DELETE:
+		return STRING_FOR_UNDO_CLIP_DELETE;
+	case ActionType::NOTES_PASTE:
+	case ActionType::PATTERN_PASTE:
+	case ActionType::AUTOMATION_PASTE:
+		return STRING_FOR_UNDO_PASTE;
+	case ActionType::CLIP_INSTANCE_EDIT:
+	case ActionType::ARRANGEMENT_CLEAR:
+		return STRING_FOR_UNDO_ARRANGER_EDIT;
+	case ActionType::ARRANGEMENT_TIME_EXPAND:
+		return STRING_FOR_UNDO_INSERT_TIME;
+	case ActionType::ARRANGEMENT_TIME_CONTRACT:
+		return STRING_FOR_UNDO_DELETE_TIME;
+	case ActionType::CLIP_HORIZONTAL_SHIFT:
+	case ActionType::NOTEROW_HORIZONTAL_SHIFT:
+	case ActionType::NOTEROW_ROTATE:
+		return STRING_FOR_UNDO_SHIFT;
+	case ActionType::NOTE_NUDGE:
+		return STRING_FOR_UNDO_NUDGE;
+	case ActionType::NOTE_REPEAT_EDIT:
+		return STRING_FOR_UNDO_NOTE_REPEATS;
+	case ActionType::EUCLIDEAN_NUM_EVENTS_EDIT:
+		return STRING_FOR_UNDO_EUCLIDEAN;
+	case ActionType::NOTEROW_LENGTH_EDIT:
+		return STRING_FOR_UNDO_ROW_LENGTH;
+	case ActionType::SECTION_REORDER:
+		return STRING_FOR_UNDO_SECTION_ORDER;
+	case ActionType::SELECTION_EDIT:
+		return STRING_FOR_UNDO_SELECTION_EDIT;
+	default:
+		return EMPTY_STRING;
+	}
+}
+
+/// What undo says when it reaches the start of a history that `barrier` cleared
+l10n::String barrierMessage(UndoBarrier barrier) {
+	using enum l10n::String;
+	switch (barrier) {
+	case UndoBarrier::PRESET:
+		return STRING_FOR_UNDO_CLEARED_BY_PRESET;
+	case UndoBarrier::INSTRUMENT:
+		return STRING_FOR_UNDO_CLEARED_BY_INSTRUMENT;
+	case UndoBarrier::SCALE:
+		return STRING_FOR_UNDO_CLEARED_BY_SCALE;
+	case UndoBarrier::KIT_ROWS:
+		return STRING_FOR_UNDO_CLEARED_BY_KIT_ROWS;
+	case UndoBarrier::TRANSPOSE:
+		return STRING_FOR_UNDO_CLEARED_BY_TRANSPOSE;
+	case UndoBarrier::NEW_CLIP:
+		return STRING_FOR_UNDO_CLEARED_BY_NEW_CLIP;
+	case UndoBarrier::DELETE_CLIP:
+		return STRING_FOR_UNDO_CLEARED_BY_DELETE_CLIP;
+	case UndoBarrier::REARRANGE:
+		return STRING_FOR_UNDO_CLEARED_BY_REARRANGE;
+	case UndoBarrier::MENU:
+		return STRING_FOR_UNDO_CLEARED_BY_MENU;
+	case UndoBarrier::SAMPLE:
+		return STRING_FOR_UNDO_CLEARED_BY_SAMPLE;
+	case UndoBarrier::LOW_MEMORY:
+		return STRING_FOR_UNDO_CLEARED_BY_LOW_MEMORY;
+	default:
+		return STRING_FOR_NOTHING_TO_UNDO;
+	}
+}
+} // namespace
+
+/// Says what was just undone (time BEFORE) or redone (AFTER), e.g. "Undo: note edit"
+void ActionLogger::displayReverted(TimeType time) {
+	l10n::String verb = (time == BEFORE) ? l10n::String::STRING_FOR_UNDO : l10n::String::STRING_FOR_REDO;
+	Action* reverted = firstAction[1 - time]; // revert() just moved it to the front of the other list
+	l10n::String what = (reverted != nullptr) ? actionName(reverted->type) : l10n::String::EMPTY_STRING;
+
+	if (what == l10n::String::EMPTY_STRING || !display->haveOLED()) {
+		display->consoleText(l10n::get(verb));
+		return;
+	}
+	DEF_STACK_STRING_BUF(text, 48);
+	text.append(l10n::get(verb));
+	text.append(": ");
+	text.append(l10n::get(what));
+	display->consoleText(text.c_str());
+}
+
+/// Undo or redo found nothing to revert: say so, and for undo, what cleared the history if something did
+void ActionLogger::displayNothingToRevert(TimeType time) {
+	if (time == AFTER) {
+		display->displayPopup(l10n::get(l10n::String::STRING_FOR_NOTHING_TO_REDO));
+	}
+	else if (display->haveOLED()) {
+		display->displayPopup(l10n::get(barrierMessage(barrier)));
+	}
+	else {
+		display->displayPopup(l10n::get(l10n::String::STRING_FOR_NOTHING_TO_UNDO));
 	}
 }
 

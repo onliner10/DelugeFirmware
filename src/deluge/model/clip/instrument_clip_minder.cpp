@@ -209,7 +209,7 @@ gotError:
 		goto gotError;
 	}
 
-	actionLogger.deleteAllLogs(); // Can't undo past this!
+	actionLogger.deleteAllLogs(UndoBarrier::INSTRUMENT); // Can't undo past this!
 
 	currentSong->ensureAllInstrumentsHaveAClipOrBackedUpParamManager("E059", "H059");
 
