@@ -157,6 +157,12 @@ bool applies_noselection() {
 bool applies_fromstartcross() {
 	return !playbackHandler.playbackState && FlashStorage::accessibilityShortcuts && playStartsFromScreen();
 }
+bool applies_timeselection() {
+	return getRootUI() == &arrangerView && arrangerView.hasTimeSelection();
+}
+bool applies_notimeselection() {
+	return !(getRootUI() == &arrangerView && arrangerView.hasTimeSelection());
+}
 
 // clang-format off
 namespace global {
@@ -409,7 +415,7 @@ PLACE_SDRAM_RODATA constexpr Gesture TrackToAudio{.hold = pad::AUDITION, .input 
 PLACE_SDRAM_RODATA constexpr Gesture SongFx{.input = gbtn::SELECT_ENC, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_SONG_FX_MENU, .keywords = "master global"};
 PLACE_SDRAM_RODATA constexpr Gesture TrackType{.hold = pad::AUDITION, .input = gbtn::SYNTH, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_CHANGE_TRACK_TYPE, .keywords = "kit midi cv"};
 PLACE_SDRAM_RODATA constexpr Gesture TrackPreset{.hold = pad::AUDITION, .hold2 = gbtn::LOAD, .input = gbtn::SYNTH, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_LOAD_PRESET_INTO_TRACK, .keywords = "kit"};
-PLACE_SDRAM_RODATA constexpr Gesture ClearArrangement{.hold = gbtn::X_ENC, .input = gbtn::BACK, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_CLEAR_ARRANGEMENT, .keywords = "delete"};
+PLACE_SDRAM_RODATA constexpr Gesture ClearArrangement{.hold = gbtn::X_ENC, .input = gbtn::BACK, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_CLEAR_ARRANGEMENT, .applies = applies_notimeselection, .keywords = "delete"};
 PLACE_SDRAM_RODATA constexpr Gesture PerformanceView{.input = gbtn::KEYBOARD, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_PERFORMANCE_VIEW, .keywords = "fx"};
 PLACE_SDRAM_RODATA constexpr Gesture RenameTrack{.hold = pad::AUDITION, .input = pad::GRID, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_RENAME_TRACK, .keywords = "name", .padX = 11, .padY = 5};
 PLACE_SDRAM_RODATA constexpr Gesture SoloTrack{.hold = gbtn::X_ENC, .input = pad::MUTE, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_SOLO_TRACK};
@@ -420,11 +426,16 @@ PLACE_SDRAM_RODATA constexpr Gesture InstanceLength{.hold = pad::CLIP, .input = 
 PLACE_SDRAM_RODATA constexpr Gesture InstanceClip{.hold = pad::CLIP, .input = gbtn::SELECT_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_CHANGE_INSTANCE_CLIP};
 PLACE_SDRAM_RODATA constexpr Gesture DragInstance{.hold = pad::CLIP, .input = gbtn::X_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_DRAG_CLIP_INSTANCE, .keywords = "move position time"};
 PLACE_SDRAM_RODATA constexpr Gesture TrackPresetTurn{.hold = pad::AUDITION, .input = gbtn::SELECT_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_BROWSE_TRACK_PRESET, .keywords = "sound"};
-PLACE_SDRAM_RODATA constexpr Gesture InsertTime{.hold = gbtn::SHIFT, .input = gbtn::X_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_INSERT_DELETE_TIME, .keywords = "space"};
+PLACE_SDRAM_RODATA constexpr Gesture InsertTime{.hold = gbtn::SHIFT, .input = gbtn::X_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_INSERT_DELETE_TIME, .applies = applies_notimeselection, .keywords = "space"};
 PLACE_SDRAM_RODATA constexpr Gesture TransposeSong{.hold = gbtn::Y_ENC, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_TRANSPOSE_SONG, .keywords = "pitch key"};
 PLACE_SDRAM_RODATA constexpr Gesture MoveTrack{.hold = pad::AUDITION, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_MOVE_TRACK, .keywords = "reorder"};
 PLACE_SDRAM_RODATA constexpr Gesture PlayFromPad{.hold = pad::CLIP, .input = gbtn::PLAY, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_PLAY_FROM_PAD, .keywords = "selection position start here"};
 PLACE_SDRAM_RODATA constexpr Gesture SwitchToArrangement{.hold = gbtn::X_ENC, .input = gbtn::PLAY, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_SWITCH_TO_ARRANGEMENT, .keywords = "session playing"};
+PLACE_SDRAM_RODATA constexpr Gesture SelectTime{.hold = gbtn::LEARN, .input = pad::GRID, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_SELECT_TIME, .keywords = "range bars region two pads cut"};
+PLACE_SDRAM_RODATA constexpr Gesture CutTime{.hold = gbtn::SHIFT, .input = gbtn::SAVE, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_CUT_OUT_SELECTED_TIME, .applies = applies_timeselection, .keywords = "delete remove bars close gap splice"};
+PLACE_SDRAM_RODATA constexpr Gesture SelectionTime{.hold = gbtn::SHIFT, .input = gbtn::X_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_INSERT_GAP_CUT_SELECTION, .applies = applies_timeselection, .keywords = "insert silence empty bars space delete"};
+PLACE_SDRAM_RODATA constexpr Gesture ClearTime{.hold = gbtn::X_ENC, .input = gbtn::BACK, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_CLEAR_SELECTED_TIME, .applies = applies_timeselection, .keywords = "delete erase hole"};
+PLACE_SDRAM_RODATA constexpr Gesture EndTimeSelection{.input = gbtn::LEARN, .action = Action::TAP, .name = l10n::String::STRING_FOR_GESTURE_END_SELECTION, .applies = applies_timeselection, .keywords = "deselect range"};
 } // namespace arranger
 // clang-format on
 
@@ -677,6 +688,11 @@ constexpr Gesture const* kAll[] = {
     &arranger::MoveTrack,
     &arranger::PlayFromPad,
     &arranger::SwitchToArrangement,
+    &arranger::SelectTime,
+    &arranger::CutTime,
+    &arranger::SelectionTime,
+    &arranger::ClearTime,
+    &arranger::EndTimeSelection,
 };
 static_assert(isValidGestureTable(kAll));
 

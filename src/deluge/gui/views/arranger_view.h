@@ -20,6 +20,7 @@
 #include "definitions_cxx.hpp"
 #include "gui/colour/colour.h"
 #include "gui/views/timeline_view.h"
+#include <optional>
 
 class ClipInstance;
 class InstrumentClip;
@@ -59,6 +60,7 @@ public:
 	void editPadAction(int32_t x, int32_t y, bool on);
 	ActionResult horizontalEncoderAction(int32_t offset) override;
 	void shiftAutomationHorizontally(int32_t offset, int32_t scroll_amount, Action* action);
+	void shiftAutomationHorizontally(int32_t pos, int32_t offset, int32_t scroll_amount, Action* action);
 	void shiftClipsHorizontally(int32_t offset, int32_t scroll_amount, Action* action);
 	uint32_t getMaxLength() override;
 	uint32_t getMaxZoom() override;
@@ -131,7 +133,37 @@ public:
 
 	void requestRendering(UI* ui, uint32_t whichMainRows = 0xFFFFFFFF, uint32_t whichSideRows = 0xFFFFFFFF);
 
+	// Time selection (arranger_time_selection.cpp): Learn + pads select a range of time on every track, which
+	// Shift + Save cuts out, Shift + <> inserts as a gap (right) or cuts (left) and <> + Back clears
+	[[nodiscard]] bool hasTimeSelection() const { return timeSelectionActive; }
+	void clearTimeSelection();
+
 private:
+	enum class TimeEdit { CUT, INSERT, CLEAR };
+
+	std::optional<ActionResult> timeSelectionPadAction(int32_t x, int32_t y, int32_t velocity);
+	void timeSelectionLearnButton(bool on);
+	void timeSelectionPadPress(int32_t x);
+	bool editSelectedTime(TimeEdit edit);
+	bool timeEditBlockedBy(TimeEdit edit, Output** blockingOutput);
+	void applyTimeEdit(TimeEdit edit, Output* output, Action* action);
+	void insertClipInstancePiece(Output* output, int32_t pos, int32_t length, Clip* clip, Action* action);
+	void renderTimeSelection(uint32_t whichRows, RGB image[][kDisplayWidth + kSideBarWidth]);
+	void renderTimeSelectionOLED(deluge::hid::display::oled_canvas::Canvas& canvas);
+	void popupTimeSelection();
+	void formatTimeRange(int32_t start, int32_t end, char* buffer, int32_t bufferSize);
+
+	bool timeSelectionActive = false;
+	int32_t timeSelectionStart = 0; // Ticks, end exclusive
+	int32_t timeSelectionEnd = 0;
+	struct {
+		bool used = false;      // Learn did something since it was pressed, so its release doesn't end the selection
+		bool hasAnchor = false; // A pad pressed during this hold of Learn: the next one spans from it
+		int32_t anchorStart = 0;
+		int32_t anchorEnd = 0;
+	} timeSelectionGesture;
+	uint16_t timeSelectionPadsHeld[kDisplayHeight]{}; // Presses the selection took, so their releases are swallowed
+
 	void changeOutputType(OutputType newOutputType);
 	void moveClipToSession();
 	static bool makeClipIntoSectionClip(Output* output, Clip* clip);
