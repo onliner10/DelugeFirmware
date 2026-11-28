@@ -280,13 +280,16 @@ void ModControllableAudio::processReverbSendAndVolume(std::span<StereoSample> bu
 
 	int32_t reverbSendAmountAndPostFXVolume = multiply_32x32_rshift32(postFXVolume, reverbSendAmount) << 5;
 
+	// The post-reverb-send volume ramps from last buffer's value to this one's, so sidechain ducking (patched to it)
+	// glides instead of stepping. Starting from this buffer's value and ramping on from there would overshoot it by a
+	// whole buffer's change, which turns a deep, fast duck into a click, or even a flipped polarity.
+	int32_t const startPostReverbVolume = doAmplitudeIncrement ? postReverbVolumeLastTime : postReverbVolume;
 	int32_t postFXAndReverbVolumeL, postFXAndReverbVolumeR;
-	postFXAndReverbVolumeL = postFXAndReverbVolumeR = (multiply_32x32_rshift32(postReverbVolume, postFXVolume) << 5);
+	postFXAndReverbVolumeL = postFXAndReverbVolumeR =
+	    (multiply_32x32_rshift32(startPostReverbVolume, postFXVolume) << 5);
 	int32_t amplitudeIncrementL = 0;
 	int32_t amplitudeIncrementR = 0;
 
-	// The amplitude increment applies to the post-FX volume. We want to have it just so that we can respond better to
-	// sidechain volume ducking, which is done through post-FX volume.
 	if (doAmplitudeIncrement) {
 		int32_t postReverbSendVolumeIncrement =
 		    deluge::divideBySmall(postReverbVolume - postReverbVolumeLastTime, (int32_t)buffer.size());
