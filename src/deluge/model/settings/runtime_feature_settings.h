@@ -74,6 +74,7 @@ enum RuntimeFeatureSettingType : uint32_t {
 	FastPresetScrolling,
 	BiggerOutputQueue,
 	CharacterFx,
+	Skipback,  // Seconds kept, 0 for off - see processing/skipback/skipback.h
 	MaxElement // Keep as boundary
 };
 

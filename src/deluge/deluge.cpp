@@ -62,6 +62,7 @@
 #include "playback/mode/session.h"
 #include "processing/engines/audio_engine.h"
 #include "processing/engines/cv_engine.h"
+#include "processing/skipback/skipback.h"
 #include "processing/sound/sound_instrument.h"
 #include "scheduler_api.h"
 #include "storage/audio/audio_file_manager.h"
@@ -844,6 +845,7 @@ extern "C" int32_t deluge_main(void) {
 	// Hopefully we can read these files now
 	runtimeFeatureSettings.readSettingsFromFile();
 	AudioEngine::applyOutputQueueSetting(); // Before anything plays or records
+	deluge::skipback::applySetting();       // While memory is still empty, so its RAM is in one piece
 	deluge::hid::display::oled_canvas::Canvas::roundedCornersEnabled =
 	    runtimeFeatureSettings.isOn(RuntimeFeatureSettingType::RoundedCorners);
 	MIDIDeviceManager::readDevicesFromFile();

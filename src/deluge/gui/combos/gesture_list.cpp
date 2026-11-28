@@ -91,6 +91,9 @@ bool applies_kitrandom() {
 bool applies_sticky() {
 	return runtimeFeatureSettings.get(RuntimeFeatureSettingType::ShiftIsSticky) == RuntimeFeatureStateToggle::On;
 }
+bool applies_skipback() {
+	return runtimeFeatureSettings.get(RuntimeFeatureSettingType::Skipback) != 0;
+}
 bool applies_overlay() {
 	return runtimeFeatureSettings.get(RuntimeFeatureSettingType::ShortcutOverlay)
 	       != static_cast<uint32_t>(RuntimeFeatureStateShortcutOverlay::Off);
@@ -188,6 +191,7 @@ PLACE_SDRAM_RODATA constexpr Gesture FineTempo{.hold = gbtn::TEMPO_ENC, .input =
 PLACE_SDRAM_RODATA constexpr Gesture PadBrightness{.hold = gbtn::SHIFT, .hold2 = gbtn::LEARN, .input = gbtn::Y_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_PAD_BRIGHTNESS, .keywords = "dim led"};
 PLACE_SDRAM_RODATA constexpr Gesture PadRefresh{.hold = gbtn::CLIP_VIEW, .input = gbtn::SELECT_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_PAD_REFRESH_RATE, .keywords = "led"};
 PLACE_SDRAM_RODATA constexpr Gesture ThresholdRecording{.hold = gbtn::RECORD, .input = gbtn::SELECT_ENC, .action = Action::TURN, .name = l10n::String::STRING_FOR_GESTURE_THRESHOLD_RECORDING, .keywords = "level trigger"};
+PLACE_SDRAM_RODATA constexpr Gesture SaveSkipback{.hold = gbtn::RECORD, .input = gbtn::SELECT_ENC, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_SAVE_SKIPBACK, .applies = applies_skipback, .keywords = "capture retrospective sample midi"};
 PLACE_SDRAM_RODATA constexpr Gesture SwapDisplay{.hold = gbtn::SHIFT, .hold2 = gbtn::LEARN, .input = gbtn::AFFECT_ENTIRE, .action = Action::PRESS, .name = l10n::String::STRING_FOR_GESTURE_SWAP_DISPLAY_TYPE, .applies = applies_emudisplay, .keywords = "oled 7seg"};
 PLACE_SDRAM_RODATA constexpr Gesture ExitMenus{.input = gbtn::BACK, .action = Action::HOLD, .name = l10n::String::STRING_FOR_GESTURE_EXIT_ALL_MENUS, .keywords = "leave"};
 PLACE_SDRAM_RODATA constexpr Gesture StickyShift{.input = gbtn::SHIFT, .action = Action::TAP, .name = l10n::String::STRING_FOR_GESTURE_STICKY_SHIFT, .applies = applies_sticky, .keywords = "latch"};
@@ -464,6 +468,7 @@ constexpr Gesture const* kAll[] = {
     &global::PadBrightness,
     &global::PadRefresh,
     &global::ThresholdRecording,
+    &global::SaveSkipback,
     &global::SwapDisplay,
     &global::ExitMenus,
     &global::StickyShift,

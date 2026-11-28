@@ -42,10 +42,7 @@ enum class AlternateLoadDirStatus {
 };
 
 char const* const audioRecordingFolderNames[] = {
-    "SAMPLES/CLIPS",
-    "SAMPLES/RECORD",
-    "SAMPLES/RESAMPLE",
-    "SAMPLES/EXPORTS",
+    "SAMPLES/CLIPS", "SAMPLES/RECORD", "SAMPLES/RESAMPLE", "SAMPLES/EXPORTS", "SAMPLES/SKIPBACK",
 };
 
 /*

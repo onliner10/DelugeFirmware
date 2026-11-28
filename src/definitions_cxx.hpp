@@ -208,6 +208,7 @@ enum class UIType : uint8_t {
 	SAVE_PATTERN,
 	SAVE_SONG,
 	SESSION,
+	SKIPBACK,
 	SLICER,
 	SOUND_EDITOR,
 	// Keep these at the bottom!
@@ -903,8 +904,9 @@ enum class AudioRecordingFolder {
 	RECORD,
 	RESAMPLE,
 	STEMS,
+	SKIPBACK,
 };
-constexpr auto kNumAudioRecordingFolders = util::to_underlying(AudioRecordingFolder::STEMS) + 1;
+constexpr auto kNumAudioRecordingFolders = util::to_underlying(AudioRecordingFolder::SKIPBACK) + 1;
 
 enum class KeyboardLayout : uint8_t {
 	QWERTY,

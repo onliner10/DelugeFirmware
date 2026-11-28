@@ -499,6 +499,7 @@ EnumStringMap<UIType, util::to_underlying(UIType::UI_TYPE_COUNT)> uiTypeMap = {
       {UIType::SAVE_PATTERN, "save_pattern"},
       {UIType::SAVE_SONG, "save_song"},
       {UIType::SESSION, "session"},
+      {UIType::SKIPBACK, "skipback"},
       {UIType::SLICER, "slicer"},
       {UIType::SOUND_EDITOR, "sound_editor"}}}};
 
