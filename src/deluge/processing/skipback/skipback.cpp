@@ -40,6 +40,10 @@
 #include <cmath>
 #include <cstring>
 
+extern "C" {
+#include "drivers/ssi/ssi.h" // The line input's ring
+}
+
 namespace deluge::skipback {
 namespace {
 
@@ -92,8 +96,19 @@ uint16_t* blockPeaks = nullptr;
 uint32_t numBlocks = 0;
 Capture frozenCapture{};
 
-// Keeping a track's audio rather than the master's (Community Features > Skipback Source)
-bool trackMode = true;
+// Whose audio is kept (Community Features > Skipback Source), as the setting's values have it
+enum class Source : uint8_t { TRACK = 0, MASTER = 1, LINE_IN = 2 };
+Source source = Source::TRACK;
+bool trackMode = true;         // source == Source::TRACK
+bool onlyWhilePlaying = false; // Community Features > Skipback Record: While playing
+bool wasPlaying = false;       // At the last feed
+
+// The song's position at the newest frame kept, as the feed saw it, so a range can go by the grid even once the
+// transport has stopped
+bool feedPlaying = false;
+int64_t feedTick = 0;
+float feedSamplesPerTick = 0;
+uint32_t feedTickTime = 0;       // AudioEngine::audioSampleTimer at feedTick
 Clip* lastCurrentClip = nullptr; // The current clip the track was last picked up from; only compared with
 bool trackRendered = false;      // trackMemory holds this render of trackSource
 int32_t songGain = 0;            // The song's volume this render, as setSongGain() has it
@@ -207,7 +222,7 @@ bool buildBlockPeaks() {
 }
 
 void addNoteEvent(Output* output, int32_t note, int32_t velocity) {
-	if (noteEvents == nullptr || frozen) {
+	if (noteEvents == nullptr || frozen || (onlyWhilePlaying && !playbackHandler.isEitherClockActive())) {
 		return;
 	}
 	noteEvents[noteWrite] = {
@@ -512,9 +527,13 @@ void applySetting() {
 	if (frozen) {
 		return; // The screen's using the rings - and isn't letting the menu open anyway
 	}
-	bool const wantTrack = runtimeFeatureSettings.get(RuntimeFeatureSettingType::SkipbackSource) == 0;
-	if (wantTrack != trackMode) {
-		trackMode = wantTrack;
+	auto const wantSource = static_cast<Source>(std::min<uint32_t>(
+	    runtimeFeatureSettings.get(RuntimeFeatureSettingType::SkipbackSource), static_cast<uint32_t>(Source::LINE_IN)));
+	bool const wantWhilePlaying = runtimeFeatureSettings.get(RuntimeFeatureSettingType::SkipbackRecord) != 0;
+	if (wantSource != source || wantWhilePlaying != onlyWhilePlaying) {
+		source = wantSource;
+		trackMode = (source == Source::TRACK);
+		onlyWhilePlaying = wantWhilePlaying;
 		trackSource = nullptr; // Picked up again at the next render, if it's tracks now
 		lastCurrentClip = nullptr;
 		restart();
@@ -595,10 +614,80 @@ void setSongGain(int32_t gain) {
 	songGain = gain;
 }
 
-void feedOutput(std::span<StereoSample const> output, size_t renderOffset, int32_t gainL, int32_t gainR) {
+namespace {
+
+/// Narrows interleaved 32-bit values to their top 16 bits, 8 at a time
+void narrow(int16_t* __restrict__ dst, int32_t const* __restrict__ src, uint32_t numValues) {
+	uint32_t j = 0;
+	for (; j + 8 <= numValues; j += 8) {
+		int16x4_t const lo = vshrn_n_s32(vld1q_s32(src + j), 16);
+		int16x4_t const hi = vshrn_n_s32(vld1q_s32(src + j + 4), 16);
+		vst1q_s16(dst + j, vcombine_s16(lo, hi));
+	}
+	for (; j < numValues; j++) {
+		dst[j] = static_cast<int16_t>(src[j] >> 16);
+	}
+}
+
+/// A track's audio, (x * gain) >> 31 saturated to 16 bits
+void narrowWithGain(int16_t* __restrict__ dst, int32_t const* __restrict__ src, uint32_t numValues,
+                    std::array<int32_t, 4> const& gains) {
+	int32x4_t const gain = vld1q_s32(gains.data());
+	uint32_t j = 0;
+	for (; j + 8 <= numValues; j += 8) {
+		int16x4_t const lo = vqmovn_s32(vqdmulhq_s32(vld1q_s32(src + j), gain));
+		int16x4_t const hi = vqmovn_s32(vqdmulhq_s32(vld1q_s32(src + j + 4), gain));
+		vst1q_s16(dst + j, vcombine_s16(lo, hi));
+	}
+	for (; j < numValues; j++) {
+		int64_t const v = (static_cast<int64_t>(src[j]) * gains[j & 1]) >> 31;
+		dst[j] = static_cast<int16_t>(std::clamp<int64_t>(v, INT16_MIN, INT16_MAX));
+	}
+}
+
+/// The line input, from its ring: both channels, or the left one twice if it's the internal mic, which has no right
+void narrowLineIn(int16_t* dst, int32_t const*& in, uint32_t numFrames, bool mono) {
+	static_assert(NUM_MONO_INPUT_CHANNELS == 2);
+	int32_t const* const ringStart = getRxBufferStart();
+	int32_t const* const ringEnd = getRxBufferEnd();
+	while (numFrames != 0) {
+		auto const run = std::min<uint32_t>(numFrames, (ringEnd - in) / NUM_MONO_INPUT_CHANNELS);
+		if (mono) {
+			for (uint32_t f = 0; f < run; f++) {
+				dst[2 * f] = dst[2 * f + 1] = static_cast<int16_t>(in[f * NUM_MONO_INPUT_CHANNELS] >> 16);
+			}
+		}
+		else {
+			narrow(dst, in, run * 2);
+		}
+		dst += run * 2;
+		in += run * NUM_MONO_INPUT_CHANNELS;
+		if (in >= ringEnd) {
+			in = ringStart;
+		}
+		numFrames -= run;
+	}
+}
+
+} // namespace
+
+void feedOutput(std::span<StereoSample const> output, size_t renderOffset, int32_t gainL, int32_t gainR,
+                int32_t const* lineIn) {
 	if (numChunks == 0 || frozen) {
 		return;
 	}
+	bool const playing = playbackHandler.isEitherClockActive();
+	if (onlyWhilePlaying) {
+		if (!playing) {
+			wasPlaying = false;
+			return; // What the last play kept stays, until the next one
+		}
+		if (!wasPlaying) {
+			restart(); // Each play keeps its own
+		}
+	}
+	wasPlaying = playing;
+
 	// A track's audio as the output gets it, but for the song's FX: the song's volume, ((x * song) >> 32) << 5, the
 	// master compressor's, ((x * compressor) >> 32) << 4, the master gain, ((x * master) >> 32) << 8, then its top 16
 	// bits. That's x * (song * compressor * master >> 64) >> 31, the gain being under 2^29 - saturated
@@ -614,44 +703,32 @@ void feedOutput(std::span<StereoSample const> output, size_t renderOffset, int32
 		gains[0] = gains[2] = combined(songGain, compressor.getVolumeL(), gainL);
 		gains[1] = gains[3] = combined(songGain, compressor.getVolumeR(), gainR);
 	}
-	int32x4_t const gain = vld1q_s32(gains.data());
+	bool const lineInMono = !AudioEngine::lineInPluggedIn && !AudioEngine::micPluggedIn;
+
 	size_t i = 0;
 	size_t const n = output.size();
 	while (i < n) {
 		// capacityFrames is a whole number of chunks, so a run never goes past the end of the ring
 		uint32_t const offset = writeFrame & (kChunkFrames - 1);
 		uint32_t const run = std::min<uint32_t>(n - i, kChunkFrames - offset);
-		auto* __restrict__ dst = reinterpret_cast<int16_t*>(&chunks[writeFrame >> kChunkFramesMagnitude][offset]);
+		auto* dst = reinterpret_cast<int16_t*>(&chunks[writeFrame >> kChunkFramesMagnitude][offset]);
 		uint32_t const numValues = run * 2;
-		if (!trackMode) {
-			// Both sides interleaved L R, so it's one stream of values narrowed to their top 16 bits, 8 at a time
-			auto const* __restrict__ src = reinterpret_cast<int32_t const*>(&output[i]);
-			uint32_t j = 0;
-			for (; j + 8 <= numValues; j += 8) {
-				int16x4_t const lo = vshrn_n_s32(vld1q_s32(src + j), 16);
-				int16x4_t const hi = vshrn_n_s32(vld1q_s32(src + j + 4), 16);
-				vst1q_s16(dst + j, vcombine_s16(lo, hi));
+		switch (source) {
+		case Source::MASTER:
+			// Both sides interleaved L R, so it's one stream of values
+			narrow(dst, reinterpret_cast<int32_t const*>(&output[i]), numValues);
+			break;
+		case Source::LINE_IN:
+			narrowLineIn(dst, lineIn, run, lineInMono);
+			break;
+		case Source::TRACK:
+			if (track != nullptr) {
+				narrowWithGain(dst, track + i * 2, numValues, gains);
 			}
-			for (; j < numValues; j++) {
-				dst[j] = static_cast<int16_t>(src[j] >> 16);
+			else {
+				std::memset(dst, 0, numValues * sizeof(int16_t)); // The track didn't render
 			}
-		}
-		else if (track != nullptr) {
-			// vqdmulh is (x * gain) >> 31
-			int32_t const* __restrict__ src = track + i * 2;
-			uint32_t j = 0;
-			for (; j + 8 <= numValues; j += 8) {
-				int16x4_t const lo = vqmovn_s32(vqdmulhq_s32(vld1q_s32(src + j), gain));
-				int16x4_t const hi = vqmovn_s32(vqdmulhq_s32(vld1q_s32(src + j + 4), gain));
-				vst1q_s16(dst + j, vcombine_s16(lo, hi));
-			}
-			for (; j < numValues; j++) {
-				int64_t const v = (static_cast<int64_t>(src[j]) * gains[j & 1]) >> 31;
-				dst[j] = static_cast<int16_t>(std::clamp<int64_t>(v, INT16_MIN, INT16_MAX));
-			}
-		}
-		else {
-			std::memset(dst, 0, numValues * sizeof(int16_t)); // The track didn't render
+			break;
 		}
 		writeFrame += run;
 		if (writeFrame >= capacityFrames) {
@@ -661,6 +738,12 @@ void feedOutput(std::span<StereoSample const> output, size_t renderOffset, int32
 	}
 	framesFilled = std::min<uint32_t>(framesFilled + n, capacityFrames);
 	lastFeedTime = AudioEngine::audioSampleTimer;
+	feedPlaying = playing;
+	if (playing) {
+		feedTick = playbackHandler.getActualSwungTickCount();
+		feedSamplesPerTick = playbackHandler.getTimePerInternalTickFloat();
+		feedTickTime = AudioEngine::audioSampleTimer;
+	}
 }
 
 void noteOn(Output* output, int32_t note, int32_t velocity) {
@@ -688,20 +771,23 @@ bool freeze(Capture& capture) {
 
 	capture.numFrames = framesFilled;
 	capture.newestTime = lastFeedTime - 1;
-	capture.samplesPerTick = playbackHandler.getTimePerInternalTickFloat();
-	capture.playing = playbackHandler.isEitherClockActive() && capture.samplesPerTick > 0;
+	// The song's position when the newest frame was kept - which, while only keeping while playing, can be from
+	// before the transport stopped
+	capture.samplesPerTick = feedSamplesPerTick;
+	capture.playing = feedPlaying && capture.samplesPerTick > 0;
 	capture.newestTick = 0;
 	if (capture.playing) {
-		// The tick now, taken back to when the newest frame was output
-		capture.newestTick = playbackHandler.getActualSwungTickCount()
-		                     - std::llround(static_cast<double>(AudioEngine::audioSampleTimer - capture.newestTime)
-		                                    / capture.samplesPerTick);
+		capture.newestTick =
+		    feedTick - std::llround(static_cast<double>(feedTickTime - capture.newestTime) / capture.samplesPerTick);
+	}
+	else {
+		capture.samplesPerTick = playbackHandler.getTimePerInternalTickFloat();
 	}
 	if (capture.samplesPerTick <= 0) {
 		capture.samplesPerTick = 1;
 	}
 	capture.barLength = std::max<int64_t>(currentSong->getBarLength(), 1);
-	char const* name = trackMode ? "Track" : "Master";
+	char const* name = trackMode ? "Track" : (source == Source::LINE_IN) ? "Line in" : "Master";
 	if (trackMode && trackSource != nullptr && isInSong(trackSource) && !trackSource->name.isEmpty()) {
 		name = trackSource->name.get();
 	}

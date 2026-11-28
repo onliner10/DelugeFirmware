@@ -78,7 +78,8 @@ Setting menuShortcutOverlay(RuntimeFeatureSettingType::ShortcutOverlay);
 SettingToggle menuFastPresetScrolling(RuntimeFeatureSettingType::FastPresetScrolling);
 SettingToggle menuBiggerOutputQueue(RuntimeFeatureSettingType::BiggerOutputQueue);
 SettingToggle menuCharacterFx(RuntimeFeatureSettingType::CharacterFx);
-// Skipback allocates or frees its RAM as soon as the length changes, and starts over when the source does
+// Skipback allocates or frees its RAM as soon as the length changes, and starts over when the source or when it
+// keeps does
 class SkipbackSetting final : public Setting {
 public:
 	using Setting::Setting;
@@ -89,6 +90,7 @@ public:
 };
 SkipbackSetting menuSkipback(RuntimeFeatureSettingType::Skipback);
 SkipbackSetting menuSkipbackSource(RuntimeFeatureSettingType::SkipbackSource);
+SkipbackSetting menuSkipbackRecord(RuntimeFeatureSettingType::SkipbackRecord);
 
 std::array<MenuItem*, RuntimeFeatureSettingType::MaxElement - kNonTopLevelSettings> subMenuEntries{
     &menuDrumRandomizer,
@@ -120,7 +122,8 @@ std::array<MenuItem*, RuntimeFeatureSettingType::MaxElement - kNonTopLevelSettin
     &menuBiggerOutputQueue,
     &menuCharacterFx,
     &menuSkipback,
-    &menuSkipbackSource};
+    &menuSkipbackSource,
+    &menuSkipbackRecord};
 
 Settings::Settings(l10n::String name, l10n::String title) : menu_item::Submenu(name, title, subMenuEntries) {
 }

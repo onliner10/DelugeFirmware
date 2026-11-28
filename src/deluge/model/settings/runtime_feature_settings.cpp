@@ -229,12 +229,19 @@ void RuntimeFeatureSettings::init() {
 	    {l10n::getView(STRING_FOR_OFF), 0}, {oled ? "10 seconds" : "10S", 10}, {oled ? "20 seconds" : "20S", 20},
 	    {oled ? "30 seconds" : "30S", 30},  {oled ? "60 seconds" : "60S", 60},
 	};
-	// Whose audio skipback keeps: the track being played, or the master output
+	// Whose audio skipback keeps: the track being played, the master output, or the line input
 	auto& skipbackSource = settings[RuntimeFeatureSettingType::SkipbackSource];
 	skipbackSource.displayName = STRING_FOR_COMMUNITY_FEATURE_SKIPBACK_SOURCE;
 	skipbackSource.xmlName = "skipbackSource";
 	skipbackSource.value = 0;
-	skipbackSource.options = {{oled ? "Track" : "TRAC", 0}, {oled ? "Master" : "MAST", 1}};
+	skipbackSource.options = {
+	    {oled ? "Track" : "TRAC", 0}, {oled ? "Master" : "MAST", 1}, {oled ? "Line in" : "LINE", 2}};
+	// When skipback keeps: always, or only while the transport plays
+	auto& skipbackRecord = settings[RuntimeFeatureSettingType::SkipbackRecord];
+	skipbackRecord.displayName = STRING_FOR_COMMUNITY_FEATURE_SKIPBACK_RECORD;
+	skipbackRecord.xmlName = "skipbackRecord";
+	skipbackRecord.value = 0;
+	skipbackRecord.options = {{oled ? "Always" : "ALWA", 0}, {oled ? "While playing" : "PLAY", 1}};
 
 	// Shortcut Overlay
 	auto& overlay = settings[RuntimeFeatureSettingType::ShortcutOverlay];

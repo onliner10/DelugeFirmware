@@ -1670,6 +1670,7 @@ bool doSomeOutputting() {
 	bool const sendLineInToUSB = (usb_audio::outputSource == usb_audio::OutputSource::LINE_IN);
 	bool const lineInIsMono = !lineInPluggedIn && !micPluggedIn;
 	int32_t const* __restrict__ lineInReadPos = getInputReadPos(AudioInputChannel::STEREO);
+	int32_t const* const lineInStart = lineInReadPos; // For skipback
 	int32_t const* const lineInEnd = getRxBufferEnd();
 
 	while (renderingBufferOutputPosNow != renderingBufferOutputEnd) {
@@ -1849,7 +1850,7 @@ bool doSomeOutputting() {
 
 		if (!stemExport.processStarted) {
 			deluge::skipback::feedOutput(outputBufferForResampling.first(numSamplesOutputted), renderOffset,
-			                             masterVolumeAdjustmentL, masterVolumeAdjustmentR);
+			                             masterVolumeAdjustmentL, masterVolumeAdjustmentR, lineInStart);
 		}
 	}
 

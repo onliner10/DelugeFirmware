@@ -28,7 +28,11 @@ class Output;
 ///
 /// The audio is that of the track being played (Community Features > Skipback Source: Track, the default): the one
 /// last played live, or else the one whose clip was last opened - after its own FX, before the song's. Playing or
-/// opening another track starts the keeping over, for that one. Or it's the master output, set to Master.
+/// opening another track starts the keeping over, for that one. Or it's the master output (Master), or the line input
+/// as it comes in, heard through the Deluge or not (Line in) - a guitar, say.
+///
+/// It keeps all the time, or (Skipback Record: While playing) only while the transport plays: each play starts it
+/// over, and what a play kept stays after Stop, until the next.
 ///
 /// The Community Features setting picks how many seconds. Off by default, and while it's off nothing is allocated and
 /// nothing is done. While it's on the audio costs 16-bit stereo in SDRAM (176 KB a second, taken from the sample cache)
@@ -60,7 +64,9 @@ void setSongGain(int32_t gain);
 
 /// From the audio routine: what just went to the codec - frames renderOffset on of the render - and the master gain
 /// it went with, which the track's audio gets too (with the master compressor's), so it's kept as loud as it's heard.
-void feedOutput(std::span<StereoSample const> output, size_t renderOffset, int32_t gainL, int32_t gainR);
+/// lineIn is where the line input for those frames starts, in its ring.
+void feedOutput(std::span<StereoSample const> output, size_t renderOffset, int32_t gainL, int32_t gainR,
+                int32_t const* lineIn);
 
 /// A note played live (keyboard screen, audition pads, MIDI in) on a melodic instrument.
 void noteOn(Output* output, int32_t note, int32_t velocity);
@@ -77,7 +83,7 @@ struct Capture {
 	float samplesPerTick; ///< At the tempo when frozen
 	int64_t barLength;    ///< In ticks
 	int32_t maxPeak;      ///< Loudest value kept, to scale the waveform to
-	char sourceName[24];  ///< Whose audio: the track's name, or "Master"
+	char sourceName[24];  ///< Whose audio: the track's name, "Master" or "Line in"
 };
 
 struct Range {
