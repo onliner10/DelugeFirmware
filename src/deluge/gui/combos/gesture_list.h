@@ -86,6 +86,7 @@ extern Gesture const FineTempo;
 extern Gesture const PadBrightness;
 extern Gesture const PadRefresh;
 extern Gesture const ThresholdRecording;
+extern Gesture const SaveSkipback;
 extern Gesture const SwapDisplay;
 extern Gesture const ExitMenus;
 extern Gesture const StickyShift;

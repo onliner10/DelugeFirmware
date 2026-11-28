@@ -55,6 +55,7 @@
 #include "processing/engines/cv_engine.h"
 #include "processing/live/live_input_buffer.h"
 #include "processing/metronome/metronome.h"
+#include "processing/skipback/skipback.h"
 #include "processing/sound/sound.h"
 #include "processing/sound/sound_drum.h"
 #include "processing/sound/sound_instrument.h"
@@ -1773,6 +1774,20 @@ bool doSomeOutputting() {
 	}
 
 	renderingBufferOutputPos = renderingBufferOutputPosNow; // Write back from __restrict__ pointer to permanent pointer
+
+	// The skipback screen playing what it kept, in place of everything else. Over what was just written, rather than
+	// in the loop above, so the loop is the same as without skipback
+	if (deluge::skipback::isPreviewing()) [[unlikely]] {
+		auto* tx = reinterpret_cast<int32_t*>(i2sTXBufferPos);
+		for (int32_t i = 0; i < numSamplesOutputted; i++) {
+			deluge::skipback::nextPreviewFrame(tx[0], tx[1]);
+			tx += NUM_MONO_OUTPUT_CHANNELS;
+			if (tx == getTxBufferEnd()) {
+				tx = getTxBufferStart();
+			}
+		}
+	}
+
 	i2sTXBufferPos = (uint32_t)i2sTXBufferPosNow;
 
 	if (numSamplesOutputted) {
@@ -1829,6 +1844,10 @@ bool doSomeOutputting() {
 					recorder->sourcePos -= SSI_RX_BUFFER_NUM_SAMPLES << NUM_MONO_INPUT_CHANNELS_MAGNITUDE;
 				}
 			}
+		}
+
+		if (!stemExport.processStarted) {
+			deluge::skipback::feedOutput(outputBufferForResampling.first(numSamplesOutputted));
 		}
 	}
 

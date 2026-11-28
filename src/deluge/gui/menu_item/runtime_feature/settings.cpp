@@ -20,6 +20,7 @@
 #include "emulated_display.h"
 #include "hid/display/display.h"
 #include "hid/display/oled_canvas/canvas.h"
+#include "processing/skipback/skipback.h"
 #include "setting.h"
 #include "shift_is_sticky.h"
 #include <array>
@@ -77,6 +78,16 @@ Setting menuShortcutOverlay(RuntimeFeatureSettingType::ShortcutOverlay);
 SettingToggle menuFastPresetScrolling(RuntimeFeatureSettingType::FastPresetScrolling);
 SettingToggle menuBiggerOutputQueue(RuntimeFeatureSettingType::BiggerOutputQueue);
 SettingToggle menuCharacterFx(RuntimeFeatureSettingType::CharacterFx);
+// Skipback allocates or frees its RAM as soon as the length changes
+class SkipbackSetting final : public Setting {
+public:
+	using Setting::Setting;
+	void writeCurrentValue() override {
+		Setting::writeCurrentValue();
+		deluge::skipback::applySetting();
+	}
+};
+SkipbackSetting menuSkipback(RuntimeFeatureSettingType::Skipback);
 
 std::array<MenuItem*, RuntimeFeatureSettingType::MaxElement - kNonTopLevelSettings> subMenuEntries{
     &menuDrumRandomizer,
@@ -106,7 +117,8 @@ std::array<MenuItem*, RuntimeFeatureSettingType::MaxElement - kNonTopLevelSettin
     &menuShortcutOverlay,
     &menuFastPresetScrolling,
     &menuBiggerOutputQueue,
-    &menuCharacterFx};
+    &menuCharacterFx,
+    &menuSkipback};
 
 Settings::Settings(l10n::String name, l10n::String title) : menu_item::Submenu(name, title, subMenuEntries) {
 }

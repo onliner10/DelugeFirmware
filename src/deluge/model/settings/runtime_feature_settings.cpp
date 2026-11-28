@@ -219,6 +219,17 @@ void RuntimeFeatureSettings::init() {
 	SetupOnOffSetting(settings[RuntimeFeatureSettingType::CharacterFx], STRING_FOR_COMMUNITY_FEATURE_CHARACTER_FX,
 	                  "characterFx", RuntimeFeatureStateToggle::Off);
 
+	// Skipback: how many seconds of output and live notes to keep for saving afterwards (processing/skipback)
+	auto& skipback = settings[RuntimeFeatureSettingType::Skipback];
+	skipback.displayName = STRING_FOR_COMMUNITY_FEATURE_SKIPBACK;
+	skipback.xmlName = "skipback";
+	skipback.value = 0;
+	bool const oled = display->haveOLED();
+	skipback.options = {
+	    {l10n::getView(STRING_FOR_OFF), 0}, {oled ? "10 seconds" : "10S", 10}, {oled ? "20 seconds" : "20S", 20},
+	    {oled ? "30 seconds" : "30S", 30},  {oled ? "60 seconds" : "60S", 60},
+	};
+
 	// Shortcut Overlay
 	auto& overlay = settings[RuntimeFeatureSettingType::ShortcutOverlay];
 	overlay.displayName = STRING_FOR_COMMUNITY_FEATURE_SHORTCUT_OVERLAY;

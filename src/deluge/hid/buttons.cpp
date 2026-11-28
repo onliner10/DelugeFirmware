@@ -20,6 +20,7 @@
 #include "gui/combos/command_search.h"
 #include "gui/ui/audio_recorder.h"
 #include "gui/ui/load/load_song_ui.h"
+#include "gui/ui/skipback_ui.h"
 #include "gui/ui/ui.h"
 #include "gui/ui_timer_manager.h"
 #include "gui/views/arranger_view.h"
@@ -30,6 +31,7 @@
 #include "playback/mode/playback_mode.h"
 #include "playback/playback_handler.h"
 #include "processing/engines/audio_engine.h"
+#include "processing/skipback/skipback.h"
 #include "storage/flash_storage.h"
 #include <map>
 #include <string>
@@ -181,6 +183,23 @@ ActionResult buttonAction(deluge::hid::Button b, bool on, bool inCardRoutine) {
 	else if (b == SELECT_ENC) {
 		if (on) {
 			selectButtonPressUsedUp = false;
+			// Record + Select: the skipback screen, or saving from it
+			if (isButtonPressed(RECORD) && deluge::skipback::isOn()
+			    && audioRecorder.recordingSource == AudioInputChannel::NONE) {
+				if (inCardRoutine) {
+					return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+				}
+				recordButtonPressUsedUp = true; // So letting go of Record doesn't also start recording
+				selectButtonPressUsedUp = true;
+				deluge::gui::combos::used(deluge::gui::combos::gesture::global::SaveSkipback);
+				if (getCurrentUI() == &skipbackUI) {
+					skipbackUI.saveAndExit();
+				}
+				else {
+					openUI(&skipbackUI);
+				}
+				goto dealtWith;
+			}
 		}
 	}
 	// Shift + keyboard: command search, in every view that has one

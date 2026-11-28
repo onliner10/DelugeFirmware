@@ -30,6 +30,7 @@
 #include "modulation/arpeggiator.h"
 #include "playback/mode/session.h"
 #include "playback/playback_handler.h"
+#include "processing/skipback/skipback.h"
 #include <cstdint>
 #include <cstring>
 #include <ranges>
@@ -546,9 +547,11 @@ void MelodicInstrument::beginAuditioningForNote(ModelStack* modelStack, int32_t 
 	    modelStackWithNoteRow->addOtherTwoThings(toModControllable(), paramManager);
 
 	sendNote(modelStackWithThreeMainThings, true, note, mpeValues, fromMIDIChannel, velocity, sampleSyncLength);
+	deluge::skipback::noteOn(this, note, velocity);
 }
 
 void MelodicInstrument::endAuditioningForNote(ModelStack* modelStack, int32_t note, int32_t velocity) {
+	deluge::skipback::noteOff(this, note);
 
 	notesAuditioned.erase(note);
 	// if this note was recorded as an early note, then set no longer active
