@@ -1956,8 +1956,6 @@ void SessionView::removeClip(Clip* clip, bool clearUndoHistory) {
 		return;
 	}
 
-	int32_t clipIndex = currentSong->sessionClips.getIndexForClip(clip);
-
 	// If last session Clip left, just don't allow. Easiest. Pending overdubs don't count towards what's left: they're
 	// deleted when playback stops, which would leave the song with no session Clips at all.
 	bool anotherRealClipRemains = false;
@@ -1984,6 +1982,7 @@ void SessionView::removeClip(Clip* clip, bool clearUndoHistory) {
 	if (clearUndoHistory) {
 		actionLogger.deleteAllLogs(UndoBarrier::DELETE_CLIP);
 	}
+	int32_t clipIndex = currentSong->sessionClips.getIndexForClip(clip);
 
 	clip->stopAllNotesPlaying(currentSong); // Stops any MIDI-controlled auditioning / stuck notes
 
