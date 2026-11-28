@@ -1111,7 +1111,7 @@ Saved save(Capture const& capture, Range range) {
 			continue;
 		}
 		if (!clearedUndo) {
-			actionLogger.deleteAllLogs(); // As making a new clip does - there's no undoing it
+			actionLogger.deleteAllLogs(UndoBarrier::NEW_CLIP); // As making a new clip does - there's no undoing it
 			clearedUndo = true;
 		}
 		int32_t const index = captureNotesFor(outputs[i], capture, range, loopLength);

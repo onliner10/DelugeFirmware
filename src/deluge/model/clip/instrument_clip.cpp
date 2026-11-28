@@ -3686,7 +3686,7 @@ Instrument* InstrumentClip::changeOutputType(ModelStackWithTimelineCounter* mode
 		return nullptr;
 	}
 
-	actionLogger.deleteAllLogs(); // Can't undo past this!
+	actionLogger.deleteAllLogs(UndoBarrier::INSTRUMENT); // Can't undo past this!
 
 	Availability availabilityRequirement;
 	bool canReplaceWholeInstrument = modelStack->song->shouldOldOutputBeReplaced(this, &availabilityRequirement);

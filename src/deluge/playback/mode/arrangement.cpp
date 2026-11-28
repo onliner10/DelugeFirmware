@@ -564,7 +564,8 @@ Error Arrangement::doUniqueCloneOnClipInstance(ClipInstance* clipInstance, int32
 			delugeDealloc(change_memory);
 		}
 		if (action != nullptr) {
-			actionLogger.deleteAllLogs(); // Out of RAM for the undo step - earlier ones would no longer match
+			actionLogger.deleteAllLogs(
+			    UndoBarrier::LOW_MEMORY); // Out of RAM for the undo step - earlier ones would no longer match
 		}
 		clipInstance->clip = newClip;
 		if (newLength != -1) {

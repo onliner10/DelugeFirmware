@@ -55,7 +55,8 @@ public:
 	ActionResult verticalEncoderAction(int32_t offset, bool inCardRoutine) override;
 	bool renderSidebar(uint32_t whichRows, RGB image[][kDisplayWidth + kSideBarWidth],
 	                   uint8_t occupancyMask[][kDisplayWidth + kSideBarWidth]) override;
-	void removeClip(Clip* clip);
+	/// With clearUndoHistory, clears the undo history first, unless the Clip may not be removed
+	void removeClip(Clip* clip, bool clearUndoHistory = false);
 	void redrawClipsOnScreen(bool doRender = true);
 	uint32_t getMaxZoom() override;
 	void cloneClip(uint8_t yDisplayFrom, uint8_t yDisplayTo);

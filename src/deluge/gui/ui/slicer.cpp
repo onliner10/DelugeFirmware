@@ -56,7 +56,7 @@ namespace params = deluge::modulation::params;
 
 void Slicer::focusRegained() {
 
-	actionLogger.deleteAllLogs();
+	actionLogger.deleteAllLogs(UndoBarrier::SAMPLE);
 
 	numClips = 16;
 

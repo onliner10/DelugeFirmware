@@ -361,7 +361,7 @@ ActionResult SessionView::buttonAction(deluge::hid::Button b, bool on, bool inCa
 				}
 
 				deluge::gui::combos::used(deluge::gui::combos::gesture::session::ClipToArranger);
-				actionLogger.deleteAllLogs();
+				actionLogger.deleteAllLogs(UndoBarrier::REARRANGE);
 
 				Clip* clip = getClipOnScreen(selectedClipYDisplay);
 				Output* output = clip->output;
@@ -556,9 +556,8 @@ moveAfterClipInstance:
 			Clip* clip = getClipForLayout();
 
 			if (clip != nullptr) {
-				actionLogger.deleteAllLogs();
 				clipPressEnded();
-				removeClip(clip);
+				removeClip(clip, true);
 			}
 		}
 	}
@@ -586,7 +585,7 @@ moveAfterClipInstance:
 				openUI(&context_menu::clip_settings::clipSettings);
 			}
 			else if (currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW) {
-				actionLogger.deleteAllLogs();
+				actionLogger.deleteAllLogs(UndoBarrier::MENU);
 				performActionOnPadRelease = false;
 
 				Clip* clip = getClipForLayout();
@@ -674,7 +673,7 @@ changeOutputType:
 						}
 
 						deluge::gui::combos::used(deluge::gui::combos::gesture::session::ClipPreset);
-						actionLogger.deleteAllLogs();
+						actionLogger.deleteAllLogs(UndoBarrier::PRESET);
 
 						currentUIMode = UI_MODE_NONE;
 						selectedClipYDisplay = 255;
@@ -977,7 +976,7 @@ startHoldingDown:
 					}
 
 					deluge::gui::combos::used(deluge::gui::combos::gesture::session::CloneClip);
-					actionLogger.deleteAllLogs();
+					actionLogger.deleteAllLogs(UndoBarrier::NEW_CLIP);
 					cloneClip(selectedClipYDisplay, yDisplay);
 					goto justEndClipPress;
 				}
@@ -1243,7 +1242,7 @@ void SessionView::sectionPadAction(uint8_t y, bool on) {
 					return;
 				}
 
-				actionLogger.deleteAllLogs();
+				actionLogger.deleteAllLogs(UndoBarrier::REARRANGE);
 
 				uint8_t oldSection = clip->section;
 
@@ -1616,7 +1615,7 @@ ActionResult SessionView::verticalScrollOneSquare(int32_t direction) {
 		}
 
 		deluge::gui::combos::used(deluge::gui::combos::gesture::session::DragClip);
-		actionLogger.deleteAllLogs();
+		actionLogger.deleteAllLogs(UndoBarrier::REARRANGE);
 
 		int32_t newIndex = oldIndex + direction;
 		currentSong->sessionClips.swapElements(newIndex, oldIndex);
@@ -1807,7 +1806,7 @@ Clip* SessionView::createNewClip(OutputType outputType, int32_t yDisplay) {
 }
 
 Clip* SessionView::createNewAudioClip(int32_t yDisplay) {
-	actionLogger.deleteAllLogs();
+	actionLogger.deleteAllLogs(UndoBarrier::NEW_CLIP);
 
 	// Allocate memory for audio clip
 	void* clipMemory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(AudioClip));
@@ -1842,7 +1841,7 @@ Clip* SessionView::createNewAudioClip(int32_t yDisplay) {
 }
 
 Clip* SessionView::createNewInstrumentClip(OutputType outputType, int32_t yDisplay) {
-	actionLogger.deleteAllLogs();
+	actionLogger.deleteAllLogs(UndoBarrier::NEW_CLIP);
 
 	// Allocate memory for instrument clip
 	void* clipMemory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(InstrumentClip));
@@ -1949,15 +1948,13 @@ void SessionView::replaceInstrumentClipWithAudioClip(Clip* clip) {
 	requestRendering(this, 1 << selectedClipYDisplay, 1 << selectedClipYDisplay);
 }
 
-void SessionView::removeClip(Clip* clip) {
+void SessionView::removeClip(Clip* clip, bool clearUndoHistory) {
 	currentSong->ensureAllInstrumentsHaveAClipOrBackedUpParamManager(
 	    "E373", "H373"); // Trying to narrow down H067 that Leo got, below.
 
 	if (!clip) {
 		return;
 	}
-
-	int32_t clipIndex = currentSong->sessionClips.getIndexForClip(clip);
 
 	// If last session Clip left, just don't allow. Easiest. Pending overdubs don't count towards what's left: they're
 	// deleted when playback stops, which would leave the song with no session Clips at all.
@@ -1980,6 +1977,12 @@ void SessionView::removeClip(Clip* clip) {
 		indicator_leds::indicateAlertOnLed(IndicatorLED::SYNC_SCALING);
 		return;
 	}
+
+	// Only now that the Clip really goes: a refused delete leaves the history alone
+	if (clearUndoHistory) {
+		actionLogger.deleteAllLogs(UndoBarrier::DELETE_CLIP);
+	}
+	int32_t clipIndex = currentSong->sessionClips.getIndexForClip(clip);
 
 	clip->stopAllNotesPlaying(currentSong); // Stops any MIDI-controlled auditioning / stuck notes
 
@@ -3688,7 +3691,7 @@ Clip* SessionView::gridCreateClipInTrack(Output* targetOutput) {
 	bool clearAutomation = true;
 	bool clearSequenceAndMPE = true;
 	newClip->clear(action, modelStack, clearAutomation, clearSequenceAndMPE);
-	actionLogger.deleteAllLogs();
+	actionLogger.deleteAllLogs(UndoBarrier::NEW_CLIP);
 
 	// For safety we set it up exactly as we want it
 	setupNewClip(newClip);
@@ -3877,7 +3880,7 @@ void SessionView::copyClipName(Clip* source, Clip* target, Output* targetOutput)
 #pragma GCC diagnostic pop
 
 Clip* SessionView::gridCreateClip(uint32_t targetSection, Output* targetOutput, Clip* sourceClip) {
-	actionLogger.deleteAllLogs();
+	actionLogger.deleteAllLogs(UndoBarrier::NEW_CLIP);
 
 	Clip* newClip = nullptr;
 
@@ -4835,7 +4838,7 @@ ActionResult SessionView::gridMoveHeldTrack(int32_t offset) {
 		return ActionResult::DEALT_WITH;
 	}
 	Output* neighbour = gridTrackFromIndex(new_index, count);
-	actionLogger.deleteAllLogs(); // As in arranger, output reordering is not undoable.
+	actionLogger.deleteAllLogs(UndoBarrier::REARRANGE); // As in arranger, output reordering is not undoable.
 
 	// Grid columns run opposite to the output list. Move past the target visible
 	// track, skipping outputs without an active clip, which have no grid column.
@@ -5106,7 +5109,7 @@ ActionResult SessionView::gridShiftHeldSections(Output* track, int32_t offset) {
 	if (!moved) {
 		return ActionResult::DEALT_WITH;
 	}
-	actionLogger.deleteAllLogs();
+	actionLogger.deleteAllLogs(UndoBarrier::REARRANGE);
 
 	// The display shows the held clip's section
 	if (gridMoveClip != nullptr) {

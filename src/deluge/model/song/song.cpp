@@ -744,7 +744,7 @@ void Song::replaceMusicalMode(const ScaleChange& changes, bool affectMIDITranspo
 	if (rowsRestructured) {
 		// Undo history from before this finds its notes by NoteRow, so it can't be reverted any more. This can run
 		// from a sequenced transpose during playback, where deleting Actions isn't safe: they are only marked here.
-		actionLogger.invalidateLogs();
+		actionLogger.invalidateLogs(UndoBarrier::SCALE);
 	}
 
 	key.modeNotes = changes.applyTo(key.modeNotes);
@@ -4845,7 +4845,7 @@ void Song::deletingClipInstanceForClip(Output* output, Clip* clip, Action* actio
 		}
 
 		if (!deletionDone) { // If not enough memory to create undo-history...
-			actionLogger.deleteAllLogs();
+			actionLogger.deleteAllLogs(UndoBarrier::LOW_MEMORY);
 			// Delete the actual Clip.
 			// Will not remove Instrument from Song. Will call audio routine! That's why we deleted the ClipInstance
 			// first
@@ -4944,7 +4944,7 @@ Output* Song::navigateThroughPresetsForInstrument(Output* output, int32_t offset
 		return output;
 	}
 
-	actionLogger.deleteAllLogs();
+	actionLogger.deleteAllLogs(UndoBarrier::PRESET);
 
 	Instrument* oldInstrument = (Instrument*)output;
 

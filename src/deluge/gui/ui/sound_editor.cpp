@@ -2065,7 +2065,7 @@ bool SoundEditor::setup(Clip* clip, const MenuItem* item, int32_t sourceIndex) {
 	}
 	else {
 		if (clip) {
-			actionLogger.deleteAllLogs();
+			actionLogger.deleteAllLogs(UndoBarrier::MENU);
 
 			if (clip->type == ClipType::INSTRUMENT) {
 				if (currentUIMode == UI_MODE_NOTES_PRESSED) {

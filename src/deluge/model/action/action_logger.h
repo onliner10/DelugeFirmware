@@ -32,6 +32,22 @@ enum class ActionAddition {
 	ALLOWED_ONLY_IF_NO_TIME_PASSED,
 };
 
+/// What wiped the undo history last, so that undo can say why it can't go back any further
+enum class UndoBarrier : uint8_t {
+	NONE,
+	PRESET,
+	INSTRUMENT,
+	SCALE,
+	KIT_ROWS,
+	TRANSPOSE,
+	NEW_CLIP,
+	DELETE_CLIP,
+	REARRANGE,
+	MENU,
+	SAMPLE,
+	LOW_MEMORY,
+};
+
 class ActionLogger {
 public:
 	ActionLogger();
@@ -47,11 +63,13 @@ public:
 	                                   FXColumnPress fxPressAfter[kDisplayWidth], int32_t xDisplay);
 	void closeAction(ActionType actionType);
 	void closeActionUnlessCreatedJustNow(ActionType actionType);
-	void deleteAllLogs();
+	/// `reason` is what undo shows when it reaches the start of the history: give one wherever the user did something
+	/// that cleared it
+	void deleteAllLogs(UndoBarrier reason = UndoBarrier::NONE);
 	/// Makes sure nothing logged so far can be undone or redone any more, without freeing anything now: the Actions
 	/// are only marked, and deleted when an undo or redo reaches them. Unlike deleteAllLogs(), this is safe to call
 	/// from playback (e.g. a sequenced transpose), which may be running in the middle of UI code that holds an Action.
-	void invalidateLogs();
+	void invalidateLogs(UndoBarrier reason = UndoBarrier::NONE);
 	void deleteLog(int32_t time);
 	bool revert(TimeType time, bool updateVisually = true, bool doNavigation = true);
 	void updateAction(Action* newAction);
@@ -69,6 +87,10 @@ private:
 	void deleteLastActionIfEmpty();
 	void deleteLastAction();
 	bool deleteLogIfStale(TimeType time);
+	void displayReverted(TimeType time);
+	void displayNothingToRevert(TimeType time);
+
+	UndoBarrier barrier = UndoBarrier::NONE;
 };
 
 extern ActionLogger actionLogger;
