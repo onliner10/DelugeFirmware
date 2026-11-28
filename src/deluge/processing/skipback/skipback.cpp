@@ -49,8 +49,8 @@ namespace {
 
 constexpr uint32_t kMaxSeconds = 60;
 
-// The audio ring is made of chunks rather than one block, so it can be allocated while a song's samples are scattered
-// through the stealable region
+// The audio rings are made of chunks rather than one block, so they can be allocated while a song's samples are
+// scattered through the stealable region
 constexpr uint32_t kChunkFramesMagnitude = 14;
 constexpr uint32_t kChunkFrames = 1 << kChunkFramesMagnitude; // 64 KiB of 16-bit stereo
 constexpr uint32_t kMaxChunks = (kMaxSeconds * kSampleRate + kChunkFrames - 1) / kChunkFrames;
@@ -63,11 +63,97 @@ struct Frame {
 static_assert(sizeof(Frame) == 2 * sizeof(int16_t));
 static_assert(sizeof(StereoSample) == 2 * sizeof(int32_t));
 
-std::array<Frame*, kMaxChunks> chunks{};
-uint32_t numChunks = 0;
-uint32_t capacityFrames = 0;
-uint32_t writeFrame = 0;   // Where the next frame goes, 0 to capacityFrames - 1
-uint32_t framesFilled = 0; // How many frames hold audio, up to capacityFrames
+/// Non-stealable memory in the stealable region, so the rings never take the external region, which holds the
+/// song's objects and fills up on big songs. Costs sample cache instead, which is what the setting says it costs
+void* allocInStealableRegion(uint32_t size) {
+	auto& allocator = GeneralMemoryAllocator::get();
+	if (allocator.lock) {
+		return nullptr;
+	}
+	allocator.lock = true;
+	void* address = allocator.regions[MEMORY_REGION_STEALABLE].alloc(size, false, nullptr);
+	allocator.lock = false;
+	return address;
+}
+
+/// One ring of audio. Both are fed together, so their newest frames are the same moment
+struct Ring {
+	std::array<Frame*, kMaxChunks> chunks{};
+	uint32_t numChunks = 0;      // 0 while it's not there
+	uint32_t capacityFrames = 0; // A whole number of chunks
+	uint32_t writeFrame = 0;     // Where the next frame goes, 0 to capacityFrames - 1
+	uint32_t framesFilled = 0;   // How many frames hold audio, up to capacityFrames
+
+	/// Allocates up to numWanted chunks; returns how many it got
+	uint32_t allocate(uint32_t numWanted) {
+		uint32_t got = 0;
+		while (got < numWanted) {
+			void* chunk = allocInStealableRegion(kChunkFrames * sizeof(Frame));
+			if (chunk == nullptr) {
+				break;
+			}
+			chunks[got++] = static_cast<Frame*>(chunk);
+		}
+		capacityFrames = got << kChunkFramesMagnitude;
+		writeFrame = 0;
+		framesFilled = 0;
+		numChunks = got; // Last, so the audio routine only starts writing once it's all there
+		return got;
+	}
+
+	void free() {
+		uint32_t const had = numChunks;
+		numChunks = 0; // First, so the audio routine stops writing
+		capacityFrames = 0;
+		writeFrame = 0;
+		framesFilled = 0;
+		for (uint32_t i = 0; i < had; i++) {
+			delugeDealloc(chunks[i]);
+			chunks[i] = nullptr;
+		}
+	}
+
+	void restart() {
+		writeFrame = 0;
+		framesFilled = 0;
+	}
+
+	[[gnu::always_inline]] Frame& at(uint32_t ringIndex) {
+		return chunks[ringIndex >> kChunkFramesMagnitude][ringIndex & (kChunkFrames - 1)];
+	}
+
+	/// The ring index of the k-th oldest frame
+	[[gnu::always_inline]] uint32_t indexOf(uint32_t k) const {
+		uint32_t index = writeFrame + capacityFrames - framesFilled + k;
+		if (index >= capacityFrames) {
+			index -= capacityFrames;
+		}
+		return index;
+	}
+
+	/// Writes numFrames frames, fill(dst, from, run) putting run of them, from the from-th, at dst
+	template <typename Fill>
+	void feed(uint32_t numFrames, Fill fill) {
+		uint32_t i = 0;
+		while (i < numFrames) {
+			// capacityFrames is a whole number of chunks, so a run never goes past the end of the ring
+			uint32_t const offset = writeFrame & (kChunkFrames - 1);
+			uint32_t const run = std::min<uint32_t>(numFrames - i, kChunkFrames - offset);
+			fill(reinterpret_cast<int16_t*>(&chunks[writeFrame >> kChunkFramesMagnitude][offset]), i, run);
+			writeFrame += run;
+			if (writeFrame >= capacityFrames) {
+				writeFrame = 0;
+			}
+			i += run;
+		}
+		framesFilled = std::min<uint32_t>(framesFilled + numFrames, capacityFrames);
+	}
+};
+
+constexpr int32_t kMain = 0; // The track's audio, or the master's
+constexpr int32_t kLine = 1; // The line input's, while something's plugged into it
+std::array<Ring, 2> rings;
+
 uint32_t lastFeedTime = 0; // AudioEngine::audioSampleTimer just after the newest frame was written
 bool frozen = false;       // While the skipback screen is open, so what it shows stays put
 
@@ -88,16 +174,17 @@ constexpr int64_t kPreRoll = kSampleRate / 100; // 10 ms kept before the first s
 constexpr int64_t kTail = kSampleRate / 2;      // 500 ms kept after the last, for release tails under the threshold
 constexpr int64_t kPhraseGap = 2 * kSampleRate; // This much silence ends a phrase
 
-// While frozen: the loudest value of each block of frames, so the waveform and the phrase search needn't read
-// every frame each time
+// While frozen: the loudest value of each block of frames of each ring, so the waveform and the phrase search
+// needn't read every frame each time; and of each ring as a whole
 constexpr uint32_t kBlockFramesMagnitude = 8;
 constexpr uint32_t kBlockFrames = 1 << kBlockFramesMagnitude;
-uint16_t* blockPeaks = nullptr;
+std::array<uint16_t*, 2> blockPeaks{};
+std::array<int32_t, 2> ringPeaks{};
 uint32_t numBlocks = 0;
 Capture frozenCapture{};
 
-// Whose audio is kept (Community Features > Skipback Source), as the setting's values have it
-enum class Source : uint8_t { TRACK = 0, MASTER = 1, LINE_IN = 2 };
+// Whose audio the main ring keeps (Community Features > Skipback Source), as the setting's values have it
+enum class Source : uint8_t { TRACK = 0, MASTER = 1 };
 Source source = Source::TRACK;
 bool trackMode = true;         // source == Source::TRACK
 bool onlyWhilePlaying = false; // Community Features > Skipback Record: While playing
@@ -119,46 +206,34 @@ bool previewing = false;
 int64_t previewPos = 0;
 int64_t previewEnd = 0;
 
-/// Non-stealable memory in the stealable region, so the rings never take the external region, which holds the
-/// song's objects and fills up on big songs. Costs sample cache instead, which is what the setting says it costs
-void* allocInStealableRegion(uint32_t size) {
-	auto& allocator = GeneralMemoryAllocator::get();
-	if (allocator.lock) {
-		return nullptr;
-	}
-	allocator.lock = true;
-	void* address = allocator.regions[MEMORY_REGION_STEALABLE].alloc(size, false, nullptr);
-	allocator.lock = false;
-	return address;
+bool somethingInLineIn() {
+	return AudioEngine::lineInPluggedIn || AudioEngine::micPluggedIn;
 }
 
-/// Forgets what's kept, as when another track starts being kept
-void restart() {
-	writeFrame = 0;
-	framesFilled = 0;
+/// Forgets the notes and the track's audio, as when another track starts being kept. The line input's carries on
+void restartTrack() {
+	rings[kMain].restart();
 	noteWrite = 0;
 	noteCount = 0;
+}
+
+void restartAll() {
+	restartTrack();
+	rings[kLine].restart();
 }
 
 void setTrackSource(Output* output) {
 	if (output != trackSource) {
 		trackSource = output;
-		restart();
+		restartTrack();
 	}
 }
 
 void freeAll() {
-	uint32_t const had = numChunks;
-	numChunks = 0; // First, so the audio routine stops writing
 	trackSource = nullptr;
 	lastCurrentClip = nullptr;
-	capacityFrames = 0;
-	writeFrame = 0;
-	framesFilled = 0;
-	for (uint32_t i = 0; i < had; i++) {
-		delugeDealloc(chunks[i]);
-		chunks[i] = nullptr;
-	}
+	rings[kMain].free();
+	rings[kLine].free();
 	if (noteEvents != nullptr) {
 		NoteEvent* const events = noteEvents;
 		noteEvents = nullptr;
@@ -168,30 +243,30 @@ void freeAll() {
 	noteCount = 0;
 }
 
-[[gnu::always_inline]] inline Frame& frameAt(uint32_t ringIndex) {
-	return chunks[ringIndex >> kChunkFramesMagnitude][ringIndex & (kChunkFrames - 1)];
+/// How many frames Capture counts: the fuller ring's
+int64_t framesKept() {
+	return std::max(rings[kMain].framesFilled, rings[kLine].framesFilled);
 }
 
-/// The ring index of the k-th oldest frame
-[[gnu::always_inline]] inline uint32_t ringIndexOf(uint32_t k) {
-	uint32_t index = writeFrame + capacityFrames - framesFilled + k;
-	if (index >= capacityFrames) {
-		index -= capacityFrames;
-	}
-	return index;
+/// Where Capture's frame 0 is in a ring's frames: negative while the ring holds fewer
+int64_t ringStart(Ring const& ring) {
+	return static_cast<int64_t>(ring.framesFilled) - framesKept();
 }
 
 [[gnu::always_inline]] inline int32_t frameLoudness(Frame const& frame) {
 	return std::max(std::abs(static_cast<int32_t>(frame.l)), std::abs(static_cast<int32_t>(frame.r)));
 }
 
-/// The loudest value of frames [first, end), which must be within what's kept. Straight from the frames
-int32_t scanPeak(uint32_t first, uint32_t end) {
+/// The loudest value of a ring's frames [first, end) as Capture counts them, straight from the frames
+int32_t scanPeak(Ring& ring, int64_t first, int64_t end) {
+	int64_t const start = ringStart(ring);
+	auto const f = static_cast<uint32_t>(std::clamp<int64_t>(first + start, 0, ring.framesFilled));
+	auto const e = static_cast<uint32_t>(std::clamp<int64_t>(end + start, 0, ring.framesFilled));
 	int32_t loudest = 0;
-	for (uint32_t k = first; k < end;) {
-		uint32_t const ringIndex = ringIndexOf(k);
-		uint32_t const run = std::min(end - k, kChunkFrames - (ringIndex & (kChunkFrames - 1)));
-		Frame const* frames = &frameAt(ringIndex);
+	for (uint32_t k = f; k < e;) {
+		uint32_t const ringIndex = ring.indexOf(k);
+		uint32_t const run = std::min(e - k, kChunkFrames - (ringIndex & (kChunkFrames - 1)));
+		Frame const* frames = &ring.at(ringIndex);
 		for (uint32_t j = 0; j < run; j++) {
 			loudest = std::max(loudest, frameLoudness(frames[j]));
 		}
@@ -200,25 +275,83 @@ int32_t scanPeak(uint32_t first, uint32_t end) {
 	return loudest;
 }
 
-/// Works out blockPeaks, letting the audio routine run between chunks: 60 seconds is too much to read in one go
+/// How loud Capture's frame k is, in either ring
+int32_t loudnessAt(int64_t k) {
+	int32_t loudest = 0;
+	for (Ring& ring : rings) {
+		int64_t const r = k + ringStart(ring);
+		if (r >= 0 && r < ring.framesFilled) {
+			loudest = std::max(loudest, frameLoudness(ring.at(ring.indexOf(static_cast<uint32_t>(r)))));
+		}
+	}
+	return loudest;
+}
+
+int32_t blockPeak(uint32_t b) {
+	return std::max(blockPeaks[kMain][b], blockPeaks[kLine][b]);
+}
+
+void freeBlockPeaks() {
+	for (uint16_t*& peaks : blockPeaks) {
+		if (peaks != nullptr) {
+			delugeDealloc(peaks);
+			peaks = nullptr;
+		}
+	}
+	numBlocks = 0;
+}
+
+/// Works out blockPeaks and ringPeaks, letting the audio routine run between chunks: 60 seconds is too much to read
+/// in one go
 bool buildBlockPeaks() {
-	numBlocks = (framesFilled + kBlockFrames - 1) >> kBlockFramesMagnitude;
+	auto const n = static_cast<uint32_t>(framesKept());
+	numBlocks = (n + kBlockFrames - 1) >> kBlockFramesMagnitude;
+	ringPeaks = {0, 0};
 	if (numBlocks == 0) {
 		return true;
 	}
-	blockPeaks = static_cast<uint16_t*>(allocInStealableRegion(numBlocks * sizeof(uint16_t)));
-	if (blockPeaks == nullptr) {
-		numBlocks = 0;
-		return false;
+	for (uint16_t*& peaks : blockPeaks) {
+		peaks = static_cast<uint16_t*>(allocInStealableRegion(numBlocks * sizeof(uint16_t)));
+		if (peaks == nullptr) {
+			freeBlockPeaks();
+			return false;
+		}
 	}
 	for (uint32_t b = 0; b < numBlocks; b++) {
 		uint32_t const first = b << kBlockFramesMagnitude;
-		blockPeaks[b] = static_cast<uint16_t>(scanPeak(first, std::min(first + kBlockFrames, framesFilled)));
+		uint32_t const end = std::min(first + kBlockFrames, n);
+		for (int32_t which : {kMain, kLine}) {
+			int32_t const loudest = scanPeak(rings[which], first, end);
+			blockPeaks[which][b] = static_cast<uint16_t>(loudest);
+			ringPeaks[which] = std::max(ringPeaks[which], loudest);
+		}
 		if ((b & ((kChunkFrames >> kBlockFramesMagnitude) - 1)) == 0) {
 			AudioEngine::routineWithClusterLoading();
 		}
 	}
 	return true;
+}
+
+/// The loudest value of a ring's frames [first, end) as Capture counts them; 0 for any outside what it keeps
+int32_t ringPeak(int32_t which, int64_t first, int64_t end) {
+	first = std::max<int64_t>(first, 0);
+	end = std::min<int64_t>(end, framesKept());
+	if (end <= first) {
+		return 0;
+	}
+	Ring& ring = rings[which];
+	if (blockPeaks[which] == nullptr || end - first < 2 * kBlockFrames) {
+		return scanPeak(ring, first, end);
+	}
+	// Whole blocks from the table, the bits either side from the frames
+	int64_t const firstWhole = (first + kBlockFrames - 1) >> kBlockFramesMagnitude;
+	int64_t const endWhole = end >> kBlockFramesMagnitude;
+	int32_t loudest = std::max(scanPeak(ring, first, firstWhole << kBlockFramesMagnitude),
+	                           scanPeak(ring, endWhole << kBlockFramesMagnitude, end));
+	for (int64_t b = firstWhole; b < endWhole; b++) {
+		loudest = std::max<int32_t>(loudest, blockPeaks[which][b]);
+	}
+	return loudest;
 }
 
 void addNoteEvent(Output* output, int32_t note, int32_t velocity) {
@@ -414,9 +547,9 @@ void writeLE32(uint8_t*& p, uint32_t v) {
 	writeLE16(p, v >> 16);
 }
 
-/// Writes the range as a 16-bit stereo WAV, silence where it reaches past what's kept. Returns the file's number,
-/// or -1 on failure, and its path in filePath
-int32_t writeWav(Range range, String& filePath) {
+/// Writes a ring's frames in the range as a 16-bit stereo WAV, silence where it reaches past what the ring keeps.
+/// Returns the file's number, or -1 on failure, and its path in filePath
+int32_t writeWav(Ring& ring, Range range, String& filePath) {
 	String tempFilePath;
 	String noSongName;
 	uint32_t number = 0;
@@ -459,20 +592,23 @@ int32_t writeWav(Range range, String& filePath) {
 		auto written = file.write({reinterpret_cast<std::byte*>(frames), static_cast<size_t>(num) * sizeof(Frame)});
 		ok = written.has_value() && *written == num * sizeof(Frame);
 	};
-	auto const kept = static_cast<int64_t>(framesFilled);
+	// In the ring's own frames, which may start later than Capture's
+	int64_t const start = ringStart(ring);
+	auto const kept = static_cast<int64_t>(ring.framesFilled);
+	Range const inRing{range.first + start, range.end + start};
 	// Straight from the chunks - the audio routine carries on during the writes, but frozen keeps it off them
-	for (int64_t k = range.first; ok && k < range.end;) {
+	for (int64_t k = inRing.first; ok && k < inRing.end;) {
 		uint32_t run;
 		if (k < 0 || k >= kept) {
-			int64_t const silenceEnd = (k < 0) ? std::min<int64_t>(0, range.end) : range.end;
+			int64_t const silenceEnd = (k < 0) ? std::min<int64_t>(0, inRing.end) : inRing.end;
 			run = static_cast<uint32_t>(std::min<int64_t>(silenceEnd - k, silence.size()));
 			writeFrames(silence.data(), run);
 		}
 		else {
-			uint32_t const ringIndex = ringIndexOf(static_cast<uint32_t>(k));
+			uint32_t const ringIndex = ring.indexOf(static_cast<uint32_t>(k));
 			run = static_cast<uint32_t>(
-			    std::min<int64_t>(std::min(range.end, kept) - k, kChunkFrames - (ringIndex & (kChunkFrames - 1))));
-			writeFrames(&frameAt(ringIndex), run);
+			    std::min<int64_t>(std::min(inRing.end, kept) - k, kChunkFrames - (ringIndex & (kChunkFrames - 1))));
+			writeFrames(&ring.at(ringIndex), run);
 		}
 		k += run;
 	}
@@ -527,8 +663,9 @@ void applySetting() {
 	if (frozen) {
 		return; // The screen's using the rings - and isn't letting the menu open anyway
 	}
-	auto const wantSource = static_cast<Source>(std::min<uint32_t>(
-	    runtimeFeatureSettings.get(RuntimeFeatureSettingType::SkipbackSource), static_cast<uint32_t>(Source::LINE_IN)));
+	// Anything but Master is the track - including what was once a Line in setting, the line input being kept anyway
+	Source const wantSource =
+	    (runtimeFeatureSettings.get(RuntimeFeatureSettingType::SkipbackSource) == 1) ? Source::MASTER : Source::TRACK;
 	bool const wantWhilePlaying = runtimeFeatureSettings.get(RuntimeFeatureSettingType::SkipbackRecord) != 0;
 	if (wantSource != source || wantWhilePlaying != onlyWhilePlaying) {
 		source = wantSource;
@@ -536,51 +673,43 @@ void applySetting() {
 		onlyWhilePlaying = wantWhilePlaying;
 		trackSource = nullptr; // Picked up again at the next render, if it's tracks now
 		lastCurrentClip = nullptr;
-		restart();
+		restartAll();
 	}
+
 	uint32_t const seconds =
 	    std::min<uint32_t>(runtimeFeatureSettings.get(RuntimeFeatureSettingType::Skipback), kMaxSeconds);
 	uint32_t const wantChunks = (seconds * kSampleRate + kChunkFrames - 1) / kChunkFrames;
-	if (wantChunks == numChunks && (seconds == 0) == (noteEvents == nullptr)) {
-		return;
-	}
-	freeAll();
-	if (seconds == 0) {
-		return;
-	}
-
-	noteEvents = static_cast<NoteEvent*>(allocInStealableRegion(kNumNoteEvents * sizeof(NoteEvent)));
-
-	uint32_t got = 0;
-	while (got < wantChunks) {
-		void* chunk = allocInStealableRegion(kChunkFrames * sizeof(Frame));
-		if (chunk == nullptr) {
-			break;
+	if (wantChunks != rings[kMain].numChunks || (seconds == 0) != (noteEvents == nullptr)) {
+		freeAll();
+		if (seconds == 0) {
+			return;
 		}
-		chunks[got++] = static_cast<Frame*>(chunk);
+		noteEvents = static_cast<NoteEvent*>(allocInStealableRegion(kNumNoteEvents * sizeof(NoteEvent)));
+		uint32_t const got = rings[kMain].allocate(wantChunks);
+		if (got < wantChunks) {
+			char text[32];
+			snprintf(text, sizeof(text), display->haveOLED() ? "Skipback: RAM for %lus" : "%luS",
+			         static_cast<unsigned long>(rings[kMain].capacityFrames / kSampleRate));
+			display->displayPopup(text);
+		}
 	}
-	capacityFrames = got << kChunkFramesMagnitude;
-	writeFrame = 0;
-	framesFilled = 0;
-	numChunks = got; // Last, so the audio routine only starts writing once it's all there
 
-	if (got < wantChunks) {
-		char text[32];
-		snprintf(text, sizeof(text), display->haveOLED() ? "Skipback: RAM for %lus" : "%luS",
-		         static_cast<unsigned long>(capacityFrames / kSampleRate));
-		display->displayPopup(text);
+	// The line input gets a ring of its own once something's plugged into it, and keeps it after it's unplugged
+	if (rings[kMain].numChunks != 0 && rings[kLine].numChunks == 0 && somethingInLineIn()) {
+		rings[kLine].allocate(rings[kMain].numChunks);
 	}
 }
 
 bool isOn() {
-	return numChunks != 0 || noteEvents != nullptr;
+	return rings[kMain].numChunks != 0 || noteEvents != nullptr;
 }
 
 void beginRender() {
 	trackRendered = false;
-	if (!trackMode || numChunks == 0 || frozen || currentSong == nullptr) {
+	if (!trackMode || rings[kMain].numChunks == 0 || frozen || currentSong == nullptr) {
 		return;
 	}
+	// The track kept is the selected clip's
 	Clip* clip = currentSong->getCurrentClip();
 	if (clip != lastCurrentClip) {
 		lastCurrentClip = clip;
@@ -648,10 +777,10 @@ void narrowWithGain(int16_t* __restrict__ dst, int32_t const* __restrict__ src, 
 /// The line input, from its ring: both channels, or the left one twice if it's the internal mic, which has no right
 void narrowLineIn(int16_t* dst, int32_t const*& in, uint32_t numFrames, bool mono) {
 	static_assert(NUM_MONO_INPUT_CHANNELS == 2);
-	int32_t const* const ringStart = getRxBufferStart();
-	int32_t const* const ringEnd = getRxBufferEnd();
+	int32_t const* const inputStart = getRxBufferStart();
+	int32_t const* const inputEnd = getRxBufferEnd();
 	while (numFrames != 0) {
-		auto const run = std::min<uint32_t>(numFrames, (ringEnd - in) / NUM_MONO_INPUT_CHANNELS);
+		auto const run = std::min<uint32_t>(numFrames, (inputEnd - in) / NUM_MONO_INPUT_CHANNELS);
 		if (mono) {
 			for (uint32_t f = 0; f < run; f++) {
 				dst[2 * f] = dst[2 * f + 1] = static_cast<int16_t>(in[f * NUM_MONO_INPUT_CHANNELS] >> 16);
@@ -662,8 +791,8 @@ void narrowLineIn(int16_t* dst, int32_t const*& in, uint32_t numFrames, bool mon
 		}
 		dst += run * 2;
 		in += run * NUM_MONO_INPUT_CHANNELS;
-		if (in >= ringEnd) {
-			in = ringStart;
+		if (in >= inputEnd) {
+			in = inputStart;
 		}
 		numFrames -= run;
 	}
@@ -673,7 +802,7 @@ void narrowLineIn(int16_t* dst, int32_t const*& in, uint32_t numFrames, bool mon
 
 void feedOutput(std::span<StereoSample const> output, size_t renderOffset, int32_t gainL, int32_t gainR,
                 int32_t const* lineIn) {
-	if (numChunks == 0 || frozen) {
+	if (rings[kMain].numChunks == 0 || frozen) {
 		return;
 	}
 	bool const playing = playbackHandler.isEitherClockActive();
@@ -683,60 +812,53 @@ void feedOutput(std::span<StereoSample const> output, size_t renderOffset, int32
 			return; // What the last play kept stays, until the next one
 		}
 		if (!wasPlaying) {
-			restart(); // Each play keeps its own
+			restartAll(); // Each play keeps its own
 		}
 	}
 	wasPlaying = playing;
+	auto const n = static_cast<uint32_t>(output.size());
 
-	// A track's audio as the output gets it, but for the song's FX: the song's volume, ((x * song) >> 32) << 5, the
-	// master compressor's, ((x * compressor) >> 32) << 4, the master gain, ((x * master) >> 32) << 8, then its top 16
-	// bits. That's x * (song * compressor * master >> 64) >> 31, the gain being under 2^29 - saturated
-	int32_t const* track = nullptr;
-	std::array<int32_t, 4> gains{};
-	if (trackMode && trackRendered && currentSong != nullptr) {
-		track = &trackMemory[std::min(renderOffset, trackMemory.size() - output.size())].l;
+	if (source == Source::MASTER) {
+		// Both sides interleaved L R, so it's one stream of values
+		rings[kMain].feed(n, [&](int16_t* dst, uint32_t from, uint32_t run) {
+			narrow(dst, reinterpret_cast<int32_t const*>(&output[from]), run * 2);
+		});
+	}
+	else if (trackRendered && currentSong != nullptr) {
+		// A track's audio as the output gets it, but for the song's FX: the song's volume, ((x * song) >> 32) << 5,
+		// the master compressor's, ((x * compressor) >> 32) << 4, the master gain, ((x * master) >> 32) << 8, then
+		// its top 16 bits. That's x * (song * compressor * master >> 64) >> 31, the gain being under 2^29 - saturated
+		int32_t const* track = &trackMemory[std::min(renderOffset, trackMemory.size() - output.size())].l;
 		auto const& compressor = currentSong->globalEffectable.compressor;
 		auto const combined = [](int32_t song, int32_t compressorVolume, int32_t master) {
 			int64_t const g = (static_cast<int64_t>(song) * compressorVolume) >> 32;
 			return static_cast<int32_t>((g * master) >> 32);
 		};
+		std::array<int32_t, 4> gains{};
 		gains[0] = gains[2] = combined(songGain, compressor.getVolumeL(), gainL);
 		gains[1] = gains[3] = combined(songGain, compressor.getVolumeR(), gainR);
+		rings[kMain].feed(n, [&](int16_t* dst, uint32_t from, uint32_t run) {
+			narrowWithGain(dst, track + from * 2, run * 2, gains);
+		});
 	}
-	bool const lineInMono = !AudioEngine::lineInPluggedIn && !AudioEngine::micPluggedIn;
+	else {
+		rings[kMain].feed(n, [](int16_t* dst, uint32_t, uint32_t run) {
+			std::memset(dst, 0, run * sizeof(Frame)); // The track didn't render
+		});
+	}
 
-	size_t i = 0;
-	size_t const n = output.size();
-	while (i < n) {
-		// capacityFrames is a whole number of chunks, so a run never goes past the end of the ring
-		uint32_t const offset = writeFrame & (kChunkFrames - 1);
-		uint32_t const run = std::min<uint32_t>(n - i, kChunkFrames - offset);
-		auto* dst = reinterpret_cast<int16_t*>(&chunks[writeFrame >> kChunkFramesMagnitude][offset]);
-		uint32_t const numValues = run * 2;
-		switch (source) {
-		case Source::MASTER:
-			// Both sides interleaved L R, so it's one stream of values
-			narrow(dst, reinterpret_cast<int32_t const*>(&output[i]), numValues);
-			break;
-		case Source::LINE_IN:
-			narrowLineIn(dst, lineIn, run, lineInMono);
-			break;
-		case Source::TRACK:
-			if (track != nullptr) {
-				narrowWithGain(dst, track + i * 2, numValues, gains);
-			}
-			else {
-				std::memset(dst, 0, numValues * sizeof(int16_t)); // The track didn't render
-			}
-			break;
+	if (rings[kLine].numChunks != 0) {
+		if (somethingInLineIn()) {
+			bool const mono = !AudioEngine::lineInPluggedIn && !AudioEngine::micPluggedIn;
+			rings[kLine].feed(n, [&](int16_t* dst, uint32_t, uint32_t run) { narrowLineIn(dst, lineIn, run, mono); });
 		}
-		writeFrame += run;
-		if (writeFrame >= capacityFrames) {
-			writeFrame = 0;
+		else {
+			// Unplugged: silence, so it stays in step with the main ring
+			rings[kLine].feed(n,
+			                  [](int16_t* dst, uint32_t, uint32_t run) { std::memset(dst, 0, run * sizeof(Frame)); });
 		}
-		i += run;
 	}
-	framesFilled = std::min<uint32_t>(framesFilled + n, capacityFrames);
+
 	lastFeedTime = AudioEngine::audioSampleTimer;
 	feedPlaying = playing;
 	if (playing) {
@@ -747,9 +869,6 @@ void feedOutput(std::span<StereoSample const> output, size_t renderOffset, int32
 }
 
 void noteOn(Output* output, int32_t note, int32_t velocity) {
-	if (trackMode && numChunks != 0 && !frozen) {
-		setTrackSource(output); // The track being played is the one kept
-	}
 	addNoteEvent(output, note, std::clamp<int32_t>(velocity, 1, 127));
 }
 
@@ -762,14 +881,14 @@ bool freeze(Capture& capture) {
 		display->displayPopup(display->haveOLED() ? "Skipback is off (Community Features)" : "OFF");
 		return false;
 	}
-	if (numChunks == 0 || framesFilled == 0) {
+	if (rings[kMain].numChunks == 0 || framesKept() == 0) {
 		display->displayPopup(display->haveOLED() ? "Nothing kept yet" : "NONE");
 		return false;
 	}
 	frozen = true;
 	previewing = false;
 
-	capture.numFrames = framesFilled;
+	capture.numFrames = framesKept();
 	capture.newestTime = lastFeedTime - 1;
 	// The song's position when the newest frame was kept - which, while only keeping while playing, can be from
 	// before the transport stopped
@@ -787,20 +906,24 @@ bool freeze(Capture& capture) {
 		capture.samplesPerTick = 1;
 	}
 	capture.barLength = std::max<int64_t>(currentSong->getBarLength(), 1);
-	char const* name = trackMode ? "Track" : (source == Source::LINE_IN) ? "Line in" : "Master";
-	if (trackMode && trackSource != nullptr && isInSong(trackSource) && !trackSource->name.isEmpty()) {
-		name = trackSource->name.get();
-	}
-	snprintf(capture.sourceName, sizeof(capture.sourceName), "%s", name);
 
 	if (!buildBlockPeaks()) {
 		frozen = false;
 		display->displayError(Error::INSUFFICIENT_RAM);
 		return false;
 	}
-	capture.maxPeak = 0;
-	for (uint32_t b = 0; b < numBlocks; b++) {
-		capture.maxPeak = std::max<int32_t>(capture.maxPeak, blockPeaks[b]);
+	capture.maxPeak = std::max(ringPeaks[kMain], ringPeaks[kLine]);
+
+	// Whose audio: the track's (or the master's), and the line input's if it has any
+	char const* name = trackMode ? "Track" : "Master";
+	if (trackMode && trackSource != nullptr && isInSong(trackSource) && !trackSource->name.isEmpty()) {
+		name = trackSource->name.get();
+	}
+	if (ringPeaks[kLine] > kSilence) {
+		snprintf(capture.sourceName, sizeof(capture.sourceName), "%.13s + Line in", name);
+	}
+	else {
+		snprintf(capture.sourceName, sizeof(capture.sourceName), "%s", name);
 	}
 	frozenCapture = capture;
 	return true;
@@ -808,34 +931,12 @@ bool freeze(Capture& capture) {
 
 void unfreeze() {
 	previewing = false;
-	if (blockPeaks != nullptr) {
-		delugeDealloc(blockPeaks);
-		blockPeaks = nullptr;
-	}
-	numBlocks = 0;
+	freeBlockPeaks();
 	frozen = false;
 }
 
 int32_t peak(int64_t first, int64_t end) {
-	first = std::max<int64_t>(first, 0);
-	end = std::min<int64_t>(end, framesFilled);
-	if (end <= first) {
-		return 0;
-	}
-	auto const f = static_cast<uint32_t>(first);
-	auto const e = static_cast<uint32_t>(end);
-	if (blockPeaks == nullptr || e - f < 2 * kBlockFrames) {
-		return scanPeak(f, e);
-	}
-	// Whole blocks from the table, the bits either side from the frames
-	uint32_t const firstWhole = (f + kBlockFrames - 1) >> kBlockFramesMagnitude;
-	uint32_t const endWhole = e >> kBlockFramesMagnitude;
-	int32_t loudest =
-	    std::max(scanPeak(f, firstWhole << kBlockFramesMagnitude), scanPeak(endWhole << kBlockFramesMagnitude, e));
-	for (uint32_t b = firstWhole; b < endWhole; b++) {
-		loudest = std::max<int32_t>(loudest, blockPeaks[b]);
-	}
-	return loudest;
+	return std::max(ringPeak(kMain, first, end), ringPeak(kLine, first, end));
 }
 
 Range suggest(Capture const& capture) {
@@ -846,14 +947,14 @@ Range suggest(Capture const& capture) {
 	int64_t first = -1;
 	int64_t last = -1;
 	int64_t b = static_cast<int64_t>(numBlocks) - 1;
-	while (b >= 0 && blockPeaks[b] <= kSilence) {
+	while (b >= 0 && blockPeak(b) <= kSilence) {
 		b--;
 	}
 	if (b >= 0) {
 		int64_t firstBlock = b;
 		int64_t gap = 0;
 		for (int64_t c = b - 1; c >= 0 && gap < gapBlocks; c--) {
-			if (blockPeaks[c] > kSilence) {
+			if (blockPeak(c) > kSilence) {
 				firstBlock = c;
 				gap = 0;
 			}
@@ -863,11 +964,11 @@ Range suggest(Capture const& capture) {
 		}
 		// To the frame, within the blocks at either end
 		first = firstBlock << kBlockFramesMagnitude;
-		while (first < n && frameLoudness(frameAt(ringIndexOf(first))) <= kSilence) {
+		while (first < n && loudnessAt(first) <= kSilence) {
 			first++;
 		}
 		last = std::min<int64_t>((b + 1) << kBlockFramesMagnitude, n) - 1;
-		while (last > first && frameLoudness(frameAt(ringIndexOf(last))) <= kSilence) {
+		while (last > first && loudnessAt(last) <= kSilence) {
 			last--;
 		}
 	}
@@ -962,15 +1063,19 @@ void nextPreviewFrame(int32_t& l, int32_t& r) {
 		r = 0;
 		return;
 	}
-	if (previewPos >= 0 && previewPos < static_cast<int64_t>(framesFilled)) {
-		Frame const& frame = frameAt(ringIndexOf(static_cast<uint32_t>(previewPos)));
-		l = static_cast<int32_t>(frame.l) << 16;
-		r = static_cast<int32_t>(frame.r) << 16;
+	// Both rings, as they were heard together
+	int32_t left = 0;
+	int32_t right = 0;
+	for (Ring& ring : rings) {
+		int64_t const k = previewPos + ringStart(ring);
+		if (k >= 0 && k < ring.framesFilled) {
+			Frame const& frame = ring.at(ring.indexOf(static_cast<uint32_t>(k)));
+			left += frame.l;
+			right += frame.r;
+		}
 	}
-	else {
-		l = 0;
-		r = 0;
-	}
+	l = std::clamp<int32_t>(left, INT16_MIN, INT16_MAX) << 16;
+	r = std::clamp<int32_t>(right, INT16_MIN, INT16_MAX) << 16;
 	if (++previewPos >= previewEnd) {
 		previewing = false;
 	}
@@ -1016,15 +1121,24 @@ Saved save(Capture const& capture, Range range) {
 		}
 	}
 
-	// Then the audio, if there's any sound in the range
-	if (peak(range.first, range.end) > kSilence) {
+	// Then the audio of each ring that has any sound in the range, each to a file and a clip of its own
+	bool const mainHasSound = ringPeak(kMain, range.first, range.end) > kSilence;
+	bool const lineHasSound = ringPeak(kLine, range.first, range.end) > kSilence;
+	if (mainHasSound || lineHasSound) {
 		display->displayLoadingAnimationText("Saving");
-		String filePath;
-		saved.fileNumber = writeWav(range, filePath);
-		if (saved.fileNumber >= 0) {
+		for (int32_t which : {kMain, kLine}) {
+			if (!(which == kMain ? mainHasSound : lineHasSound)) {
+				continue;
+			}
+			String filePath;
+			int32_t const number = writeWav(rings[which], range, filePath);
+			if (number < 0) {
+				continue;
+			}
+			(which == kMain ? saved.fileNumber : saved.lineFileNumber) = number;
 			int32_t const index = makeAudioClip(filePath, loopLength);
 			if (index >= 0) {
-				saved.audioClip = true;
+				saved.numAudioClips++;
 				topIndex = std::max(topIndex, index);
 			}
 		}

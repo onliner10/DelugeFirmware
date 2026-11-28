@@ -217,16 +217,24 @@ void SkipbackUI::saveAndExit() {
 	sb::unfreeze();
 	close();
 
-	char text[48];
+	char text[64];
 	bool const oled = display->haveOLED();
-	if (saved.fileNumber >= 0) {
+	int32_t const firstFile = (saved.fileNumber >= 0) ? saved.fileNumber : saved.lineFileNumber;
+	if (firstFile >= 0) {
 		if (oled) {
-			snprintf(text, sizeof(text), saved.numNoteClips ? "Saved REC%05ld + %ld note clip%s" : "Saved REC%05ld",
-			         static_cast<long>(saved.fileNumber), static_cast<long>(saved.numNoteClips),
-			         saved.numNoteClips == 1 ? "" : "s");
+			// The files' numbers, then how many note clips
+			int32_t length = snprintf(text, sizeof(text), "Saved REC%05ld", static_cast<long>(firstFile));
+			if (saved.fileNumber >= 0 && saved.lineFileNumber >= 0) {
+				length += snprintf(text + length, sizeof(text) - length, " + REC%05ld",
+				                   static_cast<long>(saved.lineFileNumber));
+			}
+			if (saved.numNoteClips != 0) {
+				snprintf(text + length, sizeof(text) - length, " + %ld note clip%s",
+				         static_cast<long>(saved.numNoteClips), saved.numNoteClips == 1 ? "" : "s");
+			}
 		}
 		else {
-			snprintf(text, sizeof(text), "%ld", static_cast<long>(saved.fileNumber));
+			snprintf(text, sizeof(text), "%ld", static_cast<long>(firstFile));
 		}
 	}
 	else if (saved.numNoteClips != 0) {

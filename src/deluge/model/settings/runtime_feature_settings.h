@@ -75,7 +75,7 @@ enum RuntimeFeatureSettingType : uint32_t {
 	BiggerOutputQueue,
 	CharacterFx,
 	Skipback,       // Seconds kept, 0 for off - see processing/skipback/skipback.h
-	SkipbackSource, // 0: the track being played, 1: the master output, 2: the line input
+	SkipbackSource, // 0: the selected clip's track, 1: the master output
 	SkipbackRecord, // 0: always, 1: only while playing
 	MaxElement      // Keep as boundary
 };
