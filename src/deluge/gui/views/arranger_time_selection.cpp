@@ -259,6 +259,9 @@ bool ArrangerView::editSelectedTime(TimeEdit edit) {
 		break;
 	}
 
+	// One edit, one undo step: nothing that follows (like Shift + <> without a selection) may add itself to it
+	actionLogger.closeAction(actionType);
+
 	// Keep the last touched position on the same music
 	if (lastInteractedPos >= timeSelectionStart) {
 		if (edit == TimeEdit::INSERT) {
