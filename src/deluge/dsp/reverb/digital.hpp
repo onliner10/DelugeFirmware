@@ -17,13 +17,20 @@
 #pragma once
 #include "definitions_cxx.hpp"
 #include "mutable.hpp"
+#include <cmath>
 
 namespace deluge::dsp::reverb {
 
 /// @brief The Griesinger topology model from Part 1 of Effect Design by John Dattorro,
 /// classically based on the famous Lexicon 224 Digital Reverb
 class Digital : public Mutable {
-	constexpr static float kRatio = 29761.f / kSampleRate; // Lexicon sample rate to Deluge sample rate
+	/// Dattorro's delay lengths are in samples at the Lexicon's 29761 Hz. Taken as is at our rate
+	/// the tank is 0.675x as long, and its modes are so far apart that the tail rings at fixed
+	/// pitches. 2.148x that (1.45x the Lexicon's lengths, still inside the 32768-sample buffer)
+	/// packs the modes that much closer. The decay per lap is raised to the same power below, so
+	/// the tail still falls at about the same rate per second.
+	constexpr static float kLengthScale = 2.148f;
+	constexpr static float kRatio = kLengthScale * 29761.f / kSampleRate;
 
 	/// Dattorro's +/-16 samples of tank modulation, rescaled to our sample rate.
 	constexpr static size_t max_excursion = 16.f * kRatio;
@@ -62,11 +69,12 @@ public:
 		                                      &dap1a, &del1a, &dap1b, &del1b, //<
 		                                      &dap2a, &del2a, &dap2b, &del2b});
 
-		const float kdecay = reverb_time_;                          // 0.5f
-		const float kid1 = 0.750f;                                  // input diffusion 1
-		const float kid2 = 0.625f;                                  // input diffusion 2
-		const float kdd1 = 0.70f;                                   // decay diffusion 1
-		const float kdd2 = std::clamp(kdecay + 0.15f, 0.25f, 0.5f); // decay diffusion 2
+		// The decay per lap, for laps kLengthScale times as long as Dattorro's
+		const float kdecay = std::pow(reverb_time_, kLengthScale);
+		const float kid1 = 0.750f;                                        // input diffusion 1
+		const float kid2 = 0.625f;                                        // input diffusion 2
+		const float kdd1 = 0.70f;                                         // decay diffusion 1
+		const float kdd2 = std::clamp(reverb_time_ + 0.15f, 0.25f, 0.5f); // decay diffusion 2
 
 		const float kdamp = lp_; // 1.f - 0.0005f;            // damping
 		const float kbandwidth = 0.9995f;
