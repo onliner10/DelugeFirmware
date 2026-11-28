@@ -42,54 +42,54 @@ ParamNode* ParamNodeVector::getLast() {
 }
 
 bool LazyParamNodeVector::allocate() {
-	if (vector_) {
+	if (block_) {
 		return true;
 	}
-	void* memory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(ParamNodeVector));
+	void* memory = GeneralMemoryAllocator::get().allocMaxSpeed(sizeof(Block));
 	if (!memory) {
 		return false;
 	}
-	vector_ = new (memory) ParamNodeVector();
+	block_ = new (memory) Block();
 	return true;
 }
 
 void LazyParamNodeVector::empty() {
-	if (vector_) {
-		vector_->~ParamNodeVector();
-		delugeDealloc(vector_);
-		vector_ = nullptr;
+	if (block_) {
+		block_->~Block();
+		delugeDealloc(block_);
+		block_ = nullptr;
 	}
 }
 
-void LazyParamNodeVector::freeIfEmpty() {
-	if (vector_ && !vector_->getNumElements()) {
+void LazyParamNodeVector::freeIfUnused() {
+	if (block_ && !block_->vector.getNumElements() && block_->state.isNeutral()) {
 		empty();
 	}
 }
 
 bool LazyParamNodeVector::cloneFrom(LazyParamNodeVector const* other) {
-	vector_ = nullptr;
+	block_ = nullptr;
 	if (!other->getNumElements()) {
 		return true;
 	}
 	if (!allocate()) {
 		return false;
 	}
-	bool success = vector_->cloneFrom(other->vector_);
-	freeIfEmpty();
+	bool success = block_->vector.cloneFrom(&other->block_->vector);
+	freeIfUnused();
 	return success;
 }
 
 Error LazyParamNodeVector::beenCloned() {
-	ParamNodeVector* source = vector_; // Still belongs to the object we were memcpy'd from
-	vector_ = nullptr;
-	if (!source || !source->getNumElements()) {
+	Block* source = block_; // Still belongs to the object we were memcpy'd from
+	block_ = nullptr;
+	if (!source || !source->vector.getNumElements()) {
 		return Error::NONE;
 	}
 	if (!allocate()) {
 		return Error::INSUFFICIENT_RAM;
 	}
-	if (!vector_->cloneFrom(source)) {
+	if (!block_->vector.cloneFrom(&source->vector)) {
 		empty();
 		return Error::INSUFFICIENT_RAM;
 	}
@@ -97,8 +97,8 @@ Error LazyParamNodeVector::beenCloned() {
 }
 
 void LazyParamNodeVector::searchDual(int32_t const* __restrict__ searchTerms, int32_t* __restrict__ resultingIndexes) {
-	if (vector_) {
-		vector_->searchDual(searchTerms, resultingIndexes);
+	if (block_) {
+		block_->vector.searchDual(searchTerms, resultingIndexes);
 	}
 	else {
 		resultingIndexes[0] = 0;
@@ -110,8 +110,8 @@ Error LazyParamNodeVector::insertAtIndex(int32_t i, int32_t numToInsert, void* t
 	if (!allocate()) {
 		return Error::INSUFFICIENT_RAM;
 	}
-	Error error = vector_->insertAtIndex(i, numToInsert, thingNotToStealFrom);
-	freeIfEmpty();
+	Error error = block_->vector.insertAtIndex(i, numToInsert, thingNotToStealFrom);
+	freeIfUnused();
 	return error;
 }
 
@@ -119,8 +119,8 @@ int32_t LazyParamNodeVector::insertAtKey(int32_t key, bool isDefinitelyLast) {
 	if (!allocate()) {
 		return -1;
 	}
-	int32_t i = vector_->insertAtKey(key, isDefinitelyLast);
-	freeIfEmpty();
+	int32_t i = block_->vector.insertAtKey(key, isDefinitelyLast);
+	freeIfUnused();
 	return i;
 }
 
@@ -128,19 +128,70 @@ bool LazyParamNodeVector::ensureEnoughSpaceAllocated(int32_t numAdditionalElemen
 	if (!allocate()) {
 		return false;
 	}
-	bool success = vector_->ensureEnoughSpaceAllocated(numAdditionalElementsNeeded);
+	bool success = block_->vector.ensureEnoughSpaceAllocated(numAdditionalElementsNeeded);
 	if (!success) {
-		freeIfEmpty();
+		freeIfUnused();
 	}
 	return success;
 }
 
 void LazyParamNodeVector::deleteAtIndex(int32_t i, int32_t numToDelete, bool mayShortenMemoryAfter) {
-	if (!vector_) {
+	if (!block_) {
 		return;
 	}
-	vector_->deleteAtIndex(i, numToDelete, mayShortenMemoryAfter);
+	block_->vector.deleteAtIndex(i, numToDelete, mayShortenMemoryAfter);
 	if (mayShortenMemoryAfter) {
-		freeIfEmpty();
+		freeIfUnused();
 	}
+}
+
+void AutoParamNodes::deleteAllNodes() {
+	if (!block_) {
+		return;
+	}
+	if (block_->state.isNeutral()) {
+		empty();
+	}
+	else {
+		block_->vector.empty();
+	}
+}
+
+void AutoParamNodes::swapNodesWith(LazyParamNodeVector* other) {
+	AutomationPlayState state = playState();
+	if (block_) {
+		// other gets the nodes only - or nothing at all, if there aren't any
+		block_->state = kNeutralAutomationPlayState;
+		freeIfUnused();
+	}
+	LazyParamNodeVector::swapStateWith(other);
+	if (!state.isNeutral() && allocate()) {
+		block_->state = state;
+	}
+}
+
+AutoParamNodes::Original AutoParamNodes::detachFromOriginal() {
+	Original original;
+	original.block = block_;
+	block_ = nullptr;
+	if (original.block && !original.block->state.isNeutral() && allocate()) {
+		block_->state = original.block->state;
+	}
+	return original;
+}
+
+Error AutoParamNodes::cloneNodesFrom(Original original) {
+	ParamNodeVector* source = nodesOf(original);
+	if (!source) {
+		return Error::NONE;
+	}
+	if (!allocate()) {
+		return Error::INSUFFICIENT_RAM;
+	}
+	if (!block_->vector.cloneFrom(source)) {
+		block_->vector.empty();
+		freeIfUnused();
+		return Error::INSUFFICIENT_RAM;
+	}
+	return Error::NONE;
 }

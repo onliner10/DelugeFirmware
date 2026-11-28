@@ -32,6 +32,11 @@ class TimelineCounter;
 class Clip;
 class ModelStackWithAutoParam;
 
+/// Test builds only: also keep the play state in the AutoParam, as it used to be, and freeze if the two ever differ.
+#ifndef AUTO_PARAM_SHADOW_PLAY_STATE
+#define AUTO_PARAM_SHADOW_PLAY_STATE 0
+#endif
+
 // For backing up a snapshot
 class AutoParamState {
 public:
@@ -121,11 +126,14 @@ public:
 	inline bool isAutomated() { return (nodes.getNumElements()); }
 
 	inline void cancelOverriding() { // Will also cancel "latching".
-		renewedOverridingAtTime = 0;
+		setOverridingAtTime(0);
 	}
 
 	/// The nodes that make up this parameter. If empty, \ref currentValue should be used.
-	LazyParamNodeVector nodes;
+	///
+	/// With them goes where we are in playing them back - see AutomationPlayState. That's kept out of here because
+	/// there's one AutoParam per param per clip, nearly all of them without automation.
+	AutoParamNodes nodes;
 
 	/// Current value of the AutoParam. Updated by several functions.
 	int32_t currentValue;
@@ -133,20 +141,36 @@ public:
 	// interpolation to calculate current value
 	bool hasInterpolationIncrement(bool use_float_interpolation);
 	void resetInterpolationIncrement();
-	// Which of these is in use depends on ParamCollection::shouldInterpolateWithFloat(), so anything reading the
-	// increment has to be told which by the ParamCollection that owns this AutoParam.
-	union {
-		int32_t valueIncrementPerHalfTick;
-		float value_increment_per_half_tick_float;
-	};
-	float interpolation_increment_remainder_float;
 
-	uint32_t renewedOverridingAtTime; // If 0, it's off. If 1, it's latched until we hit some nodes / automation
+private:
+	[[nodiscard]] AutomationPlayState const& playState() const {
+#if AUTO_PARAM_SHADOW_PLAY_STATE
+		checkShadowPlayState();
+#endif
+		return nodes.playState();
+	}
+	/// If there's no memory to keep a state that isn't neutral, the state is left as it was.
+	void setPlayState(AutomationPlayState const& newState);
 
 	// "Latching" happens when you start recording values, but then stops if you arrive at any pre-existing values. So
 	// it only works in empty stretches of time.
 
-private:
+	/// If 0, it's off. If 1, it's latched until we hit some nodes / automation
+	[[nodiscard]] uint32_t overridingAtTime() const { return playState().renewedOverridingAtTime; }
+	void setOverridingAtTime(uint32_t time) {
+		if (time != playState().renewedOverridingAtTime) {
+			AutomationPlayState state = playState();
+			state.renewedOverridingAtTime = time;
+			setPlayState(state);
+		}
+	}
+
+#if AUTO_PARAM_SHADOW_PLAY_STATE
+	/// The play state as the fields AutoParam used to have for it, going wherever the AutoParam's bytes go.
+	AutomationPlayState shadowPlayState_;
+	void checkShadowPlayState() const;
+#endif
+
 	bool deleteRedundantNodeInLinearRun(int32_t lastNodeInRunI, int32_t effectiveLength,
 	                                    bool mayLoopAroundBackToEnd = true);
 	void setupInterpolation(ModelStackWithAutoParam const* modelStack, ParamNode* nextNode, int32_t effectiveLength,
@@ -164,3 +188,7 @@ private:
 	int32_t consumeFloatInterpolationIncrement(float value_increment);
 	bool applyValueIncrement(int32_t value_increment);
 };
+
+#if !AUTO_PARAM_SHADOW_PLAY_STATE
+static_assert(sizeof(AutoParam) == 2 * sizeof(void*), "there's one per param per clip: just the nodes and the value");
+#endif

@@ -53,31 +53,53 @@
 	6630 // 150ms. Only seems to have an effect for MIDI, which is confusing me...
 
 AutoParam::AutoParam() {
-	init();
+	init(); // No nodes, and a neutral play state
 	currentValue = 0;
-	resetInterpolationIncrement();
-	renewedOverridingAtTime = 0;
 }
 
 void AutoParam::init() {
-	nodes.init();
+	nodes.forget();
+#if AUTO_PARAM_SHADOW_PLAY_STATE
+	shadowPlayState_ = kNeutralAutomationPlayState;
+#endif
 }
 
+void AutoParam::setPlayState(AutomationPlayState const& newState) {
+	// A neutral state needs no memory: with nowhere to keep one, it's neutral already.
+	AutomationPlayState* state = newState.isNeutral() ? nodes.playStateIfAny() : nodes.playStateForWrite();
+	if (state) {
+		*state = newState;
+	}
+#if AUTO_PARAM_SHADOW_PLAY_STATE
+	shadowPlayState_ = newState; // As the fields would have it, so running out of memory shows up as a difference too
+#endif
+}
+
+#if AUTO_PARAM_SHADOW_PLAY_STATE
+void AutoParam::checkShadowPlayState() const {
+	if (memcmp(&shadowPlayState_, &nodes.playState(), sizeof(AutomationPlayState)) != 0) {
+		FREEZE_WITH_ERROR("APSH");
+	}
+}
+#endif
+
 void AutoParam::cloneFrom(AutoParam* otherParam, bool copyAutomation) {
+	// Either way, the play state is left neutral
 	if (copyAutomation) {
-		nodes.cloneFrom(&otherParam->nodes);
+		nodes.becomeCloneOfNodes(&otherParam->nodes);
 	}
 	else {
-		nodes.init();
+		nodes.forget();
 	}
+#if AUTO_PARAM_SHADOW_PLAY_STATE
+	shadowPlayState_ = kNeutralAutomationPlayState;
+#endif
 	currentValue = otherParam->currentValue;
-	resetInterpolationIncrement();
-	renewedOverridingAtTime = 0;
 }
 
 void AutoParam::copyOverridingFrom(AutoParam* otherParam) {
-	if (otherParam->renewedOverridingAtTime) {
-		renewedOverridingAtTime = otherParam->renewedOverridingAtTime;
+	if (otherParam->overridingAtTime()) {
+		setOverridingAtTime(otherParam->overridingAtTime());
 		resetInterpolationIncrement();
 	}
 	currentValue = otherParam->currentValue;
@@ -264,7 +286,7 @@ skipThat: {}
 #endif
 
 			if (!doMPEMode) {
-				renewedOverridingAtTime = 1; // Latch - until we come to the next node
+				setOverridingAtTime(1); // Latch - until we come to the next node
 			}
 			automationChanged = true;
 
@@ -281,9 +303,9 @@ skipThat: {}
 		// Or if not recording...
 		else {
 			if (nodes.getNumElements()) {
-				renewedOverridingAtTime = AudioEngine::audioSampleTimer;
-				if (renewedOverridingAtTime <= 1) {
-					renewedOverridingAtTime = 0xFFFFFFFF;
+				setOverridingAtTime(AudioEngine::audioSampleTimer);
+				if (overridingAtTime() <= 1) {
+					setOverridingAtTime(0xFFFFFFFF);
 				}
 			}
 		}
@@ -378,11 +400,12 @@ void AutoParam::deleteAutomation(Action* action, ModelStackWithAutoParam const* 
 	}
 
 	else {
-		nodes.empty();
+		nodes.deleteAllNodes();
 	}
 
 	resetInterpolationIncrement();
-	renewedOverridingAtTime = 0;
+	setOverridingAtTime(0);
+	nodes.freeIfUnused();
 
 	if (shouldNotify && wasAutomated) {
 		modelStack->paramCollection->notifyParamModifiedInSomeWay(modelStack, getCurrentValue(), true, true, false);
@@ -392,9 +415,10 @@ void AutoParam::deleteAutomation(Action* action, ModelStackWithAutoParam const* 
 // Beware. As this will do no notifying, the caller must ensure that any required notification is done.
 // I.e. a ParamSet must be notified if automation is deleted.
 void AutoParam::deleteAutomationBasicForSetup() {
-	nodes.empty();
+	nodes.deleteAllNodes();
 	resetInterpolationIncrement();
-	renewedOverridingAtTime = 0;
+	setOverridingAtTime(0);
+	nodes.freeIfUnused();
 }
 
 #define OVERRIDE_DURATION_MAGNITUDE_INTERPOLATING 15 // Means 2^x audio samples in length
@@ -449,7 +473,7 @@ int32_t AutoParam::processCurrentPos(ModelStackWithAutoParam const* modelStack, 
 	    D_PRINT(nodeJustReached->value);
 	    if (nodeJustReached->interpolated) D_PRINT(", interp");
 	    D_PRINTLN("");
-	    if (renewedOverridingAtTime) D_PRINTLN("overriding");
+	    if (overridingAtTime()) D_PRINTLN("overriding");
 	*/
 
 	// Stop any pre-existing interpolation (though we might set up some more, below)
@@ -486,13 +510,13 @@ int32_t AutoParam::processCurrentPos(ModelStackWithAutoParam const* modelStack, 
 	}
 
 	// If overriding...
-	if (renewedOverridingAtTime) {
+	if (overridingAtTime()) {
 
 		int32_t timeSinceOverrideEnd;
 		bool shouldCancelOverridingNow;
 
 		// If latched...
-		if (renewedOverridingAtTime == 1) {
+		if (overridingAtTime() == 1) {
 
 			// If recording, we need to actually modify the node we just reached.
 			if (playbackHandler.isCurrentlyRecording()) {
@@ -503,18 +527,17 @@ int32_t AutoParam::processCurrentPos(ModelStackWithAutoParam const* modelStack, 
 			// recording, so they must have just cancelled recording. So, exit out of latching and just give them normal
 			// overriding.
 			else {
-				renewedOverridingAtTime = AudioEngine::audioSampleTimer
-				                          - SAMPLES_TO_CLEAR_AFTER_RECORD; // Copied from below. Specifics don't really
-				                                                           // matter - this is a rare case
-				if (renewedOverridingAtTime <= 1) {
-					renewedOverridingAtTime = 0xFFFFFFFF;
+				// Copied from below. Specifics don't really matter - this is a rare case
+				setOverridingAtTime(AudioEngine::audioSampleTimer - SAMPLES_TO_CLEAR_AFTER_RECORD);
+				if (overridingAtTime() <= 1) {
+					setOverridingAtTime(0xFFFFFFFF);
 				}
 				goto getOut; // Nothing else to do. We don't want to even obey any automation just now.
 			}
 		}
 
 		timeSinceOverrideEnd =
-		    AudioEngine::audioSampleTimer - (uint32_t)renewedOverridingAtTime - SAMPLES_TO_IGNORE_AFTER_BEGIN_OVERRIDE;
+		    AudioEngine::audioSampleTimer - (uint32_t)overridingAtTime() - SAMPLES_TO_IGNORE_AFTER_BEGIN_OVERRIDE;
 
 		// If we overrode (turned the knob) less than 0.2s ago and are not recording, then we don't want to obey any
 		// automation at all
@@ -544,7 +567,7 @@ int32_t AutoParam::processCurrentPos(ModelStackWithAutoParam const* modelStack, 
 
 		if (shouldCancelOverridingNow) {
 yesCancelOverriding:
-			renewedOverridingAtTime = 0;
+			setOverridingAtTime(0);
 			D_PRINTLN("cancel overriding, basic way");
 		}
 
@@ -646,12 +669,12 @@ recordOverNodeJustReached:
 
 				// Or if next node's actually coming up quite soon, cancel latching if it was on
 				else {
-					if (renewedOverridingAtTime == 1) {
+					if (overridingAtTime() == 1) {
 
 						// If the upcoming node is non-interpolated, we want no overriding at all so we can jump
 						// directly to it
 						if (!nextNodeInOurDirection->interpolated) {
-							renewedOverridingAtTime = 0;
+							setOverridingAtTime(0);
 							// That's how overriding is most often cancelled for non-MIDI params. But for some reason,
 							// MIDI CCs, even if we removed their overriding cancellation code above, don't seem
 							// affected by this...
@@ -661,9 +684,9 @@ recordOverNodeJustReached:
 						else {
 							// Pretend that it began SAMPLES_TO_CLEAR_AFTER_RECORD samples ago - because we had to wait
 							// that long to get to this node just now after we recorded a value
-							renewedOverridingAtTime = AudioEngine::audioSampleTimer - SAMPLES_TO_CLEAR_AFTER_RECORD;
-							if (renewedOverridingAtTime <= 1) {
-								renewedOverridingAtTime = 0xFFFFFFFF;
+							setOverridingAtTime(AudioEngine::audioSampleTimer - SAMPLES_TO_CLEAR_AFTER_RECORD);
+							if (overridingAtTime() <= 1) {
+								setOverridingAtTime(0xFFFFFFFF);
 							}
 						}
 						D_PRINTLN("cancel latching");
@@ -729,7 +752,7 @@ adjustNodeJustReached:
 	// If this node we've just reached wasn't interpolated, and automation is not overridden (which may have only just
 	// become the case), we need to jump to the node's value. (Or, it'll be the value of the node to the left if the
 	// node here isn't interpolated.)
-	if ((!noNeedToJumpToValue || mustUpdateValueAtEveryNode) && !renewedOverridingAtTime) {
+	if ((!noNeedToJumpToValue || mustUpdateValueAtEveryNode) && !overridingAtTime()) {
 		int32_t oldValue = currentValue;
 		currentValue = valueJustReached;
 
@@ -776,28 +799,38 @@ getOut:
 /// identifies if a parameter is currently interpolating
 /// the value increment is used to increment / decrement the parameters current value
 bool AutoParam::hasInterpolationIncrement(bool use_float_interpolation) {
+	AutomationPlayState const& state = playState();
 	if (use_float_interpolation) [[unlikely]] {
-		return value_increment_per_half_tick_float != 0.0f;
+		return state.value_increment_per_half_tick_float != 0.0f;
 	}
-	return valueIncrementPerHalfTick != 0;
+	return state.valueIncrementPerHalfTick != 0;
 }
 
 /// resets interpolation increment to zero (can happen if we reached parameter value limits)
 /// or if we've reached another node in which case we'll be re-calculating the increment
 void AutoParam::resetInterpolationIncrement() {
-	valueIncrementPerHalfTick = 0;
-	interpolation_increment_remainder_float = 0.0f;
+	AutomationPlayState state = playState();
+	state.valueIncrementPerHalfTick = 0;
+	state.interpolation_increment_remainder_float = 0.0f;
+	setPlayState(state);
 }
 
 /// reverse the interpolation increment in case we're now interpolating backwards to the previous node
 void AutoParam::reverseInterpolationIncrement(bool use_float_interpolation) {
+	// With a neutral state there's nothing to reverse. (This used to make negative zeros of the floats, which read
+	// just the same.)
+	if (playState().isNeutral()) {
+		return;
+	}
+	AutomationPlayState state = playState();
 	if (use_float_interpolation) [[unlikely]] {
-		value_increment_per_half_tick_float = -value_increment_per_half_tick_float;
+		state.value_increment_per_half_tick_float = -state.value_increment_per_half_tick_float;
 	}
 	else {
-		valueIncrementPerHalfTick = -valueIncrementPerHalfTick;
+		state.valueIncrementPerHalfTick = -state.valueIncrementPerHalfTick;
 	}
-	interpolation_increment_remainder_float = -interpolation_increment_remainder_float;
+	state.interpolation_increment_remainder_float = -state.interpolation_increment_remainder_float;
+	setPlayState(state);
 }
 
 /// identifies if the current parameter should use float interpolation (e.g. tempo)
@@ -810,7 +843,7 @@ bool AutoParam::useFloatInterpolation(ModelStackWithAutoParam const* modelStack)
 void AutoParam::setupInterpolation(ModelStackWithAutoParam const* modelStack, ParamNode* nextNodeInOurDirection,
                                    int32_t effectiveLength, int32_t currentPos, bool reversed) {
 
-	if (renewedOverridingAtTime == 1) {
+	if (overridingAtTime() == 1) {
 		return; // If it's latched-until-next-node-hit, we're not allowed to interpolate.
 	}
 
@@ -834,14 +867,14 @@ void AutoParam::setupInterpolation(ModelStackWithAutoParam const* modelStack, Pa
 	calculateInterpolationIncrement(halfDistance, ticksTilNextNode, use_float_interpolation);
 
 	// If automation still overridden (at least to some extent), limit how fast interpolation can occur
-	if (renewedOverridingAtTime) {
+	if (overridingAtTime()) {
 
 		int32_t timeSinceOverridden =
-		    AudioEngine::audioSampleTimer - (uint32_t)renewedOverridingAtTime - SAMPLES_TO_IGNORE_AFTER_BEGIN_OVERRIDE;
+		    AudioEngine::audioSampleTimer - (uint32_t)overridingAtTime() - SAMPLES_TO_IGNORE_AFTER_BEGIN_OVERRIDE;
 
 		// If overriding was renewed aaages ago, we can just stop that.
 		if (timeSinceOverridden >= (1 << OVERRIDE_DURATION_MAGNITUDE_INTERPOLATING)) {
-			renewedOverridingAtTime = 0;
+			setOverridingAtTime(0);
 		}
 
 		// Or if still going...
@@ -858,54 +891,61 @@ void AutoParam::setupInterpolation(ModelStackWithAutoParam const* modelStack, Pa
 /// the next node's parameter value
 void AutoParam::calculateInterpolationIncrement(int32_t half_distance, int32_t ticks_til_next_node,
                                                 bool use_float_interpolation) {
+	AutomationPlayState state = playState();
 	if (use_float_interpolation) [[unlikely]] {
-		value_increment_per_half_tick_float = (float)half_distance / (float)ticks_til_next_node;
+		state.value_increment_per_half_tick_float = (float)half_distance / (float)ticks_til_next_node;
 	}
 	else {
-		valueIncrementPerHalfTick = half_distance / ticks_til_next_node;
+		state.valueIncrementPerHalfTick = half_distance / ticks_til_next_node;
 	}
+	setPlayState(state);
 }
 
 /// used to limit how fast you interpolate
 void AutoParam::potentiallyOverrideInterpolationIncrement(int32_t limit, bool use_float_interpolation) {
+	AutomationPlayState state = playState();
 	if (use_float_interpolation) [[unlikely]] {
-		if (value_increment_per_half_tick_float > (float)limit) {
-			value_increment_per_half_tick_float = (float)limit;
+		if (state.value_increment_per_half_tick_float > (float)limit) {
+			state.value_increment_per_half_tick_float = (float)limit;
 		}
-		else if (value_increment_per_half_tick_float < (float)-limit) {
-			value_increment_per_half_tick_float = (float)-limit;
+		else if (state.value_increment_per_half_tick_float < (float)-limit) {
+			state.value_increment_per_half_tick_float = (float)-limit;
 		}
 		else {
 			// If we didn't even have to limit it, there's no need to be overriding anymore
-			renewedOverridingAtTime = 0;
+			state.renewedOverridingAtTime = 0;
 		}
 	}
 	else {
-		if (valueIncrementPerHalfTick > limit) {
-			valueIncrementPerHalfTick = limit;
+		if (state.valueIncrementPerHalfTick > limit) {
+			state.valueIncrementPerHalfTick = limit;
 		}
-		else if (valueIncrementPerHalfTick < -limit) {
-			valueIncrementPerHalfTick = -limit;
+		else if (state.valueIncrementPerHalfTick < -limit) {
+			state.valueIncrementPerHalfTick = -limit;
 		}
 		else {
 			// If we didn't even have to limit it, there's no need to be overriding anymore
-			renewedOverridingAtTime = 0;
+			state.renewedOverridingAtTime = 0;
 		}
 	}
+	setPlayState(state);
 }
 
 /// used with float interpolation to accumulate increments between whole values
 /// so that you know when to increment the current parameter value by a whole value
 int32_t AutoParam::consumeFloatInterpolationIncrement(float value_increment) {
+	AutomationPlayState state = playState();
+
 	// accumulate float increments
-	interpolation_increment_remainder_float += value_increment;
+	state.interpolation_increment_remainder_float += value_increment;
 
 	// truncate the accumulated float increment so it's just the whole value
 	// (e.g. round 1.1 down to 1, or round 0.1 down to 0)
-	float whole_value_increment = truncf(interpolation_increment_remainder_float);
+	float whole_value_increment = truncf(state.interpolation_increment_remainder_float);
 
 	// subtract whole value from the accumulated amount to get the remainder (e.g. 1.1 - 1 = .1)
-	interpolation_increment_remainder_float -= whole_value_increment;
+	state.interpolation_increment_remainder_float -= whole_value_increment;
+	setPlayState(state);
 
 	// return whole value increment (e.g. 1 or 0)
 	return (int32_t)whole_value_increment;
@@ -955,15 +995,17 @@ bool AutoParam::tickSamples(int32_t numSamples, bool use_float_interpolation) {
 
 	// non-float interpolation
 	if (!use_float_interpolation) [[likely]] {
-		value_increment = saturatingIncrement(
-		    multiply_32x32_rshift32_rounded(valueIncrementPerHalfTick, playbackHandler.getTimePerInternalTickInverse()),
-		    (int64_t)6 * numSamples);
+		value_increment =
+		    saturatingIncrement(multiply_32x32_rshift32_rounded(playState().valueIncrementPerHalfTick,
+		                                                        playbackHandler.getTimePerInternalTickInverse()),
+		                        (int64_t)6 * numSamples);
 	}
 	// float interpolation
 	else {
 		float half_ticks =
 		    (float)playbackHandler.getTimePerInternalTickInverse() * (1.0f / 4294967296.0f) * 6.0f * numSamples;
-		value_increment = consumeFloatInterpolationIncrement(value_increment_per_half_tick_float * half_ticks);
+		value_increment =
+		    consumeFloatInterpolationIncrement(playState().value_increment_per_half_tick_float * half_ticks);
 	}
 
 	// potentially update current value
@@ -982,11 +1024,12 @@ bool AutoParam::tickTicks(int32_t numTicks, bool use_float_interpolation) {
 
 	// non-float interpolation
 	if (!use_float_interpolation) [[likely]] {
-		value_increment = saturatingIncrement(valueIncrementPerHalfTick, half_ticks);
+		value_increment = saturatingIncrement(playState().valueIncrementPerHalfTick, half_ticks);
 	}
 	// float interpolation
 	else {
-		value_increment = consumeFloatInterpolationIncrement(value_increment_per_half_tick_float * (float)half_ticks);
+		value_increment =
+		    consumeFloatInterpolationIncrement(playState().value_increment_per_half_tick_float * (float)half_ticks);
 	}
 
 	// potentially update current value
@@ -1546,7 +1589,7 @@ bool AutoParam::grabValueFromPos(uint32_t pos, ModelStackWithAutoParam const* mo
 void AutoParam::setPlayPos(uint32_t pos, ModelStackWithAutoParam const* modelStack, bool reversed) {
 
 	resetInterpolationIncrement(); // We may calculate this, below
-	renewedOverridingAtTime = 0;
+	setOverridingAtTime(0);
 	if (nodes.getNumElements()) {
 		int32_t oldValue = currentValue;
 		currentValue = getValueAtPos(pos, modelStack, reversed);
@@ -1582,14 +1625,18 @@ Error AutoParam::beenCloned(bool copyAutomation, int32_t reverseDirectionWithLen
 
 	Error error = Error::NONE;
 
+	// We're a memcpy of the AutoParam we were cloned from, so nodes still refers to that one's nodes and play state.
+	// Like the rest of us, the play state gets to stay as a copy. The nodes still belong to the original, so we mustn't
+	// modify or free them.
+	AutoParamNodes::Original original = nodes.detachFromOriginal();
+
 	if (copyAutomation) {
 
-		int32_t numNodes = nodes.getNumElements();
+		ParamNodeVector* originalNodes = AutoParamNodes::nodesOf(original);
+		int32_t numNodes = originalNodes ? originalNodes->getNumElements() : 0;
 
 		if (reverseDirectionWithLength && numNodes) {
-			// Still belongs to the AutoParam we were cloned from, so we mustn't modify or free it.
-			ParamNodeVector& oldNodes = *nodes.get();
-			nodes.init();
+			ParamNodeVector& oldNodes = *originalNodes;
 
 			error = nodes.insertAtIndex(0, numNodes);
 
@@ -1632,14 +1679,12 @@ Error AutoParam::beenCloned(bool copyAutomation, int32_t reverseDirectionWithLen
 		}
 
 		else {
-			error = nodes.beenCloned();
+			error = nodes.cloneNodesFrom(original);
 		}
 	}
-	else {
-		nodes.init();
-	}
 
-	renewedOverridingAtTime = 0;
+	setOverridingAtTime(0);
+	nodes.freeIfUnused();
 	return error;
 }
 
@@ -1985,7 +2030,7 @@ addNewNodeAt0IfNecessary:
 				action->recordParamChangeDefinitely(modelStack, true); // Steal
 
 				// And, need to swap the new Nodes in
-				nodes.swapStateWith(&newNodes);
+				nodes.swapNodesWith(&newNodes);
 
 				goto addNewNodeAt0IfNecessary;
 			}
@@ -1997,7 +2042,7 @@ addNewNodeAt0IfNecessary:
 		if (action) {
 			action->recordParamChangeIfNotAlreadySnapshotted(modelStack, true); // Steal
 		}
-		nodes.empty();                 // Delete them - either if no action, or if the above chose not to steal them.
+		nodes.deleteAllNodes();        // Delete them - either if no action, or if the above chose not to steal them.
 		resetInterpolationIncrement(); // In case we were interpolating.
 	}
 }
@@ -2207,7 +2252,7 @@ void AutoParam::swapState(AutoParamState* state, ModelStackWithAutoParam const* 
 	int32_t oldValueHere = currentValue;
 	currentValue = state->value;
 	state->value = oldValueHere;
-	nodes.swapStateWith(&state->nodes);
+	nodes.swapNodesWith(&state->nodes);
 
 	bool automatedNow = isAutomated();
 
@@ -2855,7 +2900,7 @@ doWrap:
 					// But if that would all mean that we'd actually end up with only 1 node, well that's not allowed.
 					// (Actually it is now, but let's be safe.)
 					if (nodes.getNumElements() == 1) {
-						nodes.empty();
+						nodes.deleteAllNodes();
 					}
 
 					// But yeah normally that'll be fine - just go copy to that node we've collided with

@@ -102,11 +102,13 @@ Error ParamManager::setupUnpatched() {
 Error ParamManager::setupWithPatching() {
 	// The main collections are always allocated, moved and freed together, so they share one
 	// allocation: one block in the allocator's size classes rather than three.
-	// Except the PatchCableSet: with it, they wouldn't fit the 2 KB size class, and there's one of these per kit row
-	// per clip.
+	// Except the PatchCableSet, which has a block of its own. There's one of these per kit row per clip, so which size
+	// class it lands in matters: 1 KB, with each AutoParam being just its value and a pointer.
 	constexpr uint32_t patched_offset = alignCollection(sizeof(UnpatchedParamSet));
 	constexpr uint32_t main_size = patched_offset + sizeof(PatchedParamSet);
-	static_assert(main_size + 8 <= 2048, "Unpatched and patched params no longer fit a 2 KB block (8 for its header)");
+#if !AUTO_PARAM_SHADOW_PLAY_STATE
+	static_assert(main_size + 8 <= 1024, "Unpatched and patched params no longer fit a 1 KB block (8 for its header)");
+#endif
 	auto* memory = static_cast<char*>(GeneralMemoryAllocator::get().allocMaxSpeed(main_size));
 	if (memory == nullptr) {
 		return Error::INSUFFICIENT_RAM;
