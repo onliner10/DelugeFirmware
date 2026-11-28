@@ -21,8 +21,9 @@
 #include "processing/skipback/skipback.h"
 
 /// The skipback screen, opened by Record + Select: what skipback kept (processing/skipback/skipback.h), frozen, as a
-/// waveform across the pads, oldest on the left. A range is chosen for you - the last phrase played, in whole bars if
-/// the transport was playing - and shown bright between a green start and a red end.
+/// waveform across the pads, oldest on the left, under the name of the track it's from (or Master). A range is chosen
+/// for you - the last phrase played, in whole bars if the transport was playing - and shown bright between a green
+/// start and a red end.
 ///
 /// - Main pad: moves the nearer of start and end to that column
 /// - Select turn: nudges the marker last moved (a 1/16 note when on the song's grid, else 10 ms; 1 ms with Shift)

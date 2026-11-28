@@ -23,8 +23,12 @@
 
 class Output;
 
-/// Skipback: the Deluge keeps the last few seconds of what it played - the master output, and the notes played live
-/// on melodic instruments - in RAM, so a good moment can be kept after it happened, without having pressed record.
+/// Skipback: the Deluge keeps the last few seconds of what it played - the audio, and the notes played live on
+/// melodic instruments - in RAM, so a good moment can be kept after it happened, without having pressed record.
+///
+/// The audio is that of the track being played (Community Features > Skipback Source: Track, the default): the one
+/// last played live, or else the one whose clip was last opened - after its own FX, before the song's. Playing or
+/// opening another track starts the keeping over, for that one. Or it's the master output, set to Master.
 ///
 /// The Community Features setting picks how many seconds. Off by default, and while it's off nothing is allocated and
 /// nothing is done. While it's on the audio costs 16-bit stereo in SDRAM (176 KB a second, taken from the sample cache)
@@ -40,8 +44,21 @@ void applySetting();
 
 bool isOn();
 
-/// From the audio routine: what just went to the codec.
-void feedOutput(std::span<StereoSample const> output);
+/// The track whose audio is being kept, or nullptr while it's the master's (or skipback is off). Only compared with,
+/// never read through: it may have been deleted since.
+extern Output* trackSource;
+
+/// From the audio routine, before the song renders: picks up a newly opened clip's track.
+void beginRender();
+
+/// From Song::renderAudio(), for trackSource: an empty buffer to render it into, instead of the mix
+std::span<StereoSample> trackBuffer(size_t numSamples);
+/// Then adds what it rendered into the mix
+void mixTrack(std::span<StereoSample> mix);
+
+/// From the audio routine: what just went to the codec - frames renderOffset on of the render - and the master gain
+/// it went with, which the track's audio gets too, so it's kept as loud as it's heard.
+void feedOutput(std::span<StereoSample const> output, size_t renderOffset, int32_t gainL, int32_t gainR);
 
 /// A note played live (keyboard screen, audition pads, MIDI in) on a melodic instrument.
 void noteOn(Output* output, int32_t note, int32_t velocity);
@@ -58,6 +75,7 @@ struct Capture {
 	float samplesPerTick; ///< At the tempo when frozen
 	int64_t barLength;    ///< In ticks
 	int32_t maxPeak;      ///< Loudest value kept, to scale the waveform to
+	char sourceName[24];  ///< Whose audio: the track's name, or "Master"
 };
 
 struct Range {

@@ -1148,6 +1148,7 @@ void renderAudio(size_t numSamples) {
 	usbInputsMonitoredByTrack = 0;
 	// Multitrack USB's track buses - except while exporting stems in real time, which need every track
 	usb_audio::startRender(!stemExport.processStarted);
+	deluge::skipback::beginRender();
 
 	// Render audio for song
 	if (currentSong != nullptr) {
@@ -1847,7 +1848,8 @@ bool doSomeOutputting() {
 		}
 
 		if (!stemExport.processStarted) {
-			deluge::skipback::feedOutput(outputBufferForResampling.first(numSamplesOutputted));
+			deluge::skipback::feedOutput(outputBufferForResampling.first(numSamplesOutputted), renderOffset,
+			                             masterVolumeAdjustmentL, masterVolumeAdjustmentR);
 		}
 	}
 

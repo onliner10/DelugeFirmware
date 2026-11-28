@@ -92,6 +92,12 @@ uint16_t* blockPeaks = nullptr;
 uint32_t numBlocks = 0;
 Capture frozenCapture{};
 
+// Keeping a track's audio rather than the master's (Community Features > Skipback Source)
+bool trackMode = true;
+Clip* lastCurrentClip = nullptr; // The current clip the track was last picked up from; only compared with
+bool trackRendered = false;      // trackMemory holds this render of trackSource
+alignas(CACHE_LINE_SIZE) std::array<StereoSample, SSI_TX_BUFFER_NUM_SAMPLES> trackMemory;
+
 // The preview, in frames as Capture counts them
 bool previewing = false;
 int64_t previewPos = 0;
@@ -110,9 +116,26 @@ void* allocInStealableRegion(uint32_t size) {
 	return address;
 }
 
+/// Forgets what's kept, as when another track starts being kept
+void restart() {
+	writeFrame = 0;
+	framesFilled = 0;
+	noteWrite = 0;
+	noteCount = 0;
+}
+
+void setTrackSource(Output* output) {
+	if (output != trackSource) {
+		trackSource = output;
+		restart();
+	}
+}
+
 void freeAll() {
 	uint32_t const had = numChunks;
 	numChunks = 0; // First, so the audio routine stops writing
+	trackSource = nullptr;
+	lastCurrentClip = nullptr;
 	capacityFrames = 0;
 	writeFrame = 0;
 	framesFilled = 0;
@@ -482,9 +505,18 @@ int32_t makeAudioClip(String const& filePath, int32_t loopLength) {
 
 } // namespace
 
+Output* trackSource = nullptr;
+
 void applySetting() {
 	if (frozen) {
 		return; // The screen's using the rings - and isn't letting the menu open anyway
+	}
+	bool const wantTrack = runtimeFeatureSettings.get(RuntimeFeatureSettingType::SkipbackSource) == 0;
+	if (wantTrack != trackMode) {
+		trackMode = wantTrack;
+		trackSource = nullptr; // Picked up again at the next render, if it's tracks now
+		lastCurrentClip = nullptr;
+		restart();
 	}
 	uint32_t const seconds =
 	    std::min<uint32_t>(runtimeFeatureSettings.get(RuntimeFeatureSettingType::Skipback), kMaxSeconds);
@@ -524,28 +556,89 @@ bool isOn() {
 	return numChunks != 0 || noteEvents != nullptr;
 }
 
-void feedOutput(std::span<StereoSample const> output) {
+void beginRender() {
+	trackRendered = false;
+	if (!trackMode || numChunks == 0 || frozen || currentSong == nullptr) {
+		return;
+	}
+	Clip* clip = currentSong->getCurrentClip();
+	if (clip != lastCurrentClip) {
+		lastCurrentClip = clip;
+		if (clip != nullptr) {
+			setTrackSource(clip->output);
+		}
+	}
+}
+
+std::span<StereoSample> trackBuffer(size_t numSamples) {
+	numSamples = std::min(numSamples, trackMemory.size());
+	std::memset(trackMemory.data(), 0, numSamples * sizeof(StereoSample));
+	trackRendered = true;
+	return {trackMemory.data(), numSamples};
+}
+
+void mixTrack(std::span<StereoSample> mix) {
+	auto* __restrict__ dst = reinterpret_cast<int32_t*>(mix.data());
+	auto const* __restrict__ src = reinterpret_cast<int32_t const*>(trackMemory.data());
+	uint32_t const numValues = std::min(mix.size(), trackMemory.size()) * 2;
+	uint32_t j = 0;
+	for (; j + 4 <= numValues; j += 4) {
+		vst1q_s32(dst + j, vaddq_s32(vld1q_s32(dst + j), vld1q_s32(src + j)));
+	}
+	for (; j < numValues; j++) {
+		dst[j] += src[j];
+	}
+}
+
+void feedOutput(std::span<StereoSample const> output, size_t renderOffset, int32_t gainL, int32_t gainR) {
 	if (numChunks == 0 || frozen) {
 		return;
 	}
+	// A track's audio as the output gets it: the master gain (what the codec gets is (x * gain) >> 32, then 8
+	// doublings), then its top 16 bits - (x * gain) >> 40, saturated
+	int32_t const* track = nullptr;
+	if (trackMode && trackRendered) {
+		track = &trackMemory[std::min(renderOffset, trackMemory.size() - output.size())].l;
+	}
+	std::array<int32_t, 4> const gains{gainL, gainR, gainL, gainR};
+	int32x4_t const gain = vld1q_s32(gains.data());
 	size_t i = 0;
 	size_t const n = output.size();
 	while (i < n) {
 		// capacityFrames is a whole number of chunks, so a run never goes past the end of the ring
 		uint32_t const offset = writeFrame & (kChunkFrames - 1);
 		uint32_t const run = std::min<uint32_t>(n - i, kChunkFrames - offset);
-		// Both sides interleaved L R, so it's one stream of values narrowed to their top 16 bits, 8 at a time
 		auto* __restrict__ dst = reinterpret_cast<int16_t*>(&chunks[writeFrame >> kChunkFramesMagnitude][offset]);
-		auto const* __restrict__ src = reinterpret_cast<int32_t const*>(&output[i]);
 		uint32_t const numValues = run * 2;
-		uint32_t j = 0;
-		for (; j + 8 <= numValues; j += 8) {
-			int16x4_t const lo = vshrn_n_s32(vld1q_s32(src + j), 16);
-			int16x4_t const hi = vshrn_n_s32(vld1q_s32(src + j + 4), 16);
-			vst1q_s16(dst + j, vcombine_s16(lo, hi));
+		if (!trackMode) {
+			// Both sides interleaved L R, so it's one stream of values narrowed to their top 16 bits, 8 at a time
+			auto const* __restrict__ src = reinterpret_cast<int32_t const*>(&output[i]);
+			uint32_t j = 0;
+			for (; j + 8 <= numValues; j += 8) {
+				int16x4_t const lo = vshrn_n_s32(vld1q_s32(src + j), 16);
+				int16x4_t const hi = vshrn_n_s32(vld1q_s32(src + j + 4), 16);
+				vst1q_s16(dst + j, vcombine_s16(lo, hi));
+			}
+			for (; j < numValues; j++) {
+				dst[j] = static_cast<int16_t>(src[j] >> 16);
+			}
 		}
-		for (; j < numValues; j++) {
-			dst[j] = static_cast<int16_t>(src[j] >> 16);
+		else if (track != nullptr) {
+			// vqdmulh is (x * gain) >> 31, and the narrowing shift the other 9
+			int32_t const* __restrict__ src = track + i * 2;
+			uint32_t j = 0;
+			for (; j + 8 <= numValues; j += 8) {
+				int16x4_t const lo = vqshrn_n_s32(vqdmulhq_s32(vld1q_s32(src + j), gain), 9);
+				int16x4_t const hi = vqshrn_n_s32(vqdmulhq_s32(vld1q_s32(src + j + 4), gain), 9);
+				vst1q_s16(dst + j, vcombine_s16(lo, hi));
+			}
+			for (; j < numValues; j++) {
+				int64_t const v = (static_cast<int64_t>(src[j]) * ((j & 1) ? gainR : gainL)) >> 40;
+				dst[j] = static_cast<int16_t>(std::clamp<int64_t>(v, INT16_MIN, INT16_MAX));
+			}
+		}
+		else {
+			std::memset(dst, 0, numValues * sizeof(int16_t)); // The track didn't render
 		}
 		writeFrame += run;
 		if (writeFrame >= capacityFrames) {
@@ -558,6 +651,9 @@ void feedOutput(std::span<StereoSample const> output) {
 }
 
 void noteOn(Output* output, int32_t note, int32_t velocity) {
+	if (trackMode && numChunks != 0 && !frozen) {
+		setTrackSource(output); // The track being played is the one kept
+	}
 	addNoteEvent(output, note, std::clamp<int32_t>(velocity, 1, 127));
 }
 
@@ -592,6 +688,11 @@ bool freeze(Capture& capture) {
 		capture.samplesPerTick = 1;
 	}
 	capture.barLength = std::max<int64_t>(currentSong->getBarLength(), 1);
+	char const* name = trackMode ? "Track" : "Master";
+	if (trackMode && trackSource != nullptr && isInSong(trackSource) && !trackSource->name.isEmpty()) {
+		name = trackSource->name.get();
+	}
+	snprintf(capture.sourceName, sizeof(capture.sourceName), "%s", name);
 
 	if (!buildBlockPeaks()) {
 		frozen = false;
