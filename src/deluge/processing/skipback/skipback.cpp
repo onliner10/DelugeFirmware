@@ -599,18 +599,21 @@ void feedOutput(std::span<StereoSample const> output, size_t renderOffset, int32
 	if (numChunks == 0 || frozen) {
 		return;
 	}
-	// A track's audio as the output gets it, but for the song's FX: the song's volume, ((x * song) >> 32) << 5, then
-	// the master gain, ((x * master) >> 32) << 8, then its top 16 bits. That's x * (song * master >> 32) >> 35, the
-	// gain being under 2^30 - saturated
+	// A track's audio as the output gets it, but for the song's FX: the song's volume, ((x * song) >> 32) << 5, the
+	// master compressor's, ((x * compressor) >> 32) << 4, the master gain, ((x * master) >> 32) << 8, then its top 16
+	// bits. That's x * (song * compressor * master >> 64) >> 31, the gain being under 2^29 - saturated
 	int32_t const* track = nullptr;
-	if (trackMode && trackRendered) {
+	std::array<int32_t, 4> gains{};
+	if (trackMode && trackRendered && currentSong != nullptr) {
 		track = &trackMemory[std::min(renderOffset, trackMemory.size() - output.size())].l;
+		auto const& compressor = currentSong->globalEffectable.compressor;
+		auto const combined = [](int32_t song, int32_t compressorVolume, int32_t master) {
+			int64_t const g = (static_cast<int64_t>(song) * compressorVolume) >> 32;
+			return static_cast<int32_t>((g * master) >> 32);
+		};
+		gains[0] = gains[2] = combined(songGain, compressor.getVolumeL(), gainL);
+		gains[1] = gains[3] = combined(songGain, compressor.getVolumeR(), gainR);
 	}
-	auto const combined = [](int32_t song, int32_t master) {
-		return static_cast<int32_t>((static_cast<int64_t>(song) * master) >> 32);
-	};
-	std::array<int32_t, 4> const gains{combined(songGain, gainL), combined(songGain, gainR), combined(songGain, gainL),
-	                                   combined(songGain, gainR)};
 	int32x4_t const gain = vld1q_s32(gains.data());
 	size_t i = 0;
 	size_t const n = output.size();
@@ -634,16 +637,16 @@ void feedOutput(std::span<StereoSample const> output, size_t renderOffset, int32
 			}
 		}
 		else if (track != nullptr) {
-			// vqdmulh is (x * gain) >> 31, and the narrowing shift the other 4
+			// vqdmulh is (x * gain) >> 31
 			int32_t const* __restrict__ src = track + i * 2;
 			uint32_t j = 0;
 			for (; j + 8 <= numValues; j += 8) {
-				int16x4_t const lo = vqshrn_n_s32(vqdmulhq_s32(vld1q_s32(src + j), gain), 4);
-				int16x4_t const hi = vqshrn_n_s32(vqdmulhq_s32(vld1q_s32(src + j + 4), gain), 4);
+				int16x4_t const lo = vqmovn_s32(vqdmulhq_s32(vld1q_s32(src + j), gain));
+				int16x4_t const hi = vqmovn_s32(vqdmulhq_s32(vld1q_s32(src + j + 4), gain));
 				vst1q_s16(dst + j, vcombine_s16(lo, hi));
 			}
 			for (; j < numValues; j++) {
-				int64_t const v = (static_cast<int64_t>(src[j]) * gains[j & 1]) >> 35;
+				int64_t const v = (static_cast<int64_t>(src[j]) * gains[j & 1]) >> 31;
 				dst[j] = static_cast<int16_t>(std::clamp<int64_t>(v, INT16_MIN, INT16_MAX));
 			}
 		}

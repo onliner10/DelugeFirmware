@@ -59,7 +59,7 @@ void mixTrack(std::span<StereoSample> mix);
 void setSongGain(int32_t gain);
 
 /// From the audio routine: what just went to the codec - frames renderOffset on of the render - and the master gain
-/// it went with, which the track's audio gets too, so it's kept as loud as it's heard.
+/// it went with, which the track's audio gets too (with the master compressor's), so it's kept as loud as it's heard.
 void feedOutput(std::span<StereoSample const> output, size_t renderOffset, int32_t gainL, int32_t gainR);
 
 /// A note played live (keyboard screen, audition pads, MIDI in) on a melodic instrument.
