@@ -58,8 +58,9 @@ looks for crashes and stops. It prints one line per check and a `RESULT` line.
 - **Exit codes:** 0 ok, 1 a check failed, 2 the firmware crashed, 3 harness
   error. Artifacts (serial.log, crash.txt) are in `build-emu/artifacts/<name>/`.
 - A trivial check takes about 3 s. A 19-check UI test takes about 25 s.
-- **From a worktree:** set `DELUGEMU_ROOT` to an existing built
-  `.emu/delugemu` so it isn't fetched and built again.
+- **From a git worktree:** `./dbt` needs a full clone (a `.git` directory), so run
+  `python3 scripts/tasks/task-emu.py check ...` instead. Set `DELUGEMU_ROOT` to an
+  existing built `.emu/delugemu` so the emulator isn't fetched and built again.
 
 Script files (`*.emu`) use one step per line or `;`-separated steps, with `#`
 comments:

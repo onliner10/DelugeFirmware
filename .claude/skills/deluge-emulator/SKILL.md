@@ -36,7 +36,8 @@ guest seconds, so results don't depend on host load and parallel runs are safe.
 - `--clock timectl` is for load, voice or audio measurements.
 - Extend `tests/emu/deluge_emu/drive.py` with new steps; don't write per-feature
   shell helpers around `ctl`.
-- In a worktree, `DELUGEMU_ROOT=<a built .emu/delugemu>` skips the emulator setup.
+- In a git worktree `./dbt` refuses to run: use `python3 scripts/tasks/task-emu.py check ...`,
+  with `DELUGEMU_ROOT=<a built .emu/delugemu>` to skip the emulator setup.
 
 ## 2. Explore interactively
 
