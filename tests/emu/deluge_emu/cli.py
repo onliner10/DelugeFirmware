@@ -5,7 +5,8 @@ Subcommands (see `./dbt emu <cmd> -h`):
   setup        fetch + build the pinned emulator, install test deps
   build        build the firmware for the emulator (build-emu/Debug/deluge.elf)
   test         run the emulator test suite (pytest tests/emu)
-  run          boot once, optionally run a scenario, write artifacts, exit
+  check        fast scripted check on the guest clock: steps + expects, parallel matrix (drive.py)
+  run          boot once, optionally run a JSON scenario, write artifacts, exit
   start        boot a live session in the background
   ctl          drive the live session (press/turn/pad/type/load-song/oled/log/...)
   stop         stop the live session (writes result.json)
@@ -399,6 +400,12 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("pytest_args", nargs=argparse.REMAINDER)
     s.set_defaults(fn=cmd_test)
 
+    sub.add_parser(
+        "check",
+        help="fast scripted check on the guest clock (see `./dbt emu check -h`)",
+        add_help=False,
+    )
+
     s = sub.add_parser(
         "run", help="boot once (+ optional scenario), write artifacts, exit"
     )
@@ -500,6 +507,11 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["check"]:
+        from .drive import main as check_main
+
+        return check_main(argv[1:])
     a = parser().parse_args(argv)
     try:
         return a.fn(a) or 0

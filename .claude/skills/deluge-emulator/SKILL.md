@@ -18,7 +18,27 @@ test -x .emu/delugemu/qemu/build/qemu-system-arm || ./dbt emu setup   # ~15 min,
 off so debug logs reach `serial.log`. Don't use `build/Debug/deluge.elf` from
 `./dbt build`: it runs, but you get no logs.
 
-## 1. Explore interactively
+## 1. Check a change: `./dbt emu check` (first choice)
+
+One command per check: boot, steps, expects, crash watch, stop. Waits are in
+guest seconds, so results don't depend on host load and parallel runs are safe.
+
+```sh
+./dbt emu check --elf build-emu/Debug/deluge.elf --sd factory -e "press SONG; wait 1; expect led PLAY off; oled"
+./dbt emu check --elf old.elf,new.elf --sd factory test.emu   # A/B in parallel
+./dbt emu check -h                                            # all steps
+```
+
+- `oled` gives the screen as text (`SOUND / [RANDOMIZER >]`, brackets mean highlighted).
+- To check internal state, log it with a `D_PRINTLN("TRACE ...")` and use
+  `expect last TRACE 'regex'`.
+- Put a multi-step test in a `.emu` file, one step per line (see `tests/emu/README.md`).
+- `--clock timectl` is for load, voice or audio measurements.
+- Extend `tests/emu/deluge_emu/drive.py` with new steps; don't write per-feature
+  shell helpers around `ctl`.
+- In a worktree, `DELUGEMU_ROOT=<a built .emu/delugemu>` skips the emulator setup.
+
+## 2. Explore interactively
 
 ```sh
 ./dbt emu start --sd basic            # or --sd empty | none | factory | <dir> | <img>
@@ -37,7 +57,7 @@ Pads: `pad X Y`, where X is 0-15 for the main grid and 16/17 for the audition
 and mute columns, and Y=0 is the bottom row. `pads` prints colours with the top
 row first.
 
-## 2. Turn it into a repro
+## 3. Turn it into a repro
 
 Write the steps as JSON (verbs: `press`, `turn`, `pad`, `chord`, `type`,
 `load_song`, `wait`, `wait_log`, `assert_led`, `assert_log`, `assert_no_log`,
@@ -50,7 +70,7 @@ cat build-emu/artifacts/repro/result.json
 
 Exit codes: 0 ok, 1 assertion failed, 2 firmware crashed, 3 harness/emulator error.
 
-## 3. When it crashes
+## 4. When it crashes
 
 `build-emu/artifacts/<name>/crash.txt` has:
 - `kind=freeze`: the `freezeWithError` code (e.g. `"B001"`) and a full backtrace.
@@ -61,7 +81,7 @@ Exit codes: 0 ok, 1 assertion failed, 2 firmware crashed, 3 harness/emulator err
 
 The end of `serial.log` usually shows what the firmware was doing just before.
 
-## 4. Fix and verify
+## 5. Fix and verify
 
 Change the code, `./dbt emu build`, rerun the same scenario. Save it under
 `tests/emu/scenarios/` (set `"sd"` in the JSON) so `./dbt emu test` keeps it
@@ -74,7 +94,8 @@ fixed. Then run the whole suite: `./dbt emu test`.
   names (`type`), loading and playing different songs (`--sd factory` has many).
 - `assert_no_log` with a regex for warnings you care about turns log noise into
   a check.
-- The emulator runs in real time and is slower than hardware. Audio overload
+- Live sessions and `emu run` use the host clock and are slower than hardware
+  (`emu check` defaults to the guest clock). Audio overload
   warnings ("direness", "latency high") are expected here and aren't bugs by
   themselves.
 - Don't claim a timing or audio-quality bug from the emulator alone. Say it

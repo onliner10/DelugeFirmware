@@ -1,0 +1,7 @@
+# Smoke check that works on any ELF: boots, opens song view, no freeze or error code.
+# ./dbt emu check --elf build-emu/Debug/deluge.elf --sd basic tests/emu/checks/smoke.emu
+press SONG; wait 1
+oled
+press PLAY; wait 2; expect led PLAY on
+press PLAY; wait 0.5; expect led PLAY off
+expect nolog 'FREEZE|\bE[0-9]{3}\b|HardFault'

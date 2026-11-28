@@ -29,6 +29,54 @@ headless. To use your own delugemu checkout, set `DELUGEMU_ROOT=/path/to/delugem
 
 ## Ways to drive it
 
+### 0. Quick check: `./dbt emu check` (use this first)
+
+One command boots the firmware, runs a short script of presses and checks,
+looks for crashes and stops. It prints one line per check and a `RESULT` line.
+
+```sh
+./dbt emu check --elf build-emu/Debug/deluge.elf --sd factory -e "press SONG; wait 1; expect led PLAY off; oled"
+./dbt emu check --elf a.elf,b.elf --sd factory my-test.emu   # A/B: each script on each ELF, in parallel
+./dbt emu check -h                                           # every step and option
+```
+
+- **Guest clock.** The default `--clock fast` runs QEMU with
+  `-icount shift=2,sleep=off`, about the speed of a real Deluge. Every `wait`
+  is in guest seconds, so a busy host (builds, other emulators) can't drop
+  presses or turn taps into long presses. Runs are deterministic: 8 parallel
+  runs of the same script give the same result. Use `--clock timectl` for load,
+  voice or audio measurements. `--clock rt` is the old host-time behaviour.
+- **Parallel and isolated.** Several scripts and/or comma-separated ELFs run as
+  a matrix (`-j`, default 8). Each run gets a unique session name, so separate
+  agents never clash.
+- **Readable screen.** `oled` prints the OLED as text, read with the firmware's
+  own fonts, e.g. `SOUND / ARPEGGIATOR > / [RANDOMIZER >]` (brackets mean
+  highlighted). `oledraw` prints the pixels.
+- **Firmware state.** Use `expect last 'TRACE' 'regex'` to check the newest log
+  line matching `TRACE`; it is retried for 2 guest seconds. Add a
+  `D_PRINTLN("TRACE ...")` to the firmware to expose the state you need.
+- **Exit codes:** 0 ok, 1 a check failed, 2 the firmware crashed, 3 harness
+  error. Artifacts (serial.log, crash.txt) are in `build-emu/artifacts/<name>/`.
+- A trivial check takes about 3 s. A 19-check UI test takes about 25 s.
+- **From a worktree:** set `DELUGEMU_ROOT` to an existing built
+  `.emu/delugemu` so it isn't fetched and built again.
+
+Script files (`*.emu`) use one step per line or `;`-separated steps, with `#`
+comments:
+
+```text
+press SONG; wait 1                       # tap a button (several names = chord)
+press 0,7; wait 0.45                     # pad x,y (y 0 = bottom row)
+down 6,7; turn SELECT 1; up 6,7          # hold a pad while turning an encoder
+expect last AWTRACE 'A\[BW \]'           # newest AWTRACE log line matches
+expect oled 'SECTION 1'
+expect nolog 'FREEZE|HardFault'
+```
+
+Prefer this over a live session plus many `ctl` calls, and extend
+`deluge_emu/drive.py` (new steps) rather than writing per-feature shell
+helpers.
+
 ### 1. Live session (exploration, one command at a time)
 
 ```sh
