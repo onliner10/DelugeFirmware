@@ -91,6 +91,7 @@ public:
 SkipbackSetting menuSkipback(RuntimeFeatureSettingType::Skipback);
 SkipbackSetting menuSkipbackSource(RuntimeFeatureSettingType::SkipbackSource);
 SkipbackSetting menuSkipbackRecord(RuntimeFeatureSettingType::SkipbackRecord);
+SettingToggle menuSafeDelayFeedback(RuntimeFeatureSettingType::SafeDelayFeedback);
 
 std::array<MenuItem*, RuntimeFeatureSettingType::MaxElement - kNonTopLevelSettings> subMenuEntries{
     &menuDrumRandomizer,
@@ -123,7 +124,8 @@ std::array<MenuItem*, RuntimeFeatureSettingType::MaxElement - kNonTopLevelSettin
     &menuCharacterFx,
     &menuSkipback,
     &menuSkipbackSource,
-    &menuSkipbackRecord};
+    &menuSkipbackRecord,
+    &menuSafeDelayFeedback};
 
 Settings::Settings(l10n::String name, l10n::String title) : menu_item::Submenu(name, title, subMenuEntries) {
 }

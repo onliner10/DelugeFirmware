@@ -20,6 +20,7 @@
 #include "definitions_cxx.hpp"
 #include "dsp/convolution/impulse_response_processor.h"
 #include "dsp/delay/delay_buffer.h"
+#include "dsp/delay/feedback_safety.h"
 #include "dsp/delay/saturating_tap_delay.h"
 #include "model/sync.h"
 
@@ -45,6 +46,9 @@ public:
 		/// WARM: level of the saturator's rail is 2^this. A full-level sample peaks around 2^24.7 in a Sound's
 		/// buffer and the bus buffers (kit, audio clip, song) run 2 bits hotter.
 		int32_t saturation_reference_log2 = 27;
+		/// Safe Delay Feedback: the amount has been through delay_feedback::shape(), and self-oscillation is held to
+		/// the level of what's played in
+		bool safeFeedback = false;
 	};
 
 	Delay() = default;
@@ -99,6 +103,8 @@ public:
 	void process(std::span<StereoSample> buffer, const State& delayWorkingState);
 
 private:
+	deluge::dsp::delay_feedback::Leveler leveler_;
+
 	void prepareToBeginWriting();
 	[[nodiscard]] constexpr int32_t getAmountToWriteBeforeReadingBegins() const { return secondaryBuffer.size(); }
 };
