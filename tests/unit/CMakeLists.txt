@@ -109,6 +109,7 @@ add_executable(UnitTests
         tick_interpolation_tests.cpp
         envelope_curve_tests.cpp
         note_locks_tests.cpp
+        delay_feedback_tests.cpp
 )
 add_test(NAME UnitTests
         COMMAND UnitTests)

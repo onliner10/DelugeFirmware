@@ -1137,6 +1137,11 @@ Delay::State GlobalEffectable::createDelayWorkingState(ParamManager& paramManage
 		    return getFinalParameterValueLinear(paramNeutralValues[params::GLOBAL_DELAY_FEEDBACK],
 		                                        cableToLinearParamShortcut(v));
 	    });
+	delayWorkingState.safeFeedback = runtimeFeatureSettings.isOn(RuntimeFeatureSettingType::SafeDelayFeedback);
+	if (delayWorkingState.safeFeedback) {
+		delayWorkingState.delayFeedbackAmount =
+		    deluge::dsp::delay_feedback::shape(delayWorkingState.delayFeedbackAmount);
+	}
 	if (shouldLimitDelayFeedback) {
 		delayWorkingState.delayFeedbackAmount =
 		    std::min(delayWorkingState.delayFeedbackAmount, (int32_t)(1 << 30) - (1 << 26));

@@ -518,6 +518,14 @@ Here is a list of general improvements that have been made, ordered from newest 
   - The battery level menu item can be toggled on/off via the Community Features menu
   - This feature is `ON` by default and can be set to `ON` or `OFF` via `SETTINGS > COMMUNITY FEATURES > SHOW BATTERY LEVEL`
 
+### 3.38 - Safe Delay Feedback
+
+- <Badge text="c1.4" variant="tip" /> Delay feedback that can still self-oscillate, but can't blow up into a feedback loop much louder than what you're playing.
+  - `DELAY AMOUNT` does what it always did up to 22. From there to 45 it gives finer control over long tails, and reaches the point where repeats stop dying away (feedback of 1) at 45 instead of 25. The last few steps self-oscillate, each repeat at most 2.3 dB louder than the last, instead of up to 6 dB.
+  - Once a delay self-oscillates, its repeats are held to about 3 dB above the loudest thing played into it, or above what was already going round when you turned it up, instead of growing until they saturate. Turning the knob up never makes the echo quieter. Dub throws, sirens and endless repeats still work - they carry on at the level you fed in, and follow you if you play louder. Turning the feedback up after you've stopped playing remembers what you played, forgetting it at about 6 dB a second.
+  - Songs saved with `DELAY AMOUNT` above 22 sound different: their tails are a little shorter, and above 45 they self-oscillate at the level of what was played rather than running away.
+  - This feature is `ON` by default and can be set to `ON` or `OFF` via `SETTINGS > COMMUNITY FEATURES > SAFE DELAY FEEDBACK`. When `OFF`, the knob and the feedback loop work as before.
+
 ## 4. New Features Added
 
 Here is a list of features that have been added to the firmware as a list, grouped by category:
@@ -1442,6 +1450,8 @@ Note: these settings are saved to `SETTINGS/CommunityFeatures.XML` on your SD ca
   - `Off` disables the coloured shortcut overlay.
   - `On - Menu only (MENU)` (default) shows it while holding Shift in a sound editing menu.
   - `On - Menu + Clip (FULL)` also shows it while holding Shift in instrument and audio clip views.
+- `Safe Delay Feedback (SAFE)` <Badge text="c1.4" variant="tip" />
+  - When On (default), reshapes `DELAY AMOUNT` so self-oscillation starts at 45 and grows gently, and holds self-oscillating repeats to the level of what's played in. See [Safe Delay Feedback](#338---safe-delay-feedback).
 
 ## 6. Sysex Handling
 

@@ -20,6 +20,7 @@
 #include "definitions_cxx.hpp"
 #include "dsp/convolution/impulse_response_processor.h"
 #include "dsp/delay/delay_buffer.h"
+#include "dsp/delay/feedback_safety.h"
 #include "model/sync.h"
 
 #include <cstdint>
@@ -32,6 +33,9 @@ public:
 		int32_t userDelayRate;
 		int32_t delayFeedbackAmount;
 		int32_t analog_saturation = 8;
+		/// Safe Delay Feedback: the amount has been through delay_feedback::shape(), and self-oscillation is held to
+		/// the level of what's played in
+		bool safeFeedback = false;
 	};
 
 	Delay() = default;
@@ -83,6 +87,8 @@ public:
 	void process(std::span<StereoSample> buffer, const State& delayWorkingState);
 
 private:
+	deluge::dsp::delay_feedback::Leveler leveler_;
+
 	void prepareToBeginWriting();
 	[[nodiscard]] constexpr int32_t getAmountToWriteBeforeReadingBegins() const { return secondaryBuffer.size(); }
 };

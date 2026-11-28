@@ -222,6 +222,19 @@ void Delay::initializeSecondaryBuffer(int32_t newNativeRate, bool makeNativeRate
 	sizeLeftUntilBufferSwap = secondaryBuffer.size() + 5;
 }
 
+namespace {
+// Loudest sample, looking at every `stride`th frame - plenty to follow a level
+int32_t peakOf(std::span<const StereoSample> frames, size_t stride) {
+	int32_t peak = 0;
+	for (size_t i = 0; i < frames.size(); i += stride) {
+		// abs() without the overflow at INT32_MIN
+		peak = std::max(peak, frames[i].l ^ (frames[i].l >> 31));
+		peak = std::max(peak, frames[i].r ^ (frames[i].r >> 31));
+	}
+	return peak;
+}
+} // namespace
+
 void Delay::process(std::span<StereoSample> buffer, const State& delayWorkingState) {
 	if (!delayWorkingState.doDelay) {
 		return;
@@ -395,6 +408,14 @@ void Delay::process(std::span<StereoSample> buffer, const State& delayWorkingSta
 	};
 
 	int32_t feedbackAmount = delayWorkingState.delayFeedbackAmount;
+	if (delayWorkingState.safeFeedback) {
+		// What's played in - the buffer hasn't had the repeats added yet - and, once the feedback is up in long-tail
+		// territory, what's coming back round
+		int32_t const inputPeak = peakOf(buffer, 4);
+		int32_t const wetPeak =
+		    (feedbackAmount > deluge::dsp::delay_feedback::kKeepUpTo) ? peakOf(working_buffer, 2) : 0;
+		feedbackAmount = leveler_.process(feedbackAmount, inputPeak, wetPeak, static_cast<int32_t>(buffer.size()));
+	}
 	if (analog) {
 
 		ir_processor.process(working_buffer);

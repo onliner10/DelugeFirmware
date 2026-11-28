@@ -217,6 +217,11 @@ void RuntimeFeatureSettings::init() {
 	    {l10n::getView(STRING_FOR_SHORTCUT_OVERLAY_MENU_AND_CLIP),
 	     static_cast<uint32_t>(RuntimeFeatureStateShortcutOverlay::MenuAndClip)},
 	};
+
+	// Safe Delay Feedback
+	SetupOnOffSetting(settings[RuntimeFeatureSettingType::SafeDelayFeedback],
+	                  STRING_FOR_COMMUNITY_FEATURE_SAFE_DELAY_FEEDBACK, "safeDelayFeedback",
+	                  RuntimeFeatureStateToggle::On);
 }
 
 void RuntimeFeatureSettings::factoryReset(bool showPopup) {
