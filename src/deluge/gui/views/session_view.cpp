@@ -539,7 +539,10 @@ moveAfterClipInstance:
 	}
 
 	// If save / delete button pressed, delete the Clip!
-	else if (b == SAVE && (currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW || gridFirstPadActive())) {
+	// Not while we're animating into or out of a Clip: in grid layout a short tap leaves its pad counted as held for
+	// the whole animation, and deleting the Clip we're on the way into leaves no current Clip to open (E369).
+	else if (b == SAVE && (currentUIMode == UI_MODE_CLIP_PRESSED_IN_SONG_VIEW || gridFirstPadActive())
+	         && currentUIMode != UI_MODE_EXPLODE_ANIMATION && currentUIMode != UI_MODE_IMPLODE_ANIMATION) {
 		if (on) {
 
 			if (playbackHandler.recording == RecordingMode::ARRANGEMENT) {
