@@ -113,6 +113,20 @@ StereoSample SaturatingTapDelay::readTap(int32_t tap, int32_t offset) const {
 	return StereoSample{0, 0};
 }
 
+int32_t SaturatingTapDelay::upcomingTapPeak(int32_t frames) const {
+	if (ring_ == nullptr) {
+		return 0;
+	}
+	int32_t peak = 0;
+	for (int32_t i = 0; i < frames; i += 2) {
+		StereoSample tap = readTap(tapNew_, i);
+		// abs() without the overflow at INT32_MIN
+		peak = std::max(peak, tap.l ^ (tap.l >> 31));
+		peak = std::max(peak, tap.r ^ (tap.r >> 31));
+	}
+	return peak;
+}
+
 void SaturatingTapDelay::gatherTaps(StereoSample* taps, int32_t n) const {
 	bool valid = static_cast<uint32_t>(std::max(tapOld_, tapNew_)) <= written_;
 	// Warming up after activating: the whole chunk predates anything written

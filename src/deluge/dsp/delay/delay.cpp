@@ -262,7 +262,16 @@ void Delay::process(std::span<StereoSample> buffer, const State& delayWorkingSta
 
 	if (type == Type::WARM) {
 		// Loop gain is delayFeedbackAmount / 2^30, as for the other types, so F is the amount as a q31
-		if (saturatingTapDelay.process(buffer, delayWorkingState.userDelayRate, delayWorkingState.delayFeedbackAmount,
+		int32_t feedbackAmount = delayWorkingState.delayFeedbackAmount;
+		if (delayWorkingState.safeFeedback) {
+			// The ring holds what was heard, at the buffer's level, so the taps compare directly with what's played in
+			int32_t const inputPeak = peakOf(buffer, 4);
+			int32_t const wetPeak = (feedbackAmount > deluge::dsp::delay_feedback::kKeepUpTo)
+			                            ? saturatingTapDelay.upcomingTapPeak(static_cast<int32_t>(buffer.size()))
+			                            : 0;
+			feedbackAmount = leveler_.process(feedbackAmount, inputPeak, wetPeak, static_cast<int32_t>(buffer.size()));
+		}
+		if (saturatingTapDelay.process(buffer, delayWorkingState.userDelayRate, feedbackAmount,
 		                               delayWorkingState.saturation_reference_log2,
 		                               pingPong && AudioEngine::renderInStereo)) {
 			hasWrapped();

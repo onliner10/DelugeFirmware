@@ -593,7 +593,6 @@ Here is a list of general improvements that have been made, ordered from newest 
   - `DELAY AMOUNT` does what it always did up to 22. From there to 45 it gives finer control over long tails, and reaches the point where repeats stop dying away (feedback of 1) at 45 instead of 25. The last few steps self-oscillate, each repeat at most 2.3 dB louder than the last, instead of up to 6 dB.
   - Once a delay self-oscillates, its repeats are held to about 3 dB above the loudest thing played into it, or above what was already going round when you turned it up, instead of growing until they saturate. Turning the knob up never makes the echo quieter. Dub throws, sirens and endless repeats still work - they carry on at the level you fed in, and follow you if you play louder. Turning the feedback up after you've stopped playing remembers what you played, forgetting it at about 6 dB a second.
   - Songs saved with `DELAY AMOUNT` above 22 sound different: their tails are a little shorter, and above 45 they self-oscillate at the level of what was played rather than running away.
-  - The `WARM` delay type gets the reshaped `DELAY AMOUNT`, but not the level hold: above 45 its repeats still grow until its own saturator holds them.
   - This feature is `ON` by default and can be set to `ON` or `OFF` via `SETTINGS > COMMUNITY FEATURES > SAFE DELAY FEEDBACK`. When `OFF`, the knob and the feedback loop work as before.
 
 ## 4. New Features Added

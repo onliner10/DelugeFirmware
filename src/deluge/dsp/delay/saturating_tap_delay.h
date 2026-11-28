@@ -101,6 +101,10 @@ public:
 	/// Returns true when another tap length's worth of samples has gone by, i.e. once per repeat.
 	bool process(std::span<StereoSample> buffer, int32_t rate, q31_t feedback, int32_t referenceLog2, bool pingPong);
 
+	/// The loudest of the taps the next `frames` will read, at the buffer's level, looking at every other frame. Each
+	/// repeat comes back at about this times the loop gain, so Safe Delay Feedback can level the loop from it.
+	[[nodiscard]] int32_t upcomingTapPeak(int32_t frames) const;
+
 	// Inner loop, public for testing ----------------------------------------------------------------------------
 
 	/// Levels of the saturator's rail that render() is built for (see Delay::State)
