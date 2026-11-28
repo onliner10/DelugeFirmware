@@ -139,6 +139,7 @@ void inputRoutine() {
 		D_PRINT("mic %d", micNow);
 		AudioEngine::micPluggedIn = micNow;
 		renderUIsForOled();
+		deluge::skipback::applySetting(); // Keeps the input once something's plugged in
 	}
 
 	bool speakerOn = (!AudioEngine::headphonesPluggedIn && !outputPluggedInR && !outputPluggedInL);
@@ -152,6 +153,7 @@ void inputRoutine() {
 		D_PRINTLN("line in %d", lineInNow);
 		AudioEngine::lineInPluggedIn = lineInNow;
 		renderUIsForOled();
+		deluge::skipback::applySetting(); // Keeps the input once something's plugged in
 	}
 
 	// Battery voltage

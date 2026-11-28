@@ -26,10 +26,11 @@ class Output;
 /// Skipback: the Deluge keeps the last few seconds of what it played - the audio, and the notes played live on
 /// melodic instruments - in RAM, so a good moment can be kept after it happened, without having pressed record.
 ///
-/// The audio is that of the track being played (Community Features > Skipback Source: Track, the default): the one
-/// last played live, or else the one whose clip was last opened - after its own FX, before the song's. Playing or
-/// opening another track starts the keeping over, for that one. Or it's the master output (Master), or the line input
-/// as it comes in, heard through the Deluge or not (Line in) - a guitar, say.
+/// The audio is that of the selected clip's track (Community Features > Skipback Source: Selected clip, the default) -
+/// after its own FX, before the song's. Selecting another track's clip starts the keeping of the track's audio over,
+/// for that one. Or it's the master output (Master). And while something's plugged into the line input (or the mic
+/// input), that's kept too, as it comes in, heard through the Deluge or not - a guitar, say - in a ring of its own, so
+/// the line input costs as much RAM again.
 ///
 /// It keeps all the time, or (Skipback Record: While playing) only while the transport plays: each play starts it
 /// over, and what a play kept stays after Stop, until the next.
@@ -43,7 +44,8 @@ class Output;
 /// notes played in that range into a new clip next to the clip of each instrument they were played on.
 namespace deluge::skipback {
 
-/// Allocates or frees the rings to match the setting. Not from the audio routine.
+/// Allocates or frees the rings to match the setting, and whether something's plugged into the line input. Not from
+/// the audio routine.
 void applySetting();
 
 bool isOn();
@@ -83,7 +85,7 @@ struct Capture {
 	float samplesPerTick; ///< At the tempo when frozen
 	int64_t barLength;    ///< In ticks
 	int32_t maxPeak;      ///< Loudest value kept, to scale the waveform to
-	char sourceName[24];  ///< Whose audio: the track's name, "Master" or "Line in"
+	char sourceName[24];  ///< Whose audio: the track's name or "Master", and "+ Line in" if it has any
 };
 
 struct Range {
@@ -122,12 +124,14 @@ int64_t previewFrame();
 void nextPreviewFrame(int32_t& l, int32_t& r);
 
 struct Saved {
-	int32_t fileNumber = -1; ///< The WAV's number, or -1 if there was no sound to write or it failed
-	bool audioClip = false;
+	int32_t fileNumber = -1;     ///< The track's (or master's) WAV's number, or -1 if no sound to write or it failed
+	int32_t lineFileNumber = -1; ///< The line input's, likewise
+	int32_t numAudioClips = 0;
 	int32_t numNoteClips = 0;
 };
 
-/// Writes the range to a WAV and an audio clip, and its notes to clips. From the UI, not in the card routine.
+/// Writes the range to a WAV and an audio clip - one for the track's (or master's) audio, one for the line input's,
+/// each if it has sound in it - and its notes to clips. From the UI, not in the card routine.
 Saved save(Capture const& capture, Range range);
 
 } // namespace deluge::skipback
