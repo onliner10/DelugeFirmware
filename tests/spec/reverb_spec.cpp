@@ -403,6 +403,63 @@ describe reverb("Reverb", $ {
 		});
 	});
 
+	context("the Freeverb width", _ {
+		// One second of noise through a Freeverb at this width, in blocks of awkward sizes so both the four-frame
+		// NEON mix and ProcessOne() run. Returns the output.
+		auto render = [](float width) {
+			auto model = makeModel<rv::Freeverb>(0.7f, 0.3f);
+			model->setWidth(width);
+			constexpr size_t kFrames = 44100;
+			std::vector<StereoSample> output(kFrames, StereoSample{.l = 0, .r = 0});
+			std::vector<int32_t> scratch;
+			size_t sizes[] = {64, 7, 128, 3, 31};
+			for (size_t start = 0, k = 0; start < kFrames; ++k) {
+				size_t n = std::min(sizes[k % std::size(sizes)], kFrames - start);
+				scratch.resize(n);
+				for (size_t i = 0; i < n; ++i) {
+					scratch[i] = static_cast<int32_t>(((start + i) * 2654435761u) >> 4) - (1 << 27);
+				}
+				model->process(scratch, {output.data() + start, n});
+				start += n;
+			}
+			return output;
+		};
+		auto rms = [](const std::vector<StereoSample>& output, bool right) {
+			double sum = 0.0;
+			for (const StereoSample& sample : output) {
+				double value = right ? sample.r : sample.l;
+				sum += value * value;
+			}
+			return std::sqrt(sum / static_cast<double>(output.size()));
+		};
+
+		it("is mono at width 0", _ {
+			std::vector<StereoSample> output = render(0.f);
+			size_t different = 0;
+			for (const StereoSample& sample : output) {
+				different += (sample.l != sample.r);
+			}
+			expect(rms(output, false)).to_be_greater_than(0.0);
+			expect(different).to_equal(0u);
+		});
+
+		it("keeps both sides at the same level at every width", _ {
+			for (float width : {0.f, 0.25f, 0.5f, 0.75f}) {
+				std::vector<StereoSample> output = render(width);
+				double ratio_db = 20.0 * std::log10(rms(output, true) / rms(output, false));
+				expect(std::abs(ratio_db)).to_be_less_than(1.0);
+			}
+		});
+
+		it("keeps the tail's level as the width changes", _ {
+			double full = rms(render(1.f), false);
+			for (float width : {0.f, 0.5f}) {
+				double level_db = 20.0 * std::log10(rms(render(width), false) / full);
+				expect(std::abs(level_db)).to_be_less_than(1.5);
+			}
+		});
+	});
+
 	context("driven past full scale", _ {
 		// Both models normalise to float, run the loop, then scale back to q31. An out-of-range
 		// narrowing cast is UB, and the targets disagree about which way it goes: ARM saturates

@@ -80,9 +80,17 @@ public:
 		// Feed through allpasses in series
 		allpasses_.process(out_l, out_r);
 
-		// Calculate output
-		out_l = (out_l + multiply_32x32_rshift32_rounded(out_r, wet2)) << 1;
-		out_r = (out_r + multiply_32x32_rshift32_rounded(out_l, wet2)) << 1;
+		// Calculate output: each side plus some of the other, by the width (see update())
+		if (mix_cross_ == 0) {
+			out_l <<= 1;
+			out_r <<= 1;
+		}
+		else {
+			int32_t const l = out_l;
+			int32_t const r = out_r;
+			out_l = (multiplyDoublingRounded(l, mix_self_) + multiplyDoublingRounded(r, mix_cross_)) << 1;
+			out_r = (multiplyDoublingRounded(r, mix_self_) + multiplyDoublingRounded(l, mix_cross_)) << 1;
+		}
 
 		// Mix output
 		output_sample.l += multiply_32x32_rshift32_rounded(out_l, this->getPanLeft());
@@ -94,12 +102,20 @@ public:
 private:
 	void update();
 
+	/// (2 * a * b + 2^31) >> 32, what NEON's vqrdmulh does in each lane (it can't saturate here: b is never INT32_MIN)
+	[[gnu::always_inline]] static int32_t multiplyDoublingRounded(int32_t a, int32_t b) {
+		return static_cast<int32_t>((static_cast<int64_t>(a) * b * 2 + 0x80000000) >> 32);
+	}
+
 	int32_t gain;
 	float roomsize;
 	float damp;
 	float wet;
 	float wet1;
-	int32_t wet2;
+	// How much of its own side and of the other side each output gets, in q31. At full width (the default) mix_cross_
+	// is 0 and the sides go out as they are.
+	int32_t mix_self_;
+	int32_t mix_cross_;
 	float dry;
 	float width;
 

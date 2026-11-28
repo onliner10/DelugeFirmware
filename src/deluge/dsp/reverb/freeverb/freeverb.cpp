@@ -24,6 +24,7 @@
 #include "dsp/reverb/freeverb/freeverb.hpp"
 #include <algorithm>
 #include <argon.hpp>
+#include <cmath>
 #include <limits>
 
 namespace freeverb {
@@ -213,7 +214,21 @@ void Freeverb::update() {
 	// Recalculate internal values after parameter change
 
 	wet1 = wet * (width / 2 + 0.5f);
-	wet2 = (((float)1 - width) / 2) / (width / 2 + 0.5f) * std::numeric_limits<int32_t>::max();
+
+	// Freeverb's width: out_l = self * l + cross * r and out_r = self * r + cross * l, with self and cross in the
+	// ratio (1 + width) : (1 - width), so width 0 is mono. Scaled for equal power, self^2 + cross^2 = 1, so the tail
+	// keeps its level as the width changes. Full width leaves the sides untouched.
+	float const self = 0.5f + width / 2;
+	float const cross = 0.5f - width / 2;
+	if (cross <= 0.f) {
+		mix_self_ = std::numeric_limits<int32_t>::max();
+		mix_cross_ = 0;
+	}
+	else {
+		float const scale = 1.f / std::sqrt(self * self + cross * cross);
+		mix_self_ = static_cast<int32_t>(std::min(self * scale, 1.f) * 2147483520.f);
+		mix_cross_ = static_cast<int32_t>(std::min(cross * scale, 1.f) * 2147483520.f);
+	}
 
 	gain = fixedgain * std::numeric_limits<int32_t>::max();
 
@@ -245,21 +260,40 @@ void Freeverb::process(std::span<int32_t> input, std::span<StereoSample> output)
 		// Feed through allpasses in series
 		allpasses_.processBlock(out_l.data(), out_r.data(), numFrames);
 
-		// Calculate and mix output, as at the end of ProcessOne(). out_l and out_r end up even, so vqrdmulh of half of
-		// them is exactly multiply_32x32_rshift32_rounded() of them (see processFourCombs())
-		int32x4_t wet = vdupq_n_s32(wet2);
+		// Calculate and mix output, as at the end of ProcessOne(). The outputs there are these halves << 1, and
+		// vqrdmulh of a half is exactly multiply_32x32_rshift32_rounded() of the whole. The halves wrap at 31 bits as
+		// the wholes would at 32
 		int32x4_t pan_l = vdupq_n_s32(getPanLeft());
 		int32x4_t pan_r = vdupq_n_s32(getPanRight());
-		for (size_t frame = 0; frame < numFrames; frame += 4) {
-			int32x4_t l = vld1q_s32(&out_l[frame]);
-			int32x4_t r = vld1q_s32(&out_r[frame]);
-			int32x4_t half_l = vshrq_n_s32(vshlq_n_s32(vaddq_s32(l, freeverb::multiplyRounded(r, wet)), 1), 1);
-			int32x4_t half_r = vshrq_n_s32(vshlq_n_s32(vaddq_s32(r, vqrdmulhq_s32(half_l, wet)), 1), 1);
+		auto mixOut = [&](auto widen) __attribute__((always_inline)) {
+			for (size_t frame = 0; frame < numFrames; frame += 4) {
+				int32x4_t l = vld1q_s32(&out_l[frame]);
+				int32x4_t r = vld1q_s32(&out_r[frame]);
+				int32x4_t half_l = l;
+				int32x4_t half_r = r;
+				widen(half_l, half_r);
 
-			int32x4x2_t mix = vld2q_s32(&output[start + frame].l);
-			mix.val[0] = vaddq_s32(mix.val[0], vqrdmulhq_s32(half_l, pan_l));
-			mix.val[1] = vaddq_s32(mix.val[1], vqrdmulhq_s32(half_r, pan_r));
-			vst2q_s32(&output[start + frame].l, mix);
+				int32x4x2_t mix = vld2q_s32(&output[start + frame].l);
+				mix.val[0] = vaddq_s32(mix.val[0], vqrdmulhq_s32(half_l, pan_l));
+				mix.val[1] = vaddq_s32(mix.val[1], vqrdmulhq_s32(half_r, pan_r));
+				vst2q_s32(&output[start + frame].l, mix);
+			}
+		};
+		if (mix_cross_ == 0) {
+			mixOut([](int32x4_t& l, int32x4_t& r) __attribute__((always_inline)) {
+				l = vshrq_n_s32(vshlq_n_s32(l, 1), 1);
+				r = vshrq_n_s32(vshlq_n_s32(r, 1), 1);
+			});
+		}
+		else {
+			int32x4_t self = vdupq_n_s32(mix_self_);
+			int32x4_t cross = vdupq_n_s32(mix_cross_);
+			mixOut([self, cross](int32x4_t& l, int32x4_t& r) __attribute__((always_inline)) {
+				int32x4_t new_l = vaddq_s32(vqrdmulhq_s32(l, self), vqrdmulhq_s32(r, cross));
+				int32x4_t new_r = vaddq_s32(vqrdmulhq_s32(r, self), vqrdmulhq_s32(l, cross));
+				l = vshrq_n_s32(vshlq_n_s32(new_l, 1), 1);
+				r = vshrq_n_s32(vshlq_n_s32(new_r, 1), 1);
+			});
 		}
 	}
 
