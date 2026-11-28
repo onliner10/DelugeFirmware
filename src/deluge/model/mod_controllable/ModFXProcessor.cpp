@@ -363,10 +363,12 @@ StereoSample ModFXProcessor::processOneModFXSample(StereoSample sample, int32_t 
 
 	// feedback also controls the mix? Weird but ok, I guess it makes it work on one knob
 	if constexpr (modFXType == ModFXType::FLANGER) {
+		// At high feedback the loop resonates about 24 dB above the input, so a hot input would otherwise wrap round.
+		// Saturating adds clip it instead, and are the same single instruction as plain ones.
 		modFXOutputL = multiply_32x32_rshift32_rounded(modFXOutputL, feedback) << 2;
-		modFXBuffer[modFXBufferWriteIndex].l = modFXOutputL + sample.l; // Feedback
+		modFXBuffer[modFXBufferWriteIndex].l = add_saturate(modFXOutputL, sample.l); // Feedback
 		modFXOutputR = multiply_32x32_rshift32_rounded(modFXOutputR, feedback) << 2;
-		modFXBuffer[modFXBufferWriteIndex].r = modFXOutputR + sample.r; // Feedback
+		modFXBuffer[modFXBufferWriteIndex].r = add_saturate(modFXOutputR, sample.r); // Feedback
 	}
 	else if constexpr (modFXType == ModFXType::WARBLE) {
 		auto fback = multiply_32x32_rshift32_rounded(modFXOutputL, feedback);
@@ -388,6 +390,10 @@ StereoSample ModFXProcessor::processOneModFXSample(StereoSample sample, int32_t 
 		sample.l = modFXOutputL << 1;
 		sample.r = modFXOutputR << 1;
 	}
+	else if constexpr (modFXType == ModFXType::FLANGER) {
+		sample.l = add_saturate(sample.l, modFXOutputL);
+		sample.r = add_saturate(sample.r, modFXOutputR);
+	}
 	else {
 		sample.l += modFXOutputL;
 		sample.r += modFXOutputR;
@@ -401,23 +407,28 @@ StereoSample ModFXProcessor::processOnePhaserSample(StereoSample sample, int32_t
                                                     int32_t lfoOutput) { // "1" is sorta represented by 1073741824 here
 	int32_t _a1 =
 	    1073741824 - multiply_32x32_rshift32_rounded((((uint32_t)lfoOutput + (uint32_t)2147483648) >> 1), modFXDepth);
+	// At exactly "1" (depth 0, or the LFO at its trough), a state saturated at full scale times _a1, << 2, would come
+	// to 2^31 and wrap round. Two below keeps every product << 2 in range.
+	_a1 = std::min<int32_t>(_a1, 1073741824 - 2);
 
-	phaserMemory.l = sample.l + (multiply_32x32_rshift32_rounded(phaserMemory.l, feedback) << 1);
-	phaserMemory.r = sample.r + (multiply_32x32_rshift32_rounded(phaserMemory.r, feedback) << 1);
+	// At high feedback the loop resonates over 30 dB above the input, so a kit or song level input would otherwise wrap
+	// round to full-scale crackle. Saturating adds clip it instead, and are the same single instruction as plain ones.
+	phaserMemory.l = add_saturate(sample.l, multiply_32x32_rshift32_rounded(phaserMemory.l, feedback) << 1);
+	phaserMemory.r = add_saturate(sample.r, multiply_32x32_rshift32_rounded(phaserMemory.r, feedback) << 1);
 
 	// Do the allpass filters
 	for (auto& sample : allpassMemory) {
 		StereoSample whatWasInput = phaserMemory;
 
-		phaserMemory.l = (multiply_32x32_rshift32_rounded(phaserMemory.l, -_a1) << 2) + sample.l;
-		sample.l = (multiply_32x32_rshift32_rounded(phaserMemory.l, _a1) << 2) + whatWasInput.l;
+		phaserMemory.l = add_saturate(multiply_32x32_rshift32_rounded(phaserMemory.l, -_a1) << 2, sample.l);
+		sample.l = add_saturate(multiply_32x32_rshift32_rounded(phaserMemory.l, _a1) << 2, whatWasInput.l);
 
-		phaserMemory.r = (multiply_32x32_rshift32_rounded(phaserMemory.r, -_a1) << 2) + sample.r;
-		sample.r = (multiply_32x32_rshift32_rounded(phaserMemory.r, _a1) << 2) + whatWasInput.r;
+		phaserMemory.r = add_saturate(multiply_32x32_rshift32_rounded(phaserMemory.r, -_a1) << 2, sample.r);
+		sample.r = add_saturate(multiply_32x32_rshift32_rounded(phaserMemory.r, _a1) << 2, whatWasInput.r);
 	}
 
-	sample.l += phaserMemory.l;
-	sample.r += phaserMemory.r;
+	sample.l = add_saturate(sample.l, phaserMemory.l);
+	sample.r = add_saturate(sample.r, phaserMemory.r);
 
 	return sample;
 }
