@@ -64,9 +64,11 @@ void GranularProcessor::processGrainFX(std::span<StereoSample> buffer, int32_t g
 			auto wetl = q31_mult(grainWet.l, _grainVol);
 			auto wetr = q31_mult(grainWet.r, _grainVol);
 
-			// filter slightly - one pole at 12ish khz
-			wetl = lpf_l.doFilter(wetl, 1 << 29);
-			wetr = lpf_r.doFilter(wetr, 1 << 29);
+			// filter slightly - one pole at 12 kHz: doFilter takes tan(pi f / fs) / (1 + tan(pi f / fs)) in q31. (It
+			// had 1 << 29, 0.25, which is 4.5 kHz.)
+			constexpr q31_t kWetLowPass12kHz = 1148440850;
+			wetl = lpf_l.doFilter(wetl, kWetLowPass12kHz);
+			wetr = lpf_r.doFilter(wetr, kWetLowPass12kHz);
 
 			// WET and DRY Vol
 			sample.l = add_saturate(q31_mult(sample.l, _grainDryVol), wetl);
