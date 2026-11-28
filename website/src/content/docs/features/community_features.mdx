@@ -577,6 +577,16 @@ Here is a list of general improvements that have been made, ordered from newest 
   - It is saved as `saturationType`, only when it is not `CLASSIC`.
 - Presets saved by test builds that had a separate per-voice `DRIVE` param load with that drive as the `CRUNCH` type at a similar amount. Songs from those builds lose it.
 
+### 3.42 - Skipback
+
+- Keeps the last few seconds of what you played - the selected clip's track (or the master output), the line input
+  while something is plugged into it, and the notes played live - so a good moment can be saved after it happened.
+  `RECORD` + `SELECT` opens a screen to pick, audition and save a range, as WAV files, audio clips and note clips.
+  <Badge text="c1.4" variant="tip" />
+  - See [Skipback](/features/skipback) for how to use it.
+  - This feature is `OFF` by default. Set how many seconds to keep via `SETTINGS > COMMUNITY FEATURES > SKIPBACK`,
+    whose audio via `SKIPBACK SOURCE`, and when via `SKIPBACK RECORD`.
+
 ## 4. New Features Added
 
 Here is a list of features that have been added to the firmware as a list, grouped by category:
@@ -1622,6 +1632,12 @@ Note: these settings are saved to `SETTINGS/CommunityFeatures.XML` on your SD ca
   - When On, the queue of rendered audio in front of the output is 256 samples instead of 128, so busy songs cut fewer voices, and everything is heard 2.9 ms later. Takes effect when the Deluge is next started. See [Bigger Output Queue for Busy Songs](#339---bigger-output-queue-for-busy-songs).
 - `Character FX (CHFX)` <Badge text="c1.4" variant="tip" />
   - When On, bitcrush and decimation use alternative curves. Off (default) keeps the original sound. See [Character FX](#340---character-fx).
+- `Skipback (SKBK)` <Badge text="c1.4" variant="tip" />
+  - How many seconds to keep for saving afterwards: Off (default), 10, 20, 30 or 60. See [Skipback](/features/skipback).
+- `Skipback Source (SKSR)` <Badge text="c1.4" variant="tip" />
+  - Whose audio skipback keeps: `Selected clip` (default), the selected clip's track, or `Master`. The line input is kept as well whenever something's plugged into it.
+- `Skipback Record (SKRC)` <Badge text="c1.4" variant="tip" />
+  - `Always` (default), or `While playing`: each play starts over, and what it kept stays after Stop until the next.
 
 ## 6. Sysex Handling
 
