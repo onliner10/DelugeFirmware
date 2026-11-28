@@ -1,0 +1,4 @@
+# Pinned delugemu (QEMU-based Deluge emulator) used by `./dbt emu`.
+# Bump deliberately: change `rev`, run `./dbt emu setup && ./dbt emu test`.
+url=https://github.com/SynthstromAudible/delugemu
+rev=2e977c108664e797a95806b09ba55aff324aa7b5

@@ -1,0 +1,12 @@
+{
+  "name": "play-stop-transport",
+  "sd": "empty",
+  "steps": [
+    {"press": "PLAY"},
+    {"wait": 0.5},
+    {"assert_led": ["PLAY", true]},
+    {"press": "PLAY"},
+    {"wait": 0.5},
+    {"assert_led": ["PLAY", false]}
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "load-song-and-play",
+  "sd": "basic",
+  "steps": [
+    {"load_song": "/SONGS/MULTISAMPLE.XML"},
+    {"assert_led": ["KIT", true]},
+    {"press": "PLAY"},
+    {"wait": 3},
+    {"assert_led": ["PLAY", true]},
+    {"snapshot": "playing"},
+    {"press": "PLAY"},
+    {"wait": 0.5},
+    {"assert_no_log": "freezeWithError|Data Abort"}
+  ]
+}
