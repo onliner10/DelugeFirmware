@@ -62,6 +62,7 @@
 #include "processing/audio_output.h"
 #include "processing/engines/audio_engine.h"
 #include "processing/engines/cv_engine.h"
+#include "processing/skipback/skipback.h"
 #include "processing/sound/sound_instrument.h"
 #include "processing/stem_export/stem_export.h"
 #include "storage/audio/audio_file_manager.h"
@@ -2589,8 +2590,14 @@ void Song::renderAudio(std::span<StereoSample> outputBuffer, int32_t* reverbBuff
 		if (output->shouldRenderInSong()) {
 			// Holds off every interrupt except USB audio's, which can't wait for a render
 			InterruptMaskGuard guard{RENDER_INTERRUPT_MASK};
-			output->renderOutput(modelStack, destination, reverbBuffer, volumePostFX >> 1, sideChainHitPending,
-			                     !isClipActiveNow, isClipActiveNow);
+			// The track skipback is keeping renders on its own first, then goes into the mix
+			bool const keep = (output == deluge::skipback::trackSource);
+			output->renderOutput(modelStack, keep ? deluge::skipback::trackBuffer(destination.size()) : destination,
+			                     reverbBuffer, volumePostFX >> 1, sideChainHitPending, !isClipActiveNow,
+			                     isClipActiveNow);
+			if (keep) [[unlikely]] {
+				deluge::skipback::mixTrack(destination);
+			}
 		}
 #if DO_AUDIO_LOG
 		char buf[64];
@@ -2628,6 +2635,8 @@ void Song::renderAudio(std::span<StereoSample> outputBuffer, int32_t* reverbBuff
 
 	globalEffectable.processReverbSendAndVolume(outputBuffer, reverbBuffer, volumePostFX, postReverbVolume,
 	                                            reverbSendAmount >> 1);
+	// The volume that just applied, which skipback gives the track it keeps too
+	deluge::skipback::setSongGain(multiply_32x32_rshift32(postReverbVolume, volumePostFX) << 5);
 	AudioEngine::logAction("done global effectables");
 
 	if (playbackHandler.isEitherClockActive() && !playbackHandler.ticksLeftInCountIn

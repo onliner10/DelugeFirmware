@@ -1148,6 +1148,7 @@ void renderAudio(size_t numSamples) {
 	usbInputsMonitoredByTrack = 0;
 	// Multitrack USB's track buses - except while exporting stems in real time, which need every track
 	usb_audio::startRender(!stemExport.processStarted);
+	deluge::skipback::beginRender();
 
 	// Render audio for song
 	if (currentSong != nullptr) {
@@ -1669,6 +1670,7 @@ bool doSomeOutputting() {
 	bool const sendLineInToUSB = (usb_audio::outputSource == usb_audio::OutputSource::LINE_IN);
 	bool const lineInIsMono = !lineInPluggedIn && !micPluggedIn;
 	int32_t const* __restrict__ lineInReadPos = getInputReadPos(AudioInputChannel::STEREO);
+	int32_t const* const lineInStart = lineInReadPos; // For skipback
 	int32_t const* const lineInEnd = getRxBufferEnd();
 
 	while (renderingBufferOutputPosNow != renderingBufferOutputEnd) {
@@ -1847,7 +1849,8 @@ bool doSomeOutputting() {
 		}
 
 		if (!stemExport.processStarted) {
-			deluge::skipback::feedOutput(outputBufferForResampling.first(numSamplesOutputted));
+			deluge::skipback::feedOutput(outputBufferForResampling.first(numSamplesOutputted), renderOffset,
+			                             masterVolumeAdjustmentL, masterVolumeAdjustmentR, lineInStart);
 		}
 	}
 

@@ -175,6 +175,10 @@ public:
 	/// Amount of gain reduction applied during the last render pass, in 6.2 fixed point decibels
 	uint8_t gainReduction = 0;
 
+	/// The volume the last render ended with, as a 5.26 signed fixed-point number: x becomes ((x * it) >> 32) << 4
+	[[nodiscard]] q31_t getVolumeL() const { return currentVolumeL; }
+	[[nodiscard]] q31_t getVolumeR() const { return currentVolumeR; }
+
 private:
 	/// Attack time constant, in inverse samples
 	float a_ = (-1000.0f / kSampleRate);

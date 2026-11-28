@@ -316,7 +316,7 @@ bool SkipbackUI::renderSidebar(uint32_t whichRows, RGB image[][kDisplayWidth + k
 }
 
 void SkipbackUI::renderOLED(hid::display::oled_canvas::Canvas& canvas) {
-	canvas.drawScreenTitle("Skipback");
+	canvas.drawScreenTitle(capture.sourceName); // Whose audio this is: the track's name, or Master
 
 	char line[32];
 	int32_t yPixel = OLED_MAIN_TOPMOST_PIXEL + 15; // Three lines fit under the title
