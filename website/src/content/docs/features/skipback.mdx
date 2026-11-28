@@ -1,0 +1,81 @@
+---
+title: Skipback
+---
+
+import { Aside, Badge } from "@astrojs/starlight/components"
+
+<Badge text="c1.4 Feature" variant="tip" />
+
+Skipback keeps the last few seconds of what you played in memory, all the time, so a good moment can be saved after
+it happened, without having pressed record. Launch a few clips, jam on the keyboard or a guitar, and when something
+good comes out, go back and keep it as a sample, a clip and the notes you played.
+
+Nothing touches the SD card until you save.
+
+## Setting it up
+
+The settings are at the end of `SETTINGS > COMMUNITY FEATURES`:
+
+- `Skipback (SKBK)`: how many seconds to keep: `OFF` (default), `10`, `20`, `30` or `60` seconds. While it's `OFF`,
+  nothing is kept and no memory is used.
+- `Skipback Source (SKSR)`: whose audio to keep:
+  - `Selected clip (CLIP)` (default): the track of the clip that is selected, after its own FX and as loud as it is
+    heard in the mix, but without the song's FX and without its reverb send.
+  - `Master (MAST)`: the whole output.
+- `Skipback Record (SKRC)`: when to keep:
+  - `Always (ALWA)` (default): all the time.
+  - `While playing (PLAY)`: only while the transport plays. Each `PLAY` starts over, and what a play kept stays after
+    you stop, until the next `PLAY` - so you can stop and tweak sounds without losing the take.
+
+## Playing
+
+- **Synths, kits, sample tracks:** select the clip of the track you want to keep (open it, or tap it in song view)
+  and play. That track is kept.
+- **A guitar or anything else on the line input:** just plug it in. While something is plugged into the line input
+  (or the mic input), it is kept as well, as it comes in, dry - whatever clip is selected and whether you hear it
+  through the Deluge or not. No audio track is needed.
+- **Notes** played live (keyboard, audition pads, MIDI in) on synths, MIDI and CV instruments are kept too.
+
+## Saving what you just played
+
+1. **Hold `RECORD` and press `SELECT`.** The skipback screen opens and stops keeping, so nothing more is lost.
+   - The pads show a waveform of what was kept, oldest on the left.
+   - The last phrase you played is already chosen - in whole bars if the transport was playing - between a green
+     start column and a red end column.
+   - The OLED shows whose audio it is (the track's name, and `+ LINE IN` if the line input has sound), how long the
+     range is, and how many notes are in it.
+2. **Adjust the range if needed:**
+   - **A main pad** moves the nearer marker (start or end) to that column.
+   - **Turning `SELECT`** nudges the marker last moved: by a 1/16 note if the transport was playing, otherwise by
+     10 ms, or 1 ms with `SHIFT`.
+   - **The horizontal encoder** scrolls; with `SHIFT`, or pressed, it zooms.
+3. **Listen:** an audition pad (right column) plays the range in place of the output; press it again to stop.
+4. **Save:** press `SELECT` (or `RECORD` + `SELECT` again). `BACK` leaves without saving.
+
+## What saving makes
+
+- Each source with sound in the range - the selected clip's track (or the master), and the line input - goes to a
+  WAV file of its own in `SAMPLES/SKIPBACK/` and into a muted audio clip of its own on a new track.
+- The notes played in the range go into a muted clip next to each instrument's clip, in a section of its own.
+- All of them are as long as the range, so they line up when launched. Launch them like any other clip.
+
+The popup says what was saved, for example `Saved REC00000 + REC00001 + 1 note clip`.
+
+<Aside type="caution">
+  Selecting a clip of another track starts the keeping of the track's audio over, for that track. The line input's
+  audio carries on.
+</Aside>
+
+## Memory
+
+The audio is kept as 16-bit stereo in the sample cache's memory: 176 KB a second, so 5.3 MB for 30 seconds. With
+something plugged into the line input, that's kept as well, in a second ring that costs as much again. The line
+input's ring is set up when something is first plugged in and stays until the setting changes.
+
+## Limits
+
+- The selected track is kept without the song's FX (master filters, compressor) and without its reverb send, which
+  goes to the song's shared reverb.
+- Notes played on kits aren't kept as notes (their sound is).
+- If a guitar also goes through an audio track that is selected and monitored, it is kept twice: through the
+  track's FX, and dry from the line input.
