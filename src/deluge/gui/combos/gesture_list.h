@@ -62,6 +62,8 @@ bool applies_fromscreencross();
 bool applies_selection();
 bool applies_noselection();
 bool applies_fromstartcross();
+bool applies_timeselection();
+bool applies_notimeselection();
 
 namespace global { // Mostly handled in hid/buttons.cpp
 extern Gesture const Play;
@@ -339,6 +341,11 @@ extern Gesture const TransposeSong;
 extern Gesture const MoveTrack;
 extern Gesture const PlayFromPad;
 extern Gesture const SwitchToArrangement;
+extern Gesture const SelectTime;
+extern Gesture const CutTime;
+extern Gesture const SelectionTime;
+extern Gesture const ClearTime;
+extern Gesture const EndTimeSelection;
 } // namespace arranger
 
 } // namespace deluge::gui::combos::gesture

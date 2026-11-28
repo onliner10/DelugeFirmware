@@ -123,6 +123,11 @@ PLACE_SDRAM_RODATA constexpr deluge::gui::combos::Gesture const* kGestures[] = {
     &deluge::gui::combos::gesture::arranger::MoveTrack,
     &deluge::gui::combos::gesture::arranger::PlayFromPad,
     &deluge::gui::combos::gesture::arranger::SwitchToArrangement,
+    &deluge::gui::combos::gesture::arranger::SelectTime,
+    &deluge::gui::combos::gesture::arranger::CutTime,
+    &deluge::gui::combos::gesture::arranger::SelectionTime,
+    &deluge::gui::combos::gesture::arranger::ClearTime,
+    &deluge::gui::combos::gesture::arranger::EndTimeSelection,
 };
 } // namespace
 
@@ -158,6 +163,9 @@ void ArrangerView::renderOLED(deluge::hid::display::oled_canvas::Canvas& canvas)
 	else if (currentUIMode == UI_MODE_HOLDING_ARRANGEMENT_ROW_AUDITION) {
 		Output* output = outputsOnScreen[yPressedEffective];
 		view.displayOutputName(output);
+	}
+	else if (timeSelectionActive && (currentUIMode == UI_MODE_NONE || currentUIMode == UI_MODE_MIDI_LEARN)) {
+		renderTimeSelectionOLED(canvas);
 	}
 	else {
 		sessionView.renderOLED(canvas);
@@ -311,6 +319,31 @@ ActionResult ArrangerView::buttonAction(deluge::hid::Button b, bool on, bool inC
 	}
 
 	OutputType newOutputType;
+
+	// Learn: Learn + pads select time; a tap on its own ends the selection
+	if (b == LEARN) {
+		if (inCardRoutine) {
+			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+		}
+		timeSelectionLearnButton(on);
+		ActionResult result = TimelineView::buttonAction(b, on, inCardRoutine);
+		if (!on && timeSelectionActive) {
+			indicator_leds::setLedState(IndicatorLED::LEARN, true);
+		}
+		return result;
+	}
+
+	// Shift + Save/Delete cuts the selected time out
+	if (b == SAVE && Buttons::isShiftButtonPressed() && currentUIMode == UI_MODE_NONE && timeSelectionActive) {
+		if (inCardRoutine) {
+			return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
+		}
+		if (on) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::CutTime);
+			editSelectedTime(TimeEdit::CUT);
+		}
+		return ActionResult::DEALT_WITH;
+	}
 
 	// Song button
 	if (b == SESSION_VIEW) {
@@ -536,8 +569,15 @@ doActualSimpleChange:
 			if (inCardRoutine) {
 				return ActionResult::REMIND_ME_OUTSIDE_CARD_ROUTINE;
 			}
-			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::ClearArrangement);
-			clearArrangement();
+			// With a time selection, only what's in it
+			if (timeSelectionActive) {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::ClearTime);
+				editSelectedTime(TimeEdit::CLEAR);
+			}
+			else {
+				deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::ClearArrangement);
+				clearArrangement();
+			}
 		}
 	}
 
@@ -635,6 +675,8 @@ void ArrangerView::clearArrangement() {
 
 bool ArrangerView::opened() {
 	automationView.onArrangerView = false;
+	timeSelectionActive = false;
+	timeSelectionGesture.hasAnchor = false;
 
 	mustRedrawTickSquares = true;
 
@@ -669,6 +711,9 @@ void ArrangerView::setLedStates() {
 void ArrangerView::focusRegained() {
 	currentSong->clearPlayWindows(); // Loop view only lives inside a Clip
 	view.focusRegained();
+	if (timeSelectionActive) {
+		indicator_leds::setLedState(IndicatorLED::LEARN, true);
+	}
 
 	repopulateOutputsOnScreen(false);
 
@@ -1102,6 +1147,11 @@ ActionResult ArrangerView::padAction(int32_t x, int32_t y, int32_t velocity) {
 	// and you're in the volume/pan mod knob mode (0)
 	if (x >= kDisplayWidth && view.displayVUMeter && (view.getModKnobMode() == 0)) {
 		return ActionResult::DEALT_WITH;
+	}
+
+	// Time selection takes grid pads pressed with Learn held, and any pad that ends a selection
+	if (std::optional<ActionResult> result = timeSelectionPadAction(x, y, velocity)) {
+		return *result;
 	}
 
 	// Audition pad
@@ -2537,6 +2587,8 @@ bool ArrangerView::renderMainPads(uint32_t whichRows, RGB image[][kDisplayWidth 
 	    doActualRender(currentSong->xScroll[NAVIGATION_ARRANGEMENT], currentSong->xZoom[NAVIGATION_ARRANGEMENT],
 	                   whichRows, &image[0][0], occupancyMask, kDisplayWidth, kDisplayWidth + kSideBarWidth);
 
+	renderTimeSelection(whichRows, image);
+
 	// Add negative region indicator when dragging clip instances left to the start
 	if (isUIModeActive(UI_MODE_HOLDING_ARRANGEMENT_ROW) && currentSong->xScroll[NAVIGATION_ARRANGEMENT] < 0) {
 
@@ -3048,7 +3100,8 @@ cant:
 	view.setActiveModControllableTimelineCounter(newClip);
 }
 
-static const uint32_t horizontalEncoderScrollUIModes[] = {UI_MODE_HOLDING_ARRANGEMENT_ROW, 0};
+// Learn held: scrolling between the two pads of a time selection
+static const uint32_t horizontalEncoderScrollUIModes[] = {UI_MODE_HOLDING_ARRANGEMENT_ROW, UI_MODE_MIDI_LEARN, 0};
 
 ActionResult ArrangerView::horizontalEncoderAction(int32_t offset) {
 
@@ -3101,6 +3154,14 @@ ActionResult ArrangerView::horizontalEncoderAction(int32_t offset) {
 
 			initiateXZoom(zoomMagnitude, newScroll, oldXZoom);
 			displayZoomLevel();
+		}
+	}
+
+	// Shift with a time selection: right inserts that much empty time there, left cuts it out
+	else if (Buttons::isShiftButtonPressed() && timeSelectionActive) {
+		if (isNoUIModeActive()) {
+			deluge::gui::combos::used(deluge::gui::combos::gesture::arranger::SelectionTime);
+			editSelectedTime((offset > 0) ? TimeEdit::INSERT : TimeEdit::CUT);
 		}
 	}
 
@@ -3181,6 +3242,10 @@ ActionResult ArrangerView::horizontalEncoderAction(int32_t offset) {
 
 // This function will shift automation horizontally at a specific point in time by inserting / deleting time
 void ArrangerView::shiftAutomationHorizontally(int32_t offset, int32_t scroll_amount, Action* action) {
+	shiftAutomationHorizontally(currentSong->xScroll[NAVIGATION_ARRANGEMENT], offset, scroll_amount, action);
+}
+
+void ArrangerView::shiftAutomationHorizontally(int32_t pos, int32_t offset, int32_t scroll_amount, Action* action) {
 	ParamCollectionSummary* unpatchedParamsSummary = currentSong->paramManager.getUnpatchedParamSetSummary();
 	UnpatchedParamSet* unpatchedParams = (UnpatchedParamSet*)unpatchedParamsSummary->paramCollection;
 
@@ -3190,21 +3255,22 @@ void ArrangerView::shiftAutomationHorizontally(int32_t offset, int32_t scroll_am
 	        ->addParamCollection(unpatchedParams, unpatchedParamsSummary);
 
 	if (offset >= 0) {
-		void* consMemory = GeneralMemoryAllocator::get().allocLowSpeed(sizeof(ConsequenceArrangerParamsTimeInserted));
+		void* consMemory =
+		    (action != nullptr)
+		        ? GeneralMemoryAllocator::get().allocLowSpeed(sizeof(ConsequenceArrangerParamsTimeInserted))
+		        : nullptr;
 		if (consMemory) {
-			ConsequenceArrangerParamsTimeInserted* consequence = new (consMemory)
-			    ConsequenceArrangerParamsTimeInserted(currentSong->xScroll[NAVIGATION_ARRANGEMENT], scroll_amount);
+			ConsequenceArrangerParamsTimeInserted* consequence =
+			    new (consMemory) ConsequenceArrangerParamsTimeInserted(pos, scroll_amount);
 			action->addConsequence(consequence);
 		}
-		unpatchedParams->insertTime(modelStackWithUnpatchedParams, currentSong->xScroll[NAVIGATION_ARRANGEMENT],
-		                            scroll_amount);
+		unpatchedParams->insertTime(modelStackWithUnpatchedParams, pos, scroll_amount);
 	}
 	else {
 		if (action) {
 			unpatchedParams->backUpAllAutomatedParamsToAction(action, modelStackWithUnpatchedParams);
 		}
-		unpatchedParams->deleteTime(modelStackWithUnpatchedParams, currentSong->xScroll[NAVIGATION_ARRANGEMENT],
-		                            -scroll_amount);
+		unpatchedParams->deleteTime(modelStackWithUnpatchedParams, pos, -scroll_amount);
 	}
 }
 
