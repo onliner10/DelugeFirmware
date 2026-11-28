@@ -169,6 +169,9 @@ void ArrangerView::renderOLED(deluge::hid::display::oled_canvas::Canvas& canvas)
 	}
 	else {
 		sessionView.renderOLED(canvas);
+		positionScreenGeneration = deluge::hid::display::OLED::getMainImageGeneration();
+		positionShown = false;
+		updatePositionReadout(true);
 	}
 }
 
@@ -3368,7 +3371,7 @@ ActionResult ArrangerView::horizontalScrollOneSquare(int32_t direction) {
 		displayNumberOfBarsAndBeats(0, kDisplayWidth, true, "");
 	}
 	else {
-		displayScrollPos();
+		displayArrangerScrollPos();
 	}
 
 	return ActionResult::DEALT_WITH;
@@ -3530,6 +3533,9 @@ void ArrangerView::graphicsRoutine() {
 
 	if (display->haveOLED()) {
 		sessionView.displayPotentialTempoChange(this);
+		if (ui == this) {
+			updatePositionReadout(false);
+		}
 	}
 
 	if (PadLEDs::flashCursor != FLASH_CURSOR_OFF) {

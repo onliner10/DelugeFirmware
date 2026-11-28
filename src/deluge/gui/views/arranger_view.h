@@ -138,7 +138,21 @@ public:
 	[[nodiscard]] bool hasTimeSelection() const { return timeSelectionActive; }
 	void clearTimeSelection();
 
+	// Song position (arranger_position.cpp): seconds from the start of the song to a position, following tempo
+	// automation, and the bar + time readout on the OLED while the arrangement plays
+	double secondsAtArrangementPos(int32_t pos);
+
 private:
+	void updatePositionReadout(bool force);
+	void displayArrangerScrollPos();
+	static void formatSongTime(int32_t seconds, char* buffer, int32_t bufferSize);
+
+	uint32_t positionScreenGeneration = 0xFFFFFFFF; // OLED main image the readout may draw on (the normal screen)
+	bool positionShown = false;
+	int32_t positionLastPos = -1;
+	int32_t positionDrawnBar = -1;
+	int32_t positionDrawnSecond = -1;
+
 	enum class TimeEdit { CUT, INSERT, CLEAR };
 
 	std::optional<ActionResult> timeSelectionPadAction(int32_t x, int32_t y, int32_t velocity);
