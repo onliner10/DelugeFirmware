@@ -145,7 +145,9 @@ private:
 	void timeSelectionLearnButton(bool on);
 	void timeSelectionPadPress(int32_t x);
 	bool editSelectedTime(TimeEdit edit);
-	bool timeEditBlockedBy(TimeEdit edit, Output** blockingOutput);
+	bool planTimeEdit(TimeEdit edit);
+	void discardTimeEditCopies();
+	Clip* takeTimeEditCopy(Output* output, Action* action);
 	void applyTimeEdit(TimeEdit edit, Output* output, Action* action);
 	void insertClipInstancePiece(Output* output, int32_t pos, int32_t length, Clip* clip, Action* action);
 	void renderTimeSelection(uint32_t whichRows, RGB image[][kDisplayWidth + kSideBarWidth]);
@@ -163,6 +165,16 @@ private:
 		int32_t anchorEnd = 0;
 	} timeSelectionGesture;
 	uint16_t timeSelectionPadsHeld[kDisplayHeight]{}; // Presses the selection took, so their releases are swallowed
+
+	// White copies of clips, their content turned to start where a piece of an instance starts mid-loop. Made before
+	// an edit changes anything (at most one per track), then put in the song as the edit uses them.
+	static constexpr int32_t kMaxTimeEditCopies = 64;
+	struct TimeEditCopy {
+		Output* output;
+		Clip* clip;
+	};
+	TimeEditCopy timeEditCopies[kMaxTimeEditCopies]{};
+	int32_t numTimeEditCopies = 0;
 
 	void changeOutputType(OutputType newOutputType);
 	void moveClipToSession();

@@ -26,10 +26,12 @@
 //   Shift + <> left       cuts, like Shift + Save
 //   <> held + Back        clears what's in the selection and leaves the gap
 //
-// Clip instances crossing an edge of the selection are cut exactly at that edge. A clip plays its loop from where its
-// instance starts, so a piece that would have to start in the middle of the clip's loop can't be made without a
-// modified copy of the clip. Until that exists, such an edit is refused, with a popup naming the track, and nothing
-// changes. A white (arrangement-only) clip belongs to one instance, so it isn't split in two either.
+// Clip instances crossing an edge of the selection are cut exactly at that edge, so everything keeps sounding as it
+// did. A clip plays its loop from where its instance starts, so a piece that now has to start in the middle of the
+// clip's loop gets a white copy of the clip with its content turned round to start there (notes and automation wrap
+// within the loop; an audio clip's sample window moves). The second piece of a split white clip gets a copy too,
+// since a white clip belongs to one instance. An audio piece longer than what's left of its sample window can't be
+// made that way: the edit is refused with a popup naming the track, before anything changes.
 
 #include "definitions_cxx.hpp"
 #include "gui/combos/gesture_list.h"
@@ -43,9 +45,12 @@
 #include "hid/led/pad_leds.h"
 #include "model/action/action.h"
 #include "model/action/action_logger.h"
+#include "model/clip/audio_clip.h"
 #include "model/clip/clip.h"
 #include "model/clip/clip_instance.h"
+#include "model/model_stack.h"
 #include "model/output.h"
+#include "model/sample/sample.h"
 #include "model/song/song.h"
 #include "playback/mode/arrangement.h"
 #include "playback/playback_handler.h"
@@ -62,10 +67,6 @@ bool startsOnLoop(ClipInstance const* clipInstance, int32_t delta) {
 		return true;
 	}
 	return delta % clipInstance->clip->loopLength == 0;
-}
-
-bool isWhite(ClipInstance const* clipInstance) {
-	return clipInstance->clip != nullptr && clipInstance->clip->isArrangementOnlyClip();
 }
 
 // A refusal explains itself, so it stays up long enough to read
@@ -212,20 +213,9 @@ bool ArrangerView::editSelectedTime(TimeEdit edit) {
 		return false;
 	}
 
-	// Check every track before changing anything, so a refused edit leaves the song as it was and no undo step
-	Output* blockingOutput = nullptr;
-	if (timeEditBlockedBy(edit, &blockingOutput)) {
-		if (blockingOutput != nullptr) {
-			char buffer[64];
-			if (display->haveOLED()) {
-				snprintf(buffer, sizeof(buffer), "Can't %s the clip on %s mid-loop",
-				         (edit == TimeEdit::INSERT) ? "split" : "cut", outputName(blockingOutput));
-			}
-			else {
-				snprintf(buffer, sizeof(buffer), "LOOP");
-			}
-			showRefusal(buffer);
-		}
+	// Check every track and make the copies needed before changing anything, so a refused edit leaves the song as it
+	// was and no undo step
+	if (!planTimeEdit(edit)) {
 		return false;
 	}
 
@@ -241,6 +231,7 @@ bool ArrangerView::editSelectedTime(TimeEdit edit) {
 	for (Output* output = currentSong->firstOutput; output != nullptr; output = output->next) {
 		applyTimeEdit(edit, output, action);
 	}
+	discardTimeEditCopies(); // Only ones the edit didn't use, which shouldn't happen
 
 	// Song-level automation
 	switch (edit) {
@@ -300,59 +291,152 @@ bool ArrangerView::editSelectedTime(TimeEdit edit) {
 	return true;
 }
 
-// Whether some clip instance can't be cut exactly at the selection's edges. Allocates what a split will need.
-bool ArrangerView::timeEditBlockedBy(TimeEdit edit, Output** blockingOutput) {
-	int32_t start = timeSelectionStart;
-	int32_t end = timeSelectionEnd;
-	int32_t length = end - start;
+namespace {
 
-	for (Output* output = currentSong->firstOutput; output != nullptr; output = output->next) {
-		bool needsSplit = false;
+// The piece of an instance that an edit leaves starting somewhere else in its clip than where the instance started
+struct MovedPiece {
+	ClipInstance* clipInstance = nullptr;
+	int32_t offset = 0; // How far into the instance the piece starts
+	int32_t length = 0; // How long the piece is
+	bool split = false; // It becomes a second instance, next to the instance's first part
+};
 
-		for (int32_t i = 0; i < output->clipInstances.getNumElements(); i++) {
-			ClipInstance* clipInstance = output->clipInstances.getElement(i);
-			int32_t pos = clipInstance->pos;
-			int32_t instanceEnd = pos + clipInstance->length;
-
-			bool ok = true;
-			if (edit == TimeEdit::INSERT) {
-				// Only one straddling the insertion point needs anything: its right part moves on, as its own instance
-				if (pos < start && instanceEnd > start) {
-					ok = startsOnLoop(clipInstance, start - pos) && !isWhite(clipInstance);
-					needsSplit = true;
-				}
-			}
-			else if (instanceEnd <= start || pos >= end) {
-				// Before the selection, or after it (moving or not): fine
-			}
-			else if (pos >= start && instanceEnd > end) {
-				// Starts inside, ends after: what's left starts where the selection ends in it
-				ok = startsOnLoop(clipInstance, end - pos);
-			}
-			else if (pos < start && instanceEnd > end) {
-				// Spans the whole selection. Cutting the selection out of it keeps one instance if the cut is a
-				// whole number of its loops; otherwise it splits, the second part starting where the selection ended
-				if (edit == TimeEdit::CUT && startsOnLoop(clipInstance, length)) {}
-				else {
-					ok = startsOnLoop(clipInstance, end - pos) && !isWhite(clipInstance);
-					needsSplit = true;
-				}
-			}
-			// Otherwise it's inside the selection, or ends in it: deleted or trimmed, always fine
-
-			if (!ok) {
-				*blockingOutput = output;
-				return true;
+// The instance on this track, if any, that an edit leaves a piece of starting elsewhere in it. There's at most one:
+// the one spanning or straddling the edge where the song closes up or opens.
+MovedPiece findMovedPiece(Output* output, bool insert, bool cut, int32_t start, int32_t end) {
+	for (int32_t i = 0; i < output->clipInstances.getNumElements(); i++) {
+		ClipInstance* clipInstance = output->clipInstances.getElement(i);
+		int32_t pos = clipInstance->pos;
+		int32_t instanceEnd = pos + clipInstance->length;
+		if (insert) {
+			// The one straddling the insertion point is split there
+			if (pos < start && instanceEnd > start) {
+				return {clipInstance, start - pos, instanceEnd - start, true};
 			}
 		}
-
-		if (needsSplit && !output->clipInstances.ensureEnoughSpaceAllocated(1)) {
-			display->displayError(Error::INSUFFICIENT_RAM);
-			*blockingOutput = nullptr;
-			return true;
+		else if (instanceEnd <= start || pos >= end) {}
+		else if (pos >= start && instanceEnd > end) {
+			// Starts inside, ends after: what's left starts where the selection ends in it
+			return {clipInstance, end - pos, instanceEnd - end, false};
+		}
+		else if (pos < start && instanceEnd > end) {
+			// Spans the whole selection. Cutting a whole number of its loops out of it keeps one instance
+			if (cut && startsOnLoop(clipInstance, end - start)) {
+				return {};
+			}
+			return {clipInstance, end - pos, instanceEnd - end, true};
 		}
 	}
-	return false;
+	return {};
+}
+
+} // namespace
+
+// Makes the white copies the edit will need. Refuses the edit (with a popup) if one can't be made.
+bool ArrangerView::planTimeEdit(TimeEdit edit) {
+	int32_t start = timeSelectionStart;
+	int32_t end = timeSelectionEnd;
+	numTimeEditCopies = 0;
+
+	for (Output* output = currentSong->firstOutput; output != nullptr; output = output->next) {
+		MovedPiece piece = findMovedPiece(output, edit == TimeEdit::INSERT, edit == TimeEdit::CUT, start, end);
+		ClipInstance* clipInstance = piece.clipInstance;
+		if (clipInstance == nullptr) {
+			continue;
+		}
+		if (piece.split && !output->clipInstances.ensureEnoughSpaceAllocated(1)) {
+			discardTimeEditCopies();
+			display->displayError(Error::INSUFFICIENT_RAM);
+			return false;
+		}
+
+		Clip* clip = clipInstance->clip;
+		if (clip == nullptr) {
+			continue; // An empty instance has nothing to start anywhere
+		}
+		int32_t turn = (clip->loopLength > 0) ? piece.offset % clip->loopLength : 0;
+		// A second instance of a white clip needs its own copy even when it starts on the loop
+		if (turn == 0 && !(piece.split && clip->isArrangementOnlyClip())) {
+			continue;
+		}
+
+		bool possible = (numTimeEditCopies < kMaxTimeEditCopies);
+
+		// Audio: the copy's sample window starts that much later, so it has to stay inside the sample, and the piece
+		// can't be longer than what's left of the loop (where the original wraps back to the window's start)
+		if (possible && clip->type == ClipType::AUDIO && turn != 0) {
+			AudioClip* audioClip = static_cast<AudioClip*>(clip);
+			Sample* sample = static_cast<Sample*>(audioClip->sampleHolder.audioFile);
+			possible = audioClip->recorder == nullptr && sample != nullptr && piece.length <= clip->loopLength - turn
+			           && static_cast<int64_t>(audioClip->sampleHolder.startPos) + audioClip->getSamplesFromTicks(turn)
+			                  <= static_cast<int64_t>(sample->lengthInSamples);
+		}
+
+		if (possible) {
+			char modelStackMemory[MODEL_STACK_MAX_SIZE];
+			ModelStackWithTimelineCounter* modelStack =
+			    setupModelStackWithSong(modelStackMemory, currentSong)->addTimelineCounter(clip);
+			if (!currentSong->arrangementOnlyClips.ensureEnoughSpaceAllocated(numTimeEditCopies + 1)
+			    || clip->clone(modelStack, true) != Error::NONE) {
+				discardTimeEditCopies();
+				display->displayError(Error::INSUFFICIENT_RAM);
+				return false;
+			}
+			Clip* copy = static_cast<Clip*>(modelStack->getTimelineCounter());
+			copy->section = 255;
+			copy->activeIfNoSolo = false; // Always for arrangement-only clips on creation
+			timeEditCopies[numTimeEditCopies++] = {output, copy};
+
+			// Turn its content so the loop starts where the piece starts
+			if (turn != 0) {
+				possible = copy->shiftHorizontally(modelStack, -turn, true, true);
+			}
+		}
+
+		if (!possible) {
+			discardTimeEditCopies();
+			char buffer[64];
+			if (display->haveOLED()) {
+				snprintf(buffer, sizeof(buffer), "Can't cut the audio clip on %s there", outputName(output));
+			}
+			else {
+				snprintf(buffer, sizeof(buffer), "AUDIO");
+			}
+			showRefusal(buffer);
+			return false;
+		}
+	}
+	return true;
+}
+
+// Copies that never went into the song
+void ArrangerView::discardTimeEditCopies() {
+	for (int32_t c = 0; c < numTimeEditCopies; c++) {
+		if (timeEditCopies[c].clip != nullptr) {
+			currentSong->deleteClipObject(timeEditCopies[c].clip, false, InstrumentRemoval::NONE);
+			timeEditCopies[c].clip = nullptr;
+		}
+	}
+	numTimeEditCopies = 0;
+}
+
+// Puts this track's copy in the song, as an undoable creation, and hands it over
+Clip* ArrangerView::takeTimeEditCopy(Output* output, Action* action) {
+	for (int32_t c = 0; c < numTimeEditCopies; c++) {
+		Clip* copy = timeEditCopies[c].clip;
+		if (timeEditCopies[c].output != output || copy == nullptr) {
+			continue;
+		}
+		timeEditCopies[c].clip = nullptr;
+		currentSong->arrangementOnlyClips.insertClipAtIndex(copy, 0); // Space was made beforehand
+		if (action == nullptr
+		    || !action->recordClipExistenceChange(currentSong, &currentSong->arrangementOnlyClips, copy,
+		                                          ExistenceChangeType::CREATE)) {
+			actionLogger.deleteAllLogs(); // No undo record for it: earlier steps would no longer match the song
+		}
+		return copy;
+	}
+	return nullptr;
 }
 
 // Every step leaves the instances sorted by position with no overlaps, so each undo record finds its instance by
@@ -376,7 +460,8 @@ void ArrangerView::applyTimeEdit(TimeEdit edit, Output* output, Action* action) 
 			else {
 				if (instanceEnd > start) {
 					clipInstance->change(action, output, pos, start - pos, clip);
-					insertClipInstancePiece(output, start + length, instanceEnd - start, clip, action);
+					Clip* copy = takeTimeEditCopy(output, action);
+					insertClipInstancePiece(output, start + length, instanceEnd - start, copy ? copy : clip, action);
 				}
 				break;
 			}
@@ -411,9 +496,14 @@ void ArrangerView::applyTimeEdit(TimeEdit edit, Output* output, Action* action) 
 		}
 		else if (pos >= start) {
 			// Starts inside, ends after: keeps the part after the selection, which closes up to its start (cut) or
-			// stays where it is (clear)
+			// stays where it is (clear). If that part starts mid-loop it plays a turned copy, and a white clip
+			// replaced that way goes.
 			int32_t newPos = (edit == TimeEdit::CUT) ? start : end;
-			clipInstance->change(action, output, newPos, instanceEnd - end, clip);
+			Clip* copy = takeTimeEditCopy(output, action);
+			clipInstance->change(action, output, newPos, instanceEnd - end, copy ? copy : clip);
+			if (copy != nullptr && clip != nullptr && clip->isArrangementOnlyClip()) {
+				currentSong->deletingClipInstanceForClip(output, clip, action, true);
+			}
 			i++;
 		}
 		else {
@@ -425,7 +515,8 @@ void ArrangerView::applyTimeEdit(TimeEdit edit, Output* output, Action* action) 
 			else {
 				clipInstance->change(action, output, pos, start - pos, clip);
 				int32_t newPos = (edit == TimeEdit::CUT) ? start : end;
-				insertClipInstancePiece(output, newPos, instanceEnd - end, clip, action);
+				Clip* copy = takeTimeEditCopy(output, action);
+				insertClipInstancePiece(output, newPos, instanceEnd - end, copy ? copy : clip, action);
 				i += 2;
 			}
 		}
