@@ -2635,6 +2635,8 @@ void Song::renderAudio(std::span<StereoSample> outputBuffer, int32_t* reverbBuff
 
 	globalEffectable.processReverbSendAndVolume(outputBuffer, reverbBuffer, volumePostFX, postReverbVolume,
 	                                            reverbSendAmount >> 1);
+	// The volume that just applied, which skipback gives the track it keeps too
+	deluge::skipback::setSongGain(multiply_32x32_rshift32(postReverbVolume, volumePostFX) << 5);
 	AudioEngine::logAction("done global effectables");
 
 	if (playbackHandler.isEitherClockActive() && !playbackHandler.ticksLeftInCountIn

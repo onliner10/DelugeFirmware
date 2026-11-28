@@ -55,6 +55,8 @@ void beginRender();
 std::span<StereoSample> trackBuffer(size_t numSamples);
 /// Then adds what it rendered into the mix
 void mixTrack(std::span<StereoSample> mix);
+/// And the song's volume the mix then gets ((x * gain) >> 32) << 5, so the track's audio gets it too
+void setSongGain(int32_t gain);
 
 /// From the audio routine: what just went to the codec - frames renderOffset on of the render - and the master gain
 /// it went with, which the track's audio gets too, so it's kept as loud as it's heard.
